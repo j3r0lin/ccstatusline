@@ -118,5 +118,5 @@ export function getUsageErrorMessage(error: UsageError): string {
 export function makeUsageProgressBar(percent: number, width = 15): string {
     const filled = Math.round((percent / 100) * width);
     const empty = width - filled;
-    return '[' + '█'.repeat(filled) + '░'.repeat(empty) + ']';
+    return '█'.repeat(filled) + '░'.repeat(empty);
 }
