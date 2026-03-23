@@ -26,7 +26,9 @@ export class ModelWidget implements Widget {
             : (model?.display_name ?? model?.id);
 
         if (modelDisplayName) {
-            return item.rawValue ? modelDisplayName : `Model: ${modelDisplayName}`;
+            // Strip "Claude " prefix and parenthetical suffix like "(1M context)"
+            const shortName = modelDisplayName.replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');
+            return item.rawValue ? shortName : `Model: ${shortName}`;
         }
         return null;
     }
