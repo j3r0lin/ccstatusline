@@ -47,6 +47,16 @@
 
 ## 🆕 Recent Updates
 
+### Fork Customizations (j3r0lin)
+
+- **✂️ Model name shortening** - The **Model** widget now strips the `Claude ` prefix and any parenthetical suffix (e.g. `(1M context)`) from the display name, so `Claude Sonnet 4.6` renders as `Sonnet 4.6`.
+- **📏 Context Bar custom width** - The **Context Bar** widget accepts a `barWidth` metadata field to set a custom bar character width instead of the fixed 16/32 defaults. Also removed the surrounding `[]` brackets from the progress bar.
+- **📈 New Usage Projection widget** - Projects the 5-hour window usage percentage at reset time based on the current consumption rate. Color-coded green/yellow/red at 80%/95% thresholds. Type: `usage-projection`.
+- **💬 New Last Prompt widget** - Displays the last user prompt submitted in the current session as a dim status line. Reads directly from the session transcript. Type: `last-prompt`.
+- **⏱ New Idle widget** - Shows time elapsed since last API completion with auto color coding: green (<5m), yellow (5-15m), red (15m-1h), dim gray (>1h). Type: `idle`.
+
+---
+
 ### v2.2.14 - v2.2.19 - Version pinning, npm provenance, usage overage widgets, and Git lock avoidance
 
 - **📌 Version pinning support** - Added support for pinned global installs so Claude Code can keep running a specific ccstatusline version.
