@@ -77,3 +77,5 @@ export { GitWorktreeOriginalBranchWidget } from './GitWorktreeOriginalBranch';
 export { CompactionCounterWidget } from './CompactionCounter';
 export { VoiceStatusWidget } from './VoiceStatus';
 export { RemoteControlStatusWidget } from './RemoteControlStatus';
+export { UsageProjectionWidget } from './UsageProjection';
+export { LastPromptWidget } from './LastPrompt';

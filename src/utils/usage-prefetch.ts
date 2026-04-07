@@ -15,7 +15,8 @@ const USAGE_WIDGET_TYPES = new Set<string>([
     'reset-timer',
     'weekly-reset-timer',
     'extra-usage-utilization',
-    'extra-usage-remaining'
+    'extra-usage-remaining',
+    'usage-projection'
 ]);
 
 const USAGE_DATA_FIELDS: UsageDataField[] = [
