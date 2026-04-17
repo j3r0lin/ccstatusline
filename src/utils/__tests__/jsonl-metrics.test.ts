@@ -224,7 +224,8 @@ describe('jsonl transcript metrics', () => {
             outputTokens: 550,        // 150 + 400
             cachedTokens: 46500,      // (12000 + 11000) + (23000 + 500)
             totalTokens: 47052,       // 2 + 550 + 46500
-            contextLength: 23501      // last main-chain final entry: 1 + 23000 + 500
+            contextLength: 23501,     // last main-chain final entry: 1 + 23000 + 500
+            lastCompletionMs: new Date('2026-01-01T10:00:03.000Z').getTime()
         });
     });
 
@@ -269,7 +270,8 @@ describe('jsonl transcript metrics', () => {
             outputTokens: 140,
             cachedTokens: 1200,
             totalTokens: 1344,
-            contextLength: 1204
+            contextLength: 1204,
+            lastCompletionMs: new Date('2026-01-01T10:00:02.000Z').getTime()
         });
     });
 
@@ -322,7 +324,8 @@ describe('jsonl transcript metrics', () => {
             outputTokens: 200,
             cachedTokens: 375,
             totalTokens: 580,
-            contextLength: 228
+            contextLength: 228,
+            lastCompletionMs: new Date('2026-01-01T10:00:03.000Z').getTime()
         });
     });
 
@@ -359,7 +362,8 @@ describe('jsonl transcript metrics', () => {
             outputTokens: 130,
             cachedTokens: 80,
             totalTokens: 510,
-            contextLength: 250
+            contextLength: 250,
+            lastCompletionMs: new Date('2026-01-01T11:00:00.000Z').getTime()
         });
     });
 

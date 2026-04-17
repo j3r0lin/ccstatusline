@@ -37,7 +37,7 @@ describe('ModelWidget', () => {
 
         it('handles model as string (legacy)', () => {
             const ctx = makeContext({ data: { model: 'Claude Opus 4.6 (1M context)' } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Claude Opus 4.6');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Opus 4.6');
         });
 
         it('includes Model: prefix when rawValue is false', () => {
