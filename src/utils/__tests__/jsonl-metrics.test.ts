@@ -157,7 +157,8 @@ describe('jsonl transcript metrics', () => {
             outputTokens: 141,
             cachedTokens: 92,
             totalTokens: 2032,
-            contextLength: 250
+            contextLength: 250,
+            lastCompletionMs: new Date('2026-01-01T11:00:00.000Z').getTime()
         });
     });
 
@@ -369,7 +370,8 @@ describe('jsonl transcript metrics', () => {
             outputTokens: 0,
             cachedTokens: 0,
             totalTokens: 0,
-            contextLength: 0
+            contextLength: 0,
+            lastCompletionMs: null
         });
     });
 

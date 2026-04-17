@@ -152,7 +152,7 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
     try {
         // Use Node.js-compatible file reading
         if (!fs.existsSync(transcriptPath)) {
-            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 };
+            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
         }
 
         const lines = await readJsonlLines(transcriptPath);
@@ -223,10 +223,11 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
         }
 
         const totalTokens = inputTokens + outputTokens + cachedTokens;
+        const lastCompletionMs = mostRecentTimestamp ? mostRecentTimestamp.getTime() : null;
 
-        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength };
+        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength, lastCompletionMs };
     } catch {
-        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 };
+        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
     }
 }
 

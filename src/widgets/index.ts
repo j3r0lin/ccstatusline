@@ -79,3 +79,4 @@ export { VoiceStatusWidget } from './VoiceStatus';
 export { RemoteControlStatusWidget } from './RemoteControlStatus';
 export { UsageProjectionWidget } from './UsageProjection';
 export { LastPromptWidget } from './LastPrompt';
+export { IdleWidget } from './Idle';

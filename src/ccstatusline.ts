@@ -175,6 +175,7 @@ async function renderMultipleLines(data: StatusJSON) {
         sessionDuration,
         skillsMetrics,
         compactionData: hasCompactionWidget ? { count: compactionCount } : null,
+        lastCompletionMs: tokenMetrics?.lastCompletionMs ?? null,
         isPreview: false,
         minimalist: settings.minimalistMode,
         gitCacheTtlSeconds: settings.gitCacheTtlSeconds

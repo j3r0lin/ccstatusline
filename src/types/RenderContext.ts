@@ -35,6 +35,7 @@ export interface RenderContext {
     blockMetrics?: BlockMetrics | null;
     skillsMetrics?: SkillsMetrics | null;
     compactionData?: CompactionData | null;
+    lastCompletionMs?: number | null;
     terminalWidth?: number | null;
     isPreview?: boolean;
     minimalist?: boolean;

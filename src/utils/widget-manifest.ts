@@ -97,7 +97,8 @@ export const WIDGET_MANIFEST: WidgetManifestEntry[] = [
     { type: 'worktree-original-branch', create: () => new widgets.GitWorktreeOriginalBranchWidget() },
     { type: 'compaction-counter', create: () => new widgets.CompactionCounterWidget() },
     { type: 'usage-projection', create: () => new widgets.UsageProjectionWidget() },
-    { type: 'last-prompt', create: () => new widgets.LastPromptWidget() }
+    { type: 'last-prompt', create: () => new widgets.LastPromptWidget() },
+    { type: 'idle', create: () => new widgets.IdleWidget() }
 ];
 
 export const LAYOUT_WIDGET_MANIFEST: LayoutWidgetManifestEntry[] = [
