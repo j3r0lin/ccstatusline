@@ -36,8 +36,8 @@ function formatElapsed(elapsedMs: number): string {
 }
 
 function getIdleColor(elapsedMs: number): string {
-    if (elapsedMs >= STALE_MS) return 'brightBlack';
-    if (elapsedMs >= DANGER_MS) return 'brightRed';
+    if (elapsedMs >= STALE_MS) return 'hex:F92672';
+    if (elapsedMs >= DANGER_MS) return 'ansi256:202';
     if (elapsedMs >= WARN_MS) return 'yellow';
     return 'brightGreen';
 }
