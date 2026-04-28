@@ -768,9 +768,20 @@ export function renderStatusLine(
     if (elements.length === 0)
         return '';
 
-    // Remove trailing separators
-    while (elements.length > 0 && elements[elements.length - 1]?.type === 'separator') {
-        elements.pop();
+    // Remove trailing separators and whitespace-only widgets so a status line
+    // never ends with a dangling separator or invisible spacer.
+    while (elements.length > 0) {
+        const last = elements[elements.length - 1];
+        if (!last) break;
+        if (last.type === 'separator') {
+            elements.pop();
+            continue;
+        }
+        if (stripSgrCodes(last.content).trim() === '') {
+            elements.pop();
+            continue;
+        }
+        break;
     }
 
     // Apply default padding and separators
