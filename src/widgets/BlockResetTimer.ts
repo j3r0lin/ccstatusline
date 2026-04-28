@@ -13,6 +13,7 @@ import {
     formatUsageDuration,
     formatUsageResetAt,
     getUsageErrorMessage,
+    isOfficialAnthropicEndpoint,
     resolveUsageWindowWithFallback
 } from '../utils/usage';
 
@@ -129,6 +130,10 @@ export class BlockResetTimerWidget implements Widget {
             return formatRawOrLabeledValue(item, 'Reset: ', compact ? '4h30m' : '4hr 30m');
         }
 
+        if (!isOfficialAnthropicEndpoint()) {
+            return null;
+        }
+
         const usageData = context.usageData ?? {};
         const window = resolveUsageWindowWithFallback(usageData, context.blockMetrics);
 
@@ -137,6 +142,10 @@ export class BlockResetTimerWidget implements Widget {
                 return getUsageErrorMessage(usageData.error);
             }
 
+            return null;
+        }
+
+        if (window.remainingMs <= 0) {
             return null;
         }
 

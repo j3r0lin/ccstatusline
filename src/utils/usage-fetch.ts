@@ -441,6 +441,18 @@ const USAGE_API_HOST = 'api.anthropic.com';
 const USAGE_API_PATH = '/api/oauth/usage';
 const USAGE_API_TIMEOUT_MS = 5000;
 
+export function isOfficialAnthropicEndpoint(): boolean {
+    const baseUrl = process.env.ANTHROPIC_BASE_URL?.trim();
+    if (!baseUrl) {
+        return true;
+    }
+    try {
+        return new URL(baseUrl).hostname === USAGE_API_HOST;
+    } catch {
+        return false;
+    }
+}
+
 function getUsageApiProxyUrl(): string | null {
     const proxyUrl = process.env.HTTPS_PROXY?.trim();
     if (proxyUrl === '') {
@@ -524,6 +536,11 @@ async function fetchFromUsageApi(token: string): Promise<UsageApiFetchResult> {
 }
 
 export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promise<UsageData> {
+    if (!isOfficialAnthropicEndpoint()) {
+        return {};
+    }
+
+
     const now = Math.floor(Date.now() / 1000);
     const requiredFields = options.requiredFields ?? [];
 
