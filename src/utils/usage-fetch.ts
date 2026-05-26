@@ -540,7 +540,6 @@ export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promi
         return {};
     }
 
-
     const now = Math.floor(Date.now() / 1000);
     const requiredFields = options.requiredFields ?? [];
 

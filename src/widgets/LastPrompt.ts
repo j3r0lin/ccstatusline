@@ -30,10 +30,12 @@ export class LastPromptWidget implements Widget {
         }
 
         const transcriptPath = context.data?.transcript_path;
-        if (!transcriptPath) return null;
+        if (!transcriptPath)
+            return null;
 
         const prompt = readLastPromptFromTranscript(transcriptPath);
-        if (!prompt) return null;
+        if (!prompt)
+            return null;
 
         // Collapse newlines to a single line
         const oneLine = prompt.replace(/\r?\n/g, ' ').trim();

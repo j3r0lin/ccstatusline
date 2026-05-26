@@ -1,3 +1,4 @@
+import { getColorLevelString } from '../types/ColorLevel';
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
@@ -5,10 +6,7 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import {
-    applyColors,
-} from '../utils/colors';
-import { getColorLevelString } from '../types/ColorLevel';
+import { applyColors } from '../utils/colors';
 import {
     FIVE_HOUR_BLOCK_MS,
     getUsageErrorMessage
@@ -20,8 +18,10 @@ const MIN_ELAPSED_MS = 10 * 60 * 1000; // 10 minutes
 const MIN_USAGE_PERCENT = 5;
 
 function getProjectionColor(projected: number): string {
-    if (projected >= 95) return 'brightRed';
-    if (projected >= 80) return 'yellow';
+    if (projected >= 95)
+        return 'brightRed';
+    if (projected >= 80)
+        return 'yellow';
     return 'brightGreen';
 }
 

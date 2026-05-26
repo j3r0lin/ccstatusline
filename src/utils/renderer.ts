@@ -772,7 +772,8 @@ export function renderStatusLine(
     // never ends with a dangling separator or invisible spacer.
     while (elements.length > 0) {
         const last = elements[elements.length - 1];
-        if (!last) break;
+        if (!last)
+            break;
         if (last.type === 'separator') {
             elements.pop();
             continue;
