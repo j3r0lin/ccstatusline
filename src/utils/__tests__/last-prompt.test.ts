@@ -144,4 +144,37 @@ describe('readLastPromptFromTranscript', () => {
 
         expect(readLastPromptFromTranscript(transcript)).toBe('real prompt');
     });
+
+    it('extracts slash command name from command-name XML', () => {
+        const transcript = writeJsonl('cmd.jsonl', [
+            { type: 'user', message: { role: 'user', content: 'real prompt' } },
+            { type: 'user', message: { role: 'user', content: '<command-message>i:session-id</command-message>\n<command-name>/i:session-id</command-name>' } }
+        ]);
+        expect(readLastPromptFromTranscript(transcript)).toBe('/i:session-id');
+    });
+
+    it('extracts slash command with args', () => {
+        const transcript = writeJsonl('cmd-args.jsonl', [
+            { type: 'user', message: { role: 'user', content: '<command-message>i:step-back</command-message>\n<command-name>/i:step-back</command-name>\n<command-args>不是让你创建 skill</command-args>' } }
+        ]);
+        expect(readLastPromptFromTranscript(transcript)).toBe('/i:step-back 不是让你创建 skill');
+    });
+
+    it('extracts built-in slash command format', () => {
+        const transcript = writeJsonl('builtin.jsonl', [
+            { type: 'user', message: { role: 'user', content: '<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>' } }
+        ]);
+        expect(readLastPromptFromTranscript(transcript)).toBe('/clear');
+    });
+
+    it('skips task-notification, local-command-caveat, bash-input, and bash-stdout', () => {
+        const transcript = writeJsonl('skip.jsonl', [
+            { type: 'user', message: { role: 'user', content: 'real prompt' } },
+            { type: 'user', message: { role: 'user', content: '<task-notification><status>completed</status></task-notification>' } },
+            { type: 'user', message: { role: 'user', content: '<local-command-caveat>Caveat: ...</local-command-caveat>' } },
+            { type: 'user', message: { role: 'user', content: '<bash-input>g status</bash-input>' } },
+            { type: 'user', message: { role: 'user', content: '<bash-stdout>on branch main</bash-stdout><bash-stderr></bash-stderr>' } }
+        ]);
+        expect(readLastPromptFromTranscript(transcript)).toBe('real prompt');
+    });
 });

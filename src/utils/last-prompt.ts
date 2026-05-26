@@ -15,7 +15,18 @@ function extractPlainUserPrompt(line: string): string | null {
     if (rec.type !== 'user')
         return null;
     const c = rec.message?.content;
-    return typeof c === 'string' ? c : null;
+    if (typeof c !== 'string')
+        return null;
+    if (!c.startsWith('<'))
+        return c;
+
+    const cmdName = c.match(/<command-name>(\/[^<]+)<\/command-name>/);
+    if (cmdName) {
+        const args = c.match(/<command-args>([^<]+)<\/command-args>/);
+        return args ? `${cmdName[1]} ${args[1].trim()}` : cmdName[1];
+    }
+
+    return null;
 }
 
 export function readLastPromptFromTranscript(transcriptPath: string): string | null {
