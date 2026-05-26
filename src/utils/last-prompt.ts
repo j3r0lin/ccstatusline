@@ -20,10 +20,10 @@ function extractPlainUserPrompt(line: string): string | null {
     if (!c.startsWith('<'))
         return c;
 
-    const cmdName = c.match(/<command-name>(\/[^<]+)<\/command-name>/);
-    if (cmdName) {
-        const args = c.match(/<command-args>([^<]+)<\/command-args>/);
-        return args ? `${cmdName[1]} ${args[1].trim()}` : cmdName[1];
+    const cmdName = /<command-name>(\/[^<]+)<\/command-name>/.exec(c);
+    if (cmdName?.[1]) {
+        const args = /<command-args>([^<]+)<\/command-args>/.exec(c);
+        return args?.[1] ? `${cmdName[1]} ${args[1].trim()}` : cmdName[1];
     }
 
     return null;
