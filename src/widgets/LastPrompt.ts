@@ -5,7 +5,7 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { readLastPrompt } from '../utils/last-prompt';
+import { readLastPromptFromTranscript } from '../utils/last-prompt';
 
 const DIM_ON = '\x1b[2m';
 const DIM_OFF = '\x1b[22m';
@@ -29,10 +29,10 @@ export class LastPromptWidget implements Widget {
             return `${DIM_ON}❯ What does this function do?${DIM_OFF}`;
         }
 
-        const sessionId = context.data?.session_id;
-        if (!sessionId) return null;
+        const transcriptPath = context.data?.transcript_path;
+        if (!transcriptPath) return null;
 
-        const prompt = readLastPrompt(sessionId);
+        const prompt = readLastPromptFromTranscript(transcriptPath);
         if (!prompt) return null;
 
         // Collapse newlines to a single line
