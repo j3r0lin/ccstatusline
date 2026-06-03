@@ -115,7 +115,13 @@ export class ContextBarWidget implements Widget {
 
         if (isBarSliderMode(displayMode)) {
             const slider = makeSliderBar(clampedPercent);
-            const sliderDisplay = displayMode === 'slider' ? `${slider} ${usedK}k/${totalK}k (${Math.round(clampedPercent)}%)` : slider;
+            const hidePercent = item.metadata?.hidePercent === 'true';
+            let sliderDisplay: string;
+            if (displayMode === 'slider-only') {
+                sliderDisplay = hidePercent ? `${slider} ${usedK}k/${totalK}k` : slider;
+            } else {
+                sliderDisplay = `${slider} ${usedK}k/${totalK}k (${Math.round(clampedPercent)}%)`;
+            }
             return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
         }
 
