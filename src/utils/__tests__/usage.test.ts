@@ -143,7 +143,7 @@ describe('usage window helpers', () => {
 
     it('formats duration with days when >= 24h', () => {
         expect(formatUsageDuration(25 * 60 * 60 * 1000)).toBe('1d 1hr');
-        expect(formatUsageDuration(36.5 * 60 * 60 * 1000)).toBe('1d 12hr 30m');
+        expect(formatUsageDuration(36.5 * 60 * 60 * 1000)).toBe('1d 12hr');
         expect(formatUsageDuration(168 * 60 * 60 * 1000)).toBe('7d');
     });
 
@@ -256,7 +256,7 @@ describe('usage window helpers', () => {
 
     it('formats duration with days in compact style when >= 24h', () => {
         expect(formatUsageDuration(25 * 60 * 60 * 1000, true)).toBe('1d1h');
-        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, true)).toBe('1d12h30m');
+        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, true)).toBe('1d12h');
         expect(formatUsageDuration(168 * 60 * 60 * 1000, true)).toBe('7d');
     });
 

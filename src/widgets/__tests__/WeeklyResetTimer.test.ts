@@ -41,7 +41,7 @@ describe('WeeklyResetTimerWidget', () => {
     it('renders preview using weekly reset format', () => {
         const widget = new WeeklyResetTimerWidget();
 
-        expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, { isPreview: true })).toBe('Weekly Reset: 1d 12hr 30m');
+        expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, { isPreview: true })).toBe('Weekly Reset: 1d 12hr');
     });
 
     it('renders preview in hours-only mode when toggled', () => {

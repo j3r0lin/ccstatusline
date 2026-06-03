@@ -106,7 +106,8 @@ export function formatUsageDuration(durationMs: number, compact = false, useDays
     const sep = compact ? '' : ' ';
     const d = useDays ? Math.floor(totalHours / 24) : 0;
     const h = useDays ? totalHours % 24 : totalHours;
-    const parts = [d > 0 && `${d}d`, h > 0 && `${h}${hLabel}`, m > 0 && `${m}m`].filter(Boolean);
+    const allParts = [d > 0 && `${d}d`, h > 0 && `${h}${hLabel}`, m > 0 && `${m}m`].filter(Boolean);
+    const parts = d > 0 ? allParts.slice(0, 2) : allParts;
     return parts.length > 0 ? parts.join(sep) : '0m';
 }
 
