@@ -56,6 +56,7 @@ function render(options: {
     isPreview?: boolean;
     statusData?: Partial<StatusJSON>;
     settingsValue?: unknown;
+    metadata?: Record<string, string>;
 } = {}): string | null {
     const {
         transcriptPath = options.fileContent !== undefined ? path.join(tempDir, 'session.jsonl') : undefined,
@@ -63,7 +64,8 @@ function render(options: {
         rawValue = false,
         isPreview = false,
         statusData = {},
-        settingsValue = {}
+        settingsValue = {},
+        metadata
     } = options;
 
     const widget = new ThinkingEffortWidget();
@@ -78,7 +80,8 @@ function render(options: {
     const item: WidgetItem = {
         id: 'thinking-effort',
         type: 'thinking-effort',
-        rawValue
+        rawValue,
+        ...(metadata ? { metadata } : {})
     };
 
     mockedLoadSettings.mockReturnValue(settingsValue);
@@ -120,6 +123,61 @@ describe('ThinkingEffortWidget', () => {
         it('supports colors', () => {
             const widget = new ThinkingEffortWidget();
             expect(widget.supportsColors({ type: 'thinking-effort' } as never)).toBe(true);
+        });
+    });
+
+    describe('abbreviation', () => {
+        it('abbreviates known levels when enabled', () => {
+            const result = render({
+                statusData: { effort: { level: 'high' } },
+                rawValue: true,
+                metadata: { abbreviate: 'true' }
+            });
+            expect(result).toBe('H');
+        });
+
+        it('abbreviates multi-letter levels', () => {
+            const result = render({
+                statusData: { effort: { level: 'xhigh' } },
+                rawValue: true,
+                metadata: { abbreviate: 'true' }
+            });
+            expect(result).toBe('XH');
+        });
+
+        it('keeps unknown levels verbatim with question mark', () => {
+            const result = render({
+                statusData: { effort: { level: 'super-max' } },
+                rawValue: true,
+                metadata: { abbreviate: 'true' }
+            });
+            expect(result).toBe('super-max?');
+        });
+
+        it('keeps default fallback unabbreviated', () => {
+            const result = render({
+                rawValue: true,
+                metadata: { abbreviate: 'true' }
+            });
+            expect(result).toBe('default');
+        });
+
+        it('does not abbreviate when disabled', () => {
+            const result = render({
+                statusData: { effort: { level: 'high' } },
+                rawValue: true,
+                metadata: { abbreviate: 'false' }
+            });
+            expect(result).toBe('high');
+        });
+
+        it('toggles abbreviate metadata via editor action', () => {
+            const widget = new ThinkingEffortWidget();
+            const item: WidgetItem = { id: 'thinking-effort', type: 'thinking-effort' };
+            const toggled = widget.handleEditorAction('toggle-abbreviate', item);
+            expect(toggled?.metadata?.abbreviate).toBe('true');
+            const toggledBack = widget.handleEditorAction('toggle-abbreviate', toggled ?? item);
+            expect(toggledBack?.metadata?.abbreviate).toBe('false');
         });
     });
 
