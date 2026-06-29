@@ -47,6 +47,8 @@ bun run example
 - **Compaction Counter** - Show how many context compactions have been detected in the current session. It can render as icon plus number, text plus number, or number-only, and can hide while the count is zero.
 - **Session Usage** / **Weekly Usage** / **Weekly Sonnet Usage** / **Weekly Opus Usage** / **Extra Usage Utilization** / **Extra Usage Remaining** / **Block Timer** / **Block Reset Timer** / **Weekly Reset Timer** - Show usage percentages, monthly pay-as-you-go overage usage, and current block/reset timing. The all-models weekly bar covers `seven_day` from the usage API; the per-model variants surface the `seven_day_sonnet` and `seven_day_opus` buckets that Claude Code's own `/usage` panel shows. Session and weekly usage bars can show a time cursor; reset timers can show remaining time, progress, or exact reset date/time with timezone and locale controls.
 
+When Claude Code uses a Kimi model, the Session Usage, Weekly Usage, Block Reset Timer, and Weekly Reset Timer widgets read request quotas from the Kimi Code usage API. Set `KIMI_CODE_API_KEY` in the environment before starting Claude Code. When `ANTHROPIC_BASE_URL` points to `kimi.com`, ccstatusline can reuse `ANTHROPIC_AUTH_TOKEN`. `KIMI_CODE_BASE_URL` can point to a compatible HTTPS proxy; it defaults to `https://api.kimi.com`.
+
 ### Environment, Layout & Custom
 
 - **Current Working Dir** / **Terminal Width** / **Memory Usage** - Show the current working directory, detected terminal width, and system memory usage.

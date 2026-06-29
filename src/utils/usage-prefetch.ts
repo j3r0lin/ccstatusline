@@ -1,6 +1,10 @@
 import type { StatusJSON } from '../types/StatusJSON';
 import type { WidgetItem } from '../types/Widget';
 
+import {
+    fetchKimiUsageData,
+    isKimiUsageContext
+} from './kimi-usage';
 import type { UsageData } from './usage';
 import { fetchUsageData } from './usage';
 
@@ -187,8 +191,12 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         return null;
     }
 
-    const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
     const requirements = getUsageFieldRequirements(lines);
+    if (isKimiUsageContext(data)) {
+        return fetchKimiUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
+    }
+
+    const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
     const missingFields = getMissingFetchFields(rateLimitsData, requirements);
 
     if (missingFields.length === 0) {

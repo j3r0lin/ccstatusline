@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 
 import type { WidgetItem } from '../../types/Widget';
+import * as kimiUsage from '../kimi-usage';
 import * as usage from '../usage';
 import {
     extractUsageDataFromRateLimits,
@@ -29,10 +30,15 @@ describe('usage prefetch', () => {
         mock: { calls: unknown[][] };
         mockResolvedValue: (value: UsageData) => void;
     };
+    let mockFetchKimiUsageData: {
+        mock: { calls: unknown[][] };
+        mockResolvedValue: (value: UsageData) => void;
+    };
 
     beforeEach(() => {
         vi.restoreAllMocks();
         mockFetchUsageData = vi.spyOn(usage, 'fetchUsageData');
+        mockFetchKimiUsageData = vi.spyOn(kimiUsage, 'fetchKimiUsageData');
     });
 
     afterEach(() => {
@@ -124,6 +130,33 @@ describe('usage prefetch', () => {
 
         expect(usageData).toEqual({ sessionUsage: 42 });
         expect(mockFetchUsageData.mock.calls.length).toBe(1);
+    });
+
+    it('uses Kimi Code usage when the active model is Kimi', async () => {
+        mockFetchKimiUsageData.mockResolvedValue({
+            sessionUsage: 25,
+            sessionResetAt: '2030-01-01T05:00:00Z',
+            weeklyUsage: 50,
+            weeklyResetAt: '2030-01-07T00:00:00Z'
+        });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'session-usage' }, { id: '2', type: 'weekly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'kimi-k2.5' },
+            rate_limits: {
+                five_hour: { used_percentage: 99 },
+                seven_day: { used_percentage: 99 }
+            }
+        });
+
+        expect(usageData?.sessionUsage).toBe(25);
+        expect(usageData?.weeklyUsage).toBe(50);
+        expect(mockFetchKimiUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['sessionUsage', 'weeklyUsage'] }]
+        ]);
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
     });
 
     it('merges reset-only rate_limits data with API usage data', async () => {
