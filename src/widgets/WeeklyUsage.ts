@@ -1,3 +1,4 @@
+import { getColorLevelString } from '../types/ColorLevel';
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
@@ -6,6 +7,7 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
+import { applyColors } from '../utils/colors';
 import {
     getUsageErrorMessage,
     resolveWeeklyUsageWindow
@@ -27,6 +29,16 @@ import {
     toggleUsageCursor,
     toggleUsageInverted
 } from './shared/usage-display';
+
+function getUsageLevelColor(percent: number): string {
+    if (percent >= 95) {
+        return 'brightRed';
+    }
+    if (percent >= 80) {
+        return 'yellow';
+    }
+    return 'brightBlack';
+}
 
 export class WeeklyUsageWidget implements Widget {
     getDefaultColor(): string { return 'brightBlue'; }
@@ -114,7 +126,11 @@ export class WeeklyUsageWidget implements Widget {
             return formatRawOrLabeledValue(item, 'Weekly: ', sliderDisplay);
         }
 
-        return formatRawOrLabeledValue(item, 'Weekly: ', `${percent.toFixed(1)}%`);
+        const percentText = `${percent.toFixed(1)}%`;
+        const colorLevel = getColorLevelString(settings.colorLevel);
+        const useAutoColor = !item.color;
+        const coloredText = useAutoColor ? applyColors(percentText, getUsageLevelColor(percent), undefined, false, colorLevel) : percentText;
+        return formatRawOrLabeledValue(item, 'Weekly: ', coloredText);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

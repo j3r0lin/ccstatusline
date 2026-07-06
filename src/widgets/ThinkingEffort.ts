@@ -6,46 +6,13 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { loadClaudeSettingsSync } from '../utils/claude-settings';
 import {
-    getTranscriptThinkingEffort,
-    normalizeThinkingEffort,
     type ResolvedThinkingEffort,
     type TranscriptThinkingEffort
 } from '../utils/jsonl';
+import { resolveThinkingEffort } from '../utils/thinking-effort';
 
 export type ThinkingEffortLevel = TranscriptThinkingEffort;
-
-function resolveThinkingEffortFromStatusJson(context: RenderContext): ResolvedThinkingEffort | null | undefined {
-    const effort = context.data?.effort;
-    if (!effort || !('level' in effort)) {
-        return undefined;
-    }
-
-    return typeof effort.level === 'string' ? normalizeThinkingEffort(effort.level) : null;
-}
-
-function resolveThinkingEffortFromSettings(): ResolvedThinkingEffort | undefined {
-    try {
-        const settings = loadClaudeSettingsSync({ logErrors: false });
-        return normalizeThinkingEffort(settings.effortLevel);
-    } catch {
-        // Settings unavailable, return undefined
-    }
-
-    return undefined;
-}
-
-function resolveThinkingEffort(context: RenderContext): ResolvedThinkingEffort | null {
-    const statusEffort = resolveThinkingEffortFromStatusJson(context);
-    if (statusEffort !== undefined) {
-        return statusEffort;
-    }
-
-    return getTranscriptThinkingEffort(context.data?.transcript_path)
-        ?? resolveThinkingEffortFromSettings()
-        ?? null;
-}
 
 const EFFORT_ABBREVIATIONS: Record<TranscriptThinkingEffort, string> = {
     low: 'L',

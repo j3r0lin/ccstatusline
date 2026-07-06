@@ -16,10 +16,18 @@ import {
 
 export { getMatchSegments } from './fuzzy';
 
-// Create widget registry
-const widgetRegistry = new Map<WidgetItemType, Widget>(
-    WIDGET_MANIFEST.map((entry): [WidgetItemType, Widget] => [entry.type, entry.create()])
-);
+// Widget registry, built lazily on first access. Deferring instantiation avoids
+// module-init cycles when a widget imports a util that transitively imports this
+// module (e.g. Model -> thinking-effort -> claude-settings -> config -> widgets).
+let widgetRegistry: Map<WidgetItemType, Widget> | null = null;
+
+function getWidgetRegistry(): Map<WidgetItemType, Widget> {
+    widgetRegistry ??= new Map<WidgetItemType, Widget>(
+        WIDGET_MANIFEST.map((entry): [WidgetItemType, Widget] => [entry.type, entry.create()])
+    );
+    return widgetRegistry;
+}
+
 const layoutWidgetTypes = new Set<WidgetItemType>(LAYOUT_WIDGET_MANIFEST.map(entry => entry.type));
 
 export const LEGACY_WIDGET_TYPE_ALIASES: Record<string, WidgetItemType> = { 'git-pr': 'git-review' };
@@ -36,7 +44,7 @@ export function upgradeLegacyWidgetTypes(lines: WidgetItem[][]): WidgetItem[][] 
 }
 
 export function getWidget(type: WidgetItemType): Widget | null {
-    return widgetRegistry.get(resolveLegacyWidgetType(type)) ?? null;
+    return getWidgetRegistry().get(resolveLegacyWidgetType(type)) ?? null;
 }
 
 export function getAllWidgetTypes(settings: Settings): WidgetItemType[] {
@@ -130,6 +138,6 @@ export function filterWidgetCatalog(catalog: WidgetCatalogEntry[], category: str
 
 export function isKnownWidgetType(type: string): boolean {
     const resolved = resolveLegacyWidgetType(type);
-    return widgetRegistry.has(resolved)
+    return getWidgetRegistry().has(resolved)
         || layoutWidgetTypes.has(resolved);
 }

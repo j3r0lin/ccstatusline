@@ -117,6 +117,26 @@ export class SessionUsageWidget implements Widget {
         return formatRawOrLabeledValue(item, 'Session: ', `${percent.toFixed(1)}%`);
     }
 
+    renderCompact(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
+        const displayMode = getUsageDisplayMode(item);
+        if (!isUsageSliderMode(displayMode))
+            return null;
+
+        if (context.isPreview) {
+            const previewPercent = 20;
+            const renderedPercent = isUsageInverted(item) ? 100 - previewPercent : previewPercent;
+            return formatRawOrLabeledValue(item, 'Session: ', `${renderedPercent.toFixed(1)}%`);
+        }
+
+        const data = context.usageData ?? {};
+        if (data.sessionUsage === undefined)
+            return null;
+
+        const percent = Math.max(0, Math.min(100, data.sessionUsage));
+        const renderedPercent = isUsageInverted(item) ? 100 - percent : percent;
+        return formatRawOrLabeledValue(item, 'Session: ', `${renderedPercent.toFixed(1)}%`);
+    }
+
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
         return getUsagePercentCustomKeybinds(item);
     }

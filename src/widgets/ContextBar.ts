@@ -110,25 +110,62 @@ export class ContextBarWidget implements Widget {
 
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
-        const usedK = Math.round(used / 1000);
-        const totalK = Math.round(total / 1000);
+        const usedLabel = used >= 1_000_000 ? `${(used / 1_000_000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(used / 1000)}k`;
+        const totalLabel = total >= 1_000_000 ? `${(total / 1_000_000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(total / 1000)}k`;
 
         if (isBarSliderMode(displayMode)) {
             const slider = makeSliderBar(clampedPercent);
             const hidePercent = item.metadata?.hidePercent === 'true';
             let sliderDisplay: string;
             if (displayMode === 'slider-only') {
-                sliderDisplay = hidePercent ? `${slider} ${usedK}k/${totalK}k` : slider;
+                sliderDisplay = hidePercent ? `${slider} ${usedLabel}/${totalLabel}` : slider;
             } else {
-                sliderDisplay = `${slider} ${usedK}k/${totalK}k (${Math.round(clampedPercent)}%)`;
+                sliderDisplay = `${slider} ${usedLabel}/${totalLabel} (${Math.round(clampedPercent)}%)`;
             }
             return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
         }
 
         const barWidth = displayMode === 'progress' ? 32 : 16;
-        const display = `${makeUsageProgressBar(clampedPercent, barWidth)} ${usedK}k/${totalK}k (${Math.round(clampedPercent)}%)`;
+        const display = `${makeUsageProgressBar(clampedPercent, barWidth)} ${usedLabel}/${totalLabel} (${Math.round(clampedPercent)}%)`;
 
         return item.rawValue ? display : `Context: ${display}`;
+    }
+
+    renderCompact(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
+        const displayMode = getDisplayMode(item);
+        if (!isBarSliderMode(displayMode))
+            return null;
+
+        const COMPACT_SLIDER_WIDTH = 5;
+
+        const contextWindowMetrics = getContextWindowMetrics(context.data);
+        let total = contextWindowMetrics.windowSize;
+        let used = contextWindowMetrics.contextLengthTokens;
+
+        if (used === null && context.tokenMetrics) {
+            used = context.tokenMetrics.contextLength;
+        }
+        if (total === null && context.tokenMetrics) {
+            const modelIdentifier = getModelContextIdentifier(context.data?.model);
+            total = getContextConfig(modelIdentifier).maxTokens;
+        }
+        if (used === null || total === null || total <= 0)
+            return null;
+
+        const percent = (used / total) * 100;
+        const clampedPercent = Math.max(0, Math.min(100, percent));
+        const usedLabel = used >= 1_000_000 ? `${(used / 1_000_000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(used / 1000)}k`;
+        const totalLabel = total >= 1_000_000 ? `${(total / 1_000_000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(total / 1000)}k`;
+
+        const slider = makeSliderBar(clampedPercent, COMPACT_SLIDER_WIDTH);
+        const hidePercent = item.metadata?.hidePercent === 'true';
+        let sliderDisplay: string;
+        if (displayMode === 'slider-only') {
+            sliderDisplay = hidePercent ? `${slider} ${usedLabel}/${totalLabel}` : slider;
+        } else {
+            sliderDisplay = `${slider} ${usedLabel}/${totalLabel} (${Math.round(clampedPercent)}%)`;
+        }
+        return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
     }
 
     getCustomKeybinds(): CustomKeybind[] {

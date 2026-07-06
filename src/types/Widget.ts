@@ -43,8 +43,12 @@ export interface Widget {
     renderEditor?(props: WidgetEditorProps): React.ReactElement | null;
     supportsRawValue(): boolean;
     supportsColors(item: WidgetItem): boolean;
+    // When true, the widget emits its own inline ANSI color codes and the
+    // renderer should preserve them instead of applying the configured color.
+    usesInlineColors?(item: WidgetItem): boolean;
     handleEditorAction?(action: string, item: WidgetItem): WidgetItem | null;
     getNumericValue?(context: RenderContext, item: WidgetItem): number | null;
+    renderCompact?(item: WidgetItem, context: RenderContext, settings: Settings): string | null;
 }
 
 export interface WidgetEditorProps {

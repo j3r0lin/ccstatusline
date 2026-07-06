@@ -22,6 +22,20 @@ import { calculateContextPercentage } from './context-percentage';
 import { getTerminalWidth } from './terminal';
 import { getWidget } from './widgets';
 
+// Whether a widget's rendered content carries its own inline ANSI colors that
+// the renderer must preserve instead of applying the configured color. Covers
+// custom-command preserveColors plus any widget that opts in via usesInlineColors
+// (gated on the content actually containing SGR codes, so widgets that fall back
+// to plain text in some states are still colored normally).
+function widgetEmitsInlineColors(widget: WidgetItem, content: string): boolean {
+    if (widget.type === 'custom-command' && widget.preserveColors)
+        return true;
+    const impl = getWidget(widget.type);
+    if (impl?.usesInlineColors?.(widget) && content !== stripSgrCodes(content))
+        return true;
+    return false;
+}
+
 // Helper function to format token counts
 export function formatTokens(count: number): string {
     if (count >= 1000000)
@@ -305,8 +319,8 @@ function renderPowerlineStatusLine(
 
         let widgetContent = '';
 
-        // For custom commands with preserveColors, only skip foreground color/bold
-        const isPreserveColors = widget.widget.type === 'custom-command' && widget.widget.preserveColors;
+        // For widgets that emit inline colors, only skip foreground color/bold
+        const isPreserveColors = widgetEmitsInlineColors(widget.widget, widget.content);
 
         if (shouldBold && !isPreserveColors) {
             widgetContent += '\x1b[1m';
@@ -484,6 +498,8 @@ export interface PreRenderedWidget {
     content: string;      // The rendered widget text (without padding)
     plainLength: number;  // Length without ANSI codes
     widget: WidgetItem;   // Original widget config
+    compactContent?: string;       // Shorter alternative text for width-constrained rendering
+    compactPlainLength?: number;   // Length of compact text without ANSI codes
 }
 
 // Pre-render all widgets once and cache the results
@@ -518,13 +534,15 @@ export function preRenderAllWidgets(
             const effectiveWidget = context.minimalist ? { ...widget, rawValue: true } : widget;
             const widgetText = widgetImpl.render(effectiveWidget, context, settings) ?? '';
 
-            // Store the rendered content without padding (padding is applied later)
-            // Use stringWidth to properly calculate Unicode character display width
             const plainLength = getVisibleWidth(widgetText);
+            const compactText = widgetImpl.renderCompact?.(effectiveWidget, context, settings) ?? undefined;
+            const compactPlainLength = compactText !== undefined ? getVisibleWidth(compactText) : undefined;
             preRenderedLine.push({
                 content: widgetText,
                 plainLength,
-                widget
+                widget,
+                compactContent: compactText,
+                compactPlainLength
             });
         }
 
@@ -738,8 +756,9 @@ export function renderStatusLine(
             }
 
             if (widgetText) {
-                // Special handling for custom-command with preserveColors
-                if (widget.type === 'custom-command' && widget.preserveColors) {
+                // Special handling for widgets that emit their own inline colors
+                // (custom-command preserveColors, effort-colored model name, etc.)
+                if (widgetEmitsInlineColors(widget, widgetText)) {
                     // Handle max width truncation for commands with ANSI codes
                     let finalOutput = widgetText;
                     if (widget.maxWidth && widget.maxWidth > 0) {
@@ -916,10 +935,32 @@ export function renderStatusLine(
     // Use terminalWidth if available (already accounts for flex mode adjustments), otherwise use detectedWidth
     const maxWidth = terminalWidth ?? detectedWidth;
     if (maxWidth && maxWidth > 0) {
-        // Remove ANSI escape codes to get actual length
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
+            // Try compact degradation before truncating: walk widgets right-to-left,
+            // switching any that offer a compact variant until the line fits.
+            let overflow = plainLength - maxWidth;
+            let degraded = false;
+            for (let ri = preRenderedWidgets.length - 1; ri >= 0 && overflow > 0; ri--) {
+                const pw = preRenderedWidgets[ri];
+                if (!pw?.compactContent || pw.compactPlainLength === undefined)
+                    continue;
+                const saved = pw.plainLength - pw.compactPlainLength;
+                if (saved <= 0)
+                    continue;
+                pw.content = pw.compactContent;
+                pw.plainLength = pw.compactPlainLength;
+                pw.compactContent = undefined;
+                pw.compactPlainLength = undefined;
+                overflow -= saved;
+                degraded = true;
+            }
+
+            if (degraded) {
+                return renderStatusLine(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
+            }
+
             statusLine = truncateStyledText(statusLine, maxWidth, { ellipsis: true });
         }
     }
