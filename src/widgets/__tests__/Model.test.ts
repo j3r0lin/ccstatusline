@@ -81,6 +81,16 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi');
         });
 
+        it('renders kimi-for-coding-highspeed as "Kimi Fast"', () => {
+            const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi Fast');
+        });
+
+        it('renders kimi-for-coding-highspeed display_name as "Kimi Fast"', () => {
+            const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed', display_name: 'Kimi for Coding Highspeed' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi Fast');
+        });
+
         it('includes Model: prefix when rawValue is false', () => {
             const ctx = makeContext({ data: { model: { id: 'claude-opus-4-6[1m]', display_name: 'Opus 4.6 (1M context)' } } });
             expect(new ModelWidget().render(ITEM, ctx, DEFAULT_SETTINGS)).toBe('Model: Opus 4.6');

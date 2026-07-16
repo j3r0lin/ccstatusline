@@ -19,12 +19,24 @@ function isEffortColor(item: WidgetItem): boolean {
     return item.metadata?.effortColor === 'true';
 }
 
-function formatModelDisplayName(name: string): string {
-    if (/kimi/i.test(name)) {
+interface ModelInfo {
+    id?: string;
+    display_name?: string;
+}
+
+function formatModelDisplayName(model: string | ModelInfo): string {
+    const id = typeof model === 'string' ? undefined : model.id;
+    const name = typeof model === 'string' ? model : (model.display_name ?? model.id);
+
+    if (/kimi-for-coding-highspeed/i.test(id ?? '') || /kimi-for-coding-highspeed/i.test(name ?? '')) {
+        return 'Kimi Fast';
+    }
+
+    if (/kimi/i.test(name ?? '')) {
         return 'Kimi';
     }
 
-    return name.replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');
+    return (name ?? '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');
 }
 
 export class ModelWidget implements Widget {
@@ -66,15 +78,19 @@ export class ModelWidget implements Widget {
         }
 
         const model = context.data?.model;
+        if (!model) {
+            return null;
+        }
+
         const modelDisplayName = typeof model === 'string'
             ? model
-            : (model?.display_name ?? model?.id);
+            : (model.display_name ?? model.id);
 
         if (!modelDisplayName) {
             return null;
         }
 
-        const shortName = formatModelDisplayName(modelDisplayName);
+        const shortName = formatModelDisplayName(model);
         const colored = effortColor
             ? colorizeModelName(shortName, resolveThinkingEffort(context), colorLevel)
             : null;
