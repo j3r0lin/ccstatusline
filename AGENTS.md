@@ -53,6 +53,7 @@ ccstatusline can be run directly from source during local development; compiling
   chmod +x ~/.local/bin/ccstatusline
   ```
 - **Publishing / distribution**: run `bun run build` to produce `dist/ccstatusline.js`. The npm package's `bin` entry and `files` array both reference `dist/ccstatusline.js`, and `prepublishOnly` runs the build automatically.
+- **Project convention**: After a feature is implemented and verified, deliver it to `~/.local/bin/ccstatusline` by compiling and replacing the standalone binary (see the steps above). Do this automatically unless the user explicitly asks otherwise.
 
 ## Architecture
 
