@@ -32,6 +32,10 @@ function formatModelDisplayName(model: string | ModelInfo): string {
         return 'Kimi Fast';
     }
 
+    if (/^k3(?:\[1m\])?$/i.test(id ?? '')) {
+        return 'K3';
+    }
+
     if (/kimi/i.test(name ?? '')) {
         return 'Kimi';
     }
