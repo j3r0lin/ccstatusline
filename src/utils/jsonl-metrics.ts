@@ -3,14 +3,15 @@ import path from 'node:path';
 
 import type {
     SpeedMetrics,
-    TokenMetrics,
-    TranscriptLine
+    TokenMetrics
 } from '../types';
 
+import type { SlimTranscriptEntry } from './transcript-cache';
 import {
-    parseJsonlLine,
-    readJsonlLines
-} from './jsonl-lines';
+    readAuxCache,
+    readTranscriptData,
+    writeAuxCache
+} from './transcript-cache';
 
 export interface SpeedMetricsOptions {
     includeSubagents?: boolean;
@@ -44,87 +45,31 @@ interface CollectedSpeedMetrics {
     latestTimestampMs: number | null;
 }
 
-function collectAgentIds(value: unknown, agentIds: Set<string>) {
-    if (!value || typeof value !== 'object') {
-        return;
-    }
-
-    if (Array.isArray(value)) {
-        for (const item of value) {
-            collectAgentIds(item, agentIds);
-        }
-        return;
-    }
-
-    for (const [key, nestedValue] of Object.entries(value)) {
-        if (key === 'agentId' && typeof nestedValue === 'string' && nestedValue.trim() !== '') {
-            agentIds.add(nestedValue);
-            continue;
-        }
-
-        collectAgentIds(nestedValue, agentIds);
-    }
-}
-
-function getReferencedSubagentIds(lines: string[]): Set<string> {
-    const agentIds = new Set<string>();
-
-    for (const line of lines) {
-        const data = parseJsonlLine(line);
-        if (!data) {
-            continue;
-        }
-
-        collectAgentIds(data, agentIds);
-    }
-
-    return agentIds;
-}
-
 export async function getSessionDuration(transcriptPath: string): Promise<string | null> {
     try {
         if (!fs.existsSync(transcriptPath)) {
             return null;
         }
 
-        const lines = await readJsonlLines(transcriptPath);
+        const { entries } = await readTranscriptData(transcriptPath);
 
-        if (lines.length === 0) {
-            return null;
-        }
+        let firstTimestamp: number | null = null;
+        let lastTimestamp: number | null = null;
 
-        let firstTimestamp: Date | null = null;
-        let lastTimestamp: Date | null = null;
-
-        // Find first valid timestamp
-        for (const line of lines) {
-            const data = parseJsonlLine(line) as { timestamp?: string } | null;
-            if (data?.timestamp) {
-                firstTimestamp = new Date(data.timestamp);
-                break;
-            }
-        }
-
-        // Find last valid timestamp (iterate backwards)
-        for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i];
-            if (!line) {
+        for (const entry of entries) {
+            if (entry.t === undefined) {
                 continue;
             }
-
-            const data = parseJsonlLine(line) as { timestamp?: string } | null;
-            if (data?.timestamp) {
-                lastTimestamp = new Date(data.timestamp);
-                break;
-            }
+            firstTimestamp ??= entry.t;
+            lastTimestamp = entry.t;
         }
 
-        if (!firstTimestamp || !lastTimestamp) {
+        if (firstTimestamp === null || lastTimestamp === null) {
             return null;
         }
 
         // Calculate duration in milliseconds
-        const durationMs = lastTimestamp.getTime() - firstTimestamp.getTime();
+        const durationMs = lastTimestamp - firstTimestamp;
 
         // Convert to minutes
         const totalMinutes = Math.floor(durationMs / (1000 * 60));
@@ -150,94 +95,65 @@ export async function getSessionDuration(transcriptPath: string): Promise<string
 
 export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetrics> {
     try {
-        // Use Node.js-compatible file reading
         if (!fs.existsSync(transcriptPath)) {
             return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
         }
 
-        const lines = await readJsonlLines(transcriptPath);
+        const { entries } = await readTranscriptData(transcriptPath);
 
         let inputTokens = 0;
         let outputTokens = 0;
         let cachedTokens = 0;
         let contextLength = 0;
 
-        // Parse each line and sum up token usage for totals.
         // Claude Code writes multiple JSONL entries per API call during streaming:
         // intermediate entries have stop_reason: null, and the final entry has a
         // string value like "end_turn" or "tool_use". For streaming-aware
         // transcripts, count finalized entries plus the latest unfinished entry so
         // live updates do not overcount duplicate partial rows. If the transcript
         // format has no stop_reason field at all, fall back to counting all entries.
-        let mostRecentMainChainEntry: TranscriptLine | null = null;
-        let mostRecentTimestamp: Date | null = null;
-
-        const parsedEntries: TranscriptLine[] = [];
-        let hasStopReasonField = false;
-
-        for (const line of lines) {
-            const data = parseJsonlLine(line) as TranscriptLine | null;
-            if (data?.message?.usage) {
-                parsedEntries.push(data);
-                if (Object.hasOwn(data.message, 'stop_reason')) {
-                    hasStopReasonField = true;
-                }
-            }
-        }
+        const usageEntries = entries.filter(entry => entry.u);
+        const hasStopReasonField = usageEntries.some(entry => entry.r !== undefined);
 
         const entriesToCount = hasStopReasonField
-            ? parsedEntries.filter((data, index) => {
-                const stopReason = data.message?.stop_reason;
-                return Boolean(stopReason) || (stopReason === null && index === parsedEntries.length - 1);
-            })
-            : parsedEntries;
+            ? usageEntries.filter((entry, index) => entry.r === 1 || (entry.r === 0 && index === usageEntries.length - 1))
+            : usageEntries;
 
-        for (const data of entriesToCount) {
-            const usage = data.message?.usage;
+        let mostRecentMainChainEntry: SlimTranscriptEntry | null = null;
+        let mostRecentTimestamp: number | null = null;
+
+        for (const entry of entriesToCount) {
+            const usage = entry.u;
             if (!usage) {
                 continue;
             }
 
-            inputTokens += usage.input_tokens || 0;
-            outputTokens += usage.output_tokens || 0;
-            cachedTokens += usage.cache_read_input_tokens ?? 0;
-            cachedTokens += usage.cache_creation_input_tokens ?? 0;
+            inputTokens += usage[0];
+            outputTokens += usage[1];
+            cachedTokens += usage[2] + usage[3];
 
-            // Track the most recent entry with isSidechain: false (or undefined, which defaults to main chain)
-            // Also skip API error messages (synthetic messages with 0 tokens)
-            if (data.isSidechain !== true && data.timestamp && !data.isApiErrorMessage) {
-                const entryTime = new Date(data.timestamp);
-                if (!mostRecentTimestamp || entryTime > mostRecentTimestamp) {
-                    mostRecentTimestamp = entryTime;
-                    mostRecentMainChainEntry = data;
+            // Track the most recent main-chain entry, skipping API error messages
+            // (synthetic messages with 0 tokens)
+            if (entry.s !== 1 && entry.t !== undefined && entry.e !== 1) {
+                if (mostRecentTimestamp === null || entry.t > mostRecentTimestamp) {
+                    mostRecentTimestamp = entry.t;
+                    mostRecentMainChainEntry = entry;
                 }
             }
         }
 
         // Calculate context length from the most recent main chain message
-        if (mostRecentMainChainEntry?.message?.usage) {
-            const usage = mostRecentMainChainEntry.message.usage;
-            contextLength = (usage.input_tokens || 0)
-                + (usage.cache_read_input_tokens ?? 0)
-                + (usage.cache_creation_input_tokens ?? 0);
+        if (mostRecentMainChainEntry?.u) {
+            const usage = mostRecentMainChainEntry.u;
+            contextLength = usage[0] + usage[2] + usage[3];
         }
 
         const totalTokens = inputTokens + outputTokens + cachedTokens;
-        const lastCompletionMs = mostRecentTimestamp ? mostRecentTimestamp.getTime() : null;
 
-        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength, lastCompletionMs };
+        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength, lastCompletionMs: mostRecentTimestamp };
     } catch {
         return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
     }
-}
-
-function parseTimestamp(value: string | undefined): Date | null {
-    if (!value) {
-        return null;
-    }
-
-    const timestamp = new Date(value);
-    return Number.isNaN(timestamp.getTime()) ? null : timestamp;
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -294,51 +210,40 @@ function normalizeWindowSeconds(value: number | undefined): number | null {
     return normalized > 0 ? normalized : null;
 }
 
-function collectSpeedMetricsFromLines(lines: string[], ignoreSidechain: boolean): CollectedSpeedMetrics {
+function collectSpeedMetricsFromEntries(entries: SlimTranscriptEntry[], ignoreSidechain: boolean): CollectedSpeedMetrics {
     const requests: SpeedRequest[] = [];
 
-    let lastUserTimestamp: Date | null = null;
+    let lastUserTimestamp: number | null = null;
     let latestTimestampMs: number | null = null;
 
-    for (const line of lines) {
-        const data = parseJsonlLine(line) as TranscriptLine | null;
-        if (!data || data.isApiErrorMessage) {
+    for (const entry of entries) {
+        if (entry.e === 1) {
             continue;
         }
 
-        if (ignoreSidechain && data.isSidechain === true) {
+        if (ignoreSidechain && entry.s === 1) {
             continue;
         }
 
-        const entryTimestamp = parseTimestamp(data.timestamp);
-        if (entryTimestamp) {
-            const entryTimestampMs = entryTimestamp.getTime();
-            if (latestTimestampMs === null || entryTimestampMs > latestTimestampMs) {
-                latestTimestampMs = entryTimestampMs;
-            }
+        if (entry.t !== undefined && (latestTimestampMs === null || entry.t > latestTimestampMs)) {
+            latestTimestampMs = entry.t;
         }
 
-        if (data.type === 'user' && entryTimestamp) {
-            lastUserTimestamp = entryTimestamp;
+        if (entry.y === 'user' && entry.t !== undefined) {
+            lastUserTimestamp = entry.t;
             continue;
         }
 
-        if (data.type === 'assistant' && data.message?.usage) {
-            const inputTokens = data.message.usage.input_tokens || 0;
-            const outputTokens = data.message.usage.output_tokens || 0;
+        if (entry.y === 'assistant' && entry.u) {
             let interval: SpeedInterval | null = null;
-            if (entryTimestamp && lastUserTimestamp) {
-                const startMs = lastUserTimestamp.getTime();
-                const endMs = entryTimestamp.getTime();
-                if (endMs > startMs) {
-                    interval = { startMs, endMs };
-                }
+            if (entry.t !== undefined && lastUserTimestamp !== null && entry.t > lastUserTimestamp) {
+                interval = { startMs: lastUserTimestamp, endMs: entry.t };
             }
 
             requests.push({
-                inputTokens,
-                outputTokens,
-                assistantTimestampMs: entryTimestamp ? entryTimestamp.getTime() : null,
+                inputTokens: entry.u[0],
+                outputTokens: entry.u[1],
+                assistantTimestampMs: entry.t ?? null,
                 interval
             });
         }
@@ -489,6 +394,59 @@ function getSubagentTranscriptPaths(transcriptPath: string, referencedAgentIds: 
     return matchedPaths;
 }
 
+interface SubagentSpeedCacheEntry {
+    size: number;
+    mtimeMs: number;
+    collected: CollectedSpeedMetrics;
+}
+
+type SubagentSpeedCache = Record<string, SubagentSpeedCacheEntry>;
+
+/**
+ * Collects speed metrics for subagent transcripts with an aggregate cache
+ * keyed by the main transcript. Finished subagents (unchanged size/mtime)
+ * reuse their pre-aggregated result without touching the transcript.
+ */
+async function collectSubagentSpeedMetrics(
+    mainTranscriptPath: string,
+    subagentPaths: string[]
+): Promise<CollectedSpeedMetrics[]> {
+    const cache = (readAuxCache('subagent-speed', mainTranscriptPath) ?? {}) as SubagentSpeedCache;
+    const next: SubagentSpeedCache = {};
+    const results: CollectedSpeedMetrics[] = [];
+    let dirty = false;
+
+    for (const subagentPath of subagentPaths) {
+        try {
+            const stat = fs.statSync(subagentPath);
+            const hit = cache[subagentPath];
+            if (
+                hit?.size === stat.size
+                && hit.mtimeMs === stat.mtimeMs
+                && Array.isArray(hit.collected.requests)
+            ) {
+                next[subagentPath] = hit;
+                results.push(hit.collected);
+                continue;
+            }
+
+            const subagentData = await readTranscriptData(subagentPath);
+            const collected = collectSpeedMetricsFromEntries(subagentData.entries, false);
+            next[subagentPath] = { size: stat.size, mtimeMs: stat.mtimeMs, collected };
+            results.push(collected);
+            dirty = true;
+        } catch {
+            continue;
+        }
+    }
+
+    if (dirty) {
+        writeAuxCache('subagent-speed', mainTranscriptPath, next);
+    }
+
+    return results;
+}
+
 export async function getSpeedMetricsCollection(
     transcriptPath: string,
     options: SpeedMetricsCollectionOptions = {}
@@ -510,29 +468,15 @@ export async function getSpeedMetricsCollection(
             };
         }
 
-        const mainLines = await readJsonlLines(transcriptPath);
+        const mainData = await readTranscriptData(transcriptPath);
         const allCollected: CollectedSpeedMetrics[] = [
-            collectSpeedMetricsFromLines(mainLines, true)
+            collectSpeedMetricsFromEntries(mainData.entries, true)
         ];
 
         if (options.includeSubagents === true) {
-            const referencedSubagentIds = getReferencedSubagentIds(mainLines);
-            const subagentPaths = getSubagentTranscriptPaths(transcriptPath, referencedSubagentIds);
-            const subagentMetricsResults = await Promise.all(subagentPaths.map(async (subagentPath) => {
-                try {
-                    const subagentLines = await readJsonlLines(subagentPath);
-                    return collectSpeedMetricsFromLines(subagentLines, false);
-                } catch {
-                    return null;
-                }
-            }));
-
-            for (const subagentMetrics of subagentMetricsResults) {
-                if (!subagentMetrics) {
-                    continue;
-                }
-
-                allCollected.push(subagentMetrics);
+            const subagentPaths = getSubagentTranscriptPaths(transcriptPath, mainData.agentIds);
+            if (subagentPaths.length > 0) {
+                allCollected.push(...await collectSubagentSpeedMetrics(transcriptPath, subagentPaths));
             }
         }
 

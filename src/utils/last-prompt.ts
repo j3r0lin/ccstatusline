@@ -2,17 +2,9 @@ import * as fs from 'fs';
 
 const TRANSCRIPT_CHUNK_BYTES = 64 * 1024;
 
-function extractPlainUserPrompt(line: string): string | null {
-    if (!line)
-        return null;
-    let d: unknown;
-    try {
-        d = JSON.parse(line);
-    } catch {
-        return null;
-    }
-    const rec = d as { type?: string; message?: { content?: unknown } };
-    if (rec.type !== 'user')
+export function extractPlainUserPromptFromRecord(d: unknown): string | null {
+    const rec = d as { type?: string; message?: { content?: unknown } } | null;
+    if (rec?.type !== 'user')
         return null;
     const c = rec.message?.content;
     if (typeof c !== 'string')
@@ -27,6 +19,18 @@ function extractPlainUserPrompt(line: string): string | null {
     }
 
     return null;
+}
+
+function extractPlainUserPrompt(line: string): string | null {
+    if (!line)
+        return null;
+    let d: unknown;
+    try {
+        d = JSON.parse(line);
+    } catch {
+        return null;
+    }
+    return extractPlainUserPromptFromRecord(d);
 }
 
 export function readLastPromptFromTranscript(transcriptPath: string): string | null {

@@ -20,6 +20,27 @@ const EFFORT_STDOUT_REGEX = /^<local-command-stdout>Set effort level to ([a-zA-Z
 const UNKNOWN_EFFORT_PATTERN = /^(?=.*[a-z0-9])[a-z0-9-]{2,20}$/;
 
 interface TranscriptEntry { message?: { content?: string } }
+/**
+ * Detects a `/model` or `/effort` local-command-stdout marker in a message
+ * content string. Returns null when the line is not a marker; otherwise the
+ * (possibly undefined) effort it sets.
+ */
+export function extractThinkingEffortMarker(content: string): { level: ResolvedThinkingEffort | undefined } | null {
+    const visibleContent = getVisibleText(content).trim();
+
+    if (visibleContent.startsWith(EFFORT_STDOUT_PREFIX)) {
+        const effortMatch = EFFORT_STDOUT_REGEX.exec(visibleContent);
+        return effortMatch ? { level: normalizeThinkingEffort(effortMatch[1]) } : null;
+    }
+
+    if (!visibleContent.startsWith(MODEL_STDOUT_PREFIX)) {
+        return null;
+    }
+
+    const match = MODEL_STDOUT_EFFORT_REGEX.exec(visibleContent);
+    return { level: normalizeThinkingEffort(match?.[1]) };
+}
+
 
 export function normalizeThinkingEffort(value: string | undefined): ResolvedThinkingEffort | undefined {
     if (!value) {

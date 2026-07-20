@@ -41,6 +41,7 @@ import {
     getWidgetSpeedWindowSeconds,
     isWidgetSpeedWindowEnabled
 } from './utils/speed-window';
+import { readTranscriptData } from './utils/transcript-cache';
 import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
 
 function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
@@ -140,6 +141,21 @@ async function renderMultipleLines(data: StatusJSON) {
         windowedSpeedMetrics = speedMetricsCollection.windowed;
     }
 
+    // Last prompt and thinking effort come from the shared transcript cache;
+    // the transcript is already parsed (and memoized) by the token metrics
+    // step above, so this adds no extra IO.
+    let lastPrompt: string | null = null;
+    let transcriptThinkingEffort: RenderContext['transcriptThinkingEffort'];
+    if (data.transcript_path) {
+        try {
+            const transcriptData = await readTranscriptData(data.transcript_path);
+            lastPrompt = transcriptData.lastPrompt;
+            transcriptThinkingEffort = transcriptData.thinkingEffort ?? null;
+        } catch {
+            lastPrompt = null;
+        }
+    }
+
     let skillsMetrics: SkillsMetrics | null = null;
     if (data.session_id) {
         skillsMetrics = getSkillsMetrics(data.session_id);
@@ -176,6 +192,8 @@ async function renderMultipleLines(data: StatusJSON) {
         skillsMetrics,
         compactionData: hasCompactionWidget ? { count: compactionCount } : null,
         lastCompletionMs: tokenMetrics?.lastCompletionMs ?? null,
+        lastPrompt,
+        transcriptThinkingEffort,
         isPreview: false,
         minimalist: settings.minimalistMode,
         gitCacheTtlSeconds: settings.gitCacheTtlSeconds

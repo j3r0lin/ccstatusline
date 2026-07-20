@@ -36,6 +36,14 @@ export function resolveThinkingEffort(context: RenderContext): ResolvedThinkingE
         return statusEffort;
     }
 
+    // The main render flow pre-computes the transcript effort via the shared
+    // transcript cache; null means it was checked and no marker was found.
+    if (context.transcriptThinkingEffort !== undefined) {
+        return context.transcriptThinkingEffort
+            ?? resolveThinkingEffortFromSettings()
+            ?? null;
+    }
+
     return getTranscriptThinkingEffort(context.data?.transcript_path)
         ?? resolveThinkingEffortFromSettings()
         ?? null;

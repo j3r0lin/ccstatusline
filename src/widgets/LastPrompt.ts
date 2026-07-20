@@ -33,7 +33,11 @@ export class LastPromptWidget implements Widget {
         if (!transcriptPath)
             return null;
 
-        const prompt = readLastPromptFromTranscript(transcriptPath);
+        // Prefer the pre-computed prompt from the shared transcript cache;
+        // fall back to scanning the transcript tail when unavailable.
+        const prompt = context.lastPrompt !== undefined
+            ? context.lastPrompt
+            : readLastPromptFromTranscript(transcriptPath);
         if (!prompt)
             return null;
 

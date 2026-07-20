@@ -36,6 +36,12 @@ export interface RenderContext {
     skillsMetrics?: SkillsMetrics | null;
     compactionData?: CompactionData | null;
     lastCompletionMs?: number | null;
+    lastPrompt?: string | null;
+    /** Effort from the transcript's latest /model|/effort marker; null = checked, none found */
+    transcriptThinkingEffort?: {
+        value: string;
+        known: boolean;
+    } | null;
     terminalWidth?: number | null;
     isPreview?: boolean;
     minimalist?: boolean;
