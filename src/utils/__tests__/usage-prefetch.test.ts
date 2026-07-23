@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 
 import type { WidgetItem } from '../../types/Widget';
+import * as grokUsage from '../grok-usage';
 import * as kimiUsage from '../kimi-usage';
 import * as usage from '../usage';
 import {
@@ -34,14 +35,60 @@ describe('usage prefetch', () => {
         mock: { calls: unknown[][] };
         mockResolvedValue: (value: UsageData) => void;
     };
+    let mockFetchGrokUsageData: {
+        mock: { calls: unknown[][] };
+        mockResolvedValue: (value: UsageData) => void;
+    };
+    let originalAnthropicModel: string | undefined;
+    let originalAnthropicHaikuModel: string | undefined;
+    let originalAnthropicSonnetModel: string | undefined;
+    let originalAnthropicOpusModel: string | undefined;
+    let originalAnthropicBaseUrl: string | undefined;
 
     beforeEach(() => {
         vi.restoreAllMocks();
+        // Prefetch falls back to process env when status model is absent; isolate from the host shell.
+        originalAnthropicModel = process.env.ANTHROPIC_MODEL;
+        originalAnthropicHaikuModel = process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+        originalAnthropicSonnetModel = process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+        originalAnthropicOpusModel = process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+        originalAnthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
+        delete process.env.ANTHROPIC_MODEL;
+        delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+        delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+        delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+        delete process.env.ANTHROPIC_BASE_URL;
         mockFetchUsageData = vi.spyOn(usage, 'fetchUsageData');
         mockFetchKimiUsageData = vi.spyOn(kimiUsage, 'fetchKimiUsageData');
+        mockFetchGrokUsageData = vi.spyOn(grokUsage, 'fetchGrokUsageData');
     });
 
     afterEach(() => {
+        if (originalAnthropicModel === undefined) {
+            delete process.env.ANTHROPIC_MODEL;
+        } else {
+            process.env.ANTHROPIC_MODEL = originalAnthropicModel;
+        }
+        if (originalAnthropicHaikuModel === undefined) {
+            delete process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+        } else {
+            process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL = originalAnthropicHaikuModel;
+        }
+        if (originalAnthropicSonnetModel === undefined) {
+            delete process.env.ANTHROPIC_DEFAULT_SONNET_MODEL;
+        } else {
+            process.env.ANTHROPIC_DEFAULT_SONNET_MODEL = originalAnthropicSonnetModel;
+        }
+        if (originalAnthropicOpusModel === undefined) {
+            delete process.env.ANTHROPIC_DEFAULT_OPUS_MODEL;
+        } else {
+            process.env.ANTHROPIC_DEFAULT_OPUS_MODEL = originalAnthropicOpusModel;
+        }
+        if (originalAnthropicBaseUrl === undefined) {
+            delete process.env.ANTHROPIC_BASE_URL;
+        } else {
+            process.env.ANTHROPIC_BASE_URL = originalAnthropicBaseUrl;
+        }
         vi.restoreAllMocks();
     });
 
@@ -156,6 +203,35 @@ describe('usage prefetch', () => {
         expect(mockFetchKimiUsageData.mock.calls).toEqual([
             [{ requiredFields: ['sessionUsage', 'weeklyUsage'] }]
         ]);
+        expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('uses Grok web billing when the active model is Grok', async () => {
+        mockFetchGrokUsageData.mockResolvedValue({
+            weeklyUsage: 37.5,
+            weeklyResetAt: '2030-01-07T00:00:00Z'
+        });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'weekly-usage' }, { id: '2', type: 'weekly-reset-timer' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'grok-code' },
+            rate_limits: {
+                five_hour: { used_percentage: 99 },
+                seven_day: { used_percentage: 99 }
+            }
+        });
+
+        expect(usageData).toEqual({
+            weeklyUsage: 37.5,
+            weeklyResetAt: '2030-01-07T00:00:00Z'
+        });
+        expect(mockFetchGrokUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['weeklyUsage', 'weeklyResetAt'] }]
+        ]);
+        expect(mockFetchKimiUsageData.mock.calls.length).toBe(0);
         expect(mockFetchUsageData.mock.calls.length).toBe(0);
     });
 

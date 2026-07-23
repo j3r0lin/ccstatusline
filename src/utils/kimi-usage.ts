@@ -115,8 +115,9 @@ export function isKimiUsageContext(
     data: StatusJSON | undefined,
     environment: Record<string, string | undefined> = process.env
 ): boolean {
-    if (getModelIdentifiers(data?.model).some(identifier => identifier.toLowerCase().includes('kimi'))) {
-        return true;
+    const modelIdentifiers = getModelIdentifiers(data?.model);
+    if (modelIdentifiers.length > 0) {
+        return modelIdentifiers.some(identifier => identifier.toLowerCase().includes('kimi'));
     }
 
     const configuredModels = [

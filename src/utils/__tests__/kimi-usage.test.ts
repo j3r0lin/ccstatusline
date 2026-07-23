@@ -20,17 +20,20 @@ describe('Kimi usage context detection', () => {
         expect(isKimiUsageContext({ model }, {})).toBe(true);
     });
 
-    it('detects Kimi from the configured API host when the status model is aliased', () => {
+    it('detects Kimi from the configured API host when status model is absent', () => {
         expect(isKimiUsageContext(
-            { model: { id: 'custom-model' } },
+            {},
             { ANTHROPIC_BASE_URL: 'https://api.kimi.com/coding/' }
         )).toBe(true);
     });
 
-    it('does not classify an Anthropic model as Kimi', () => {
+    it('does not classify an Anthropic model as Kimi even when env points at Kimi', () => {
         expect(isKimiUsageContext(
             { model: { id: 'claude-sonnet-4-5' } },
-            { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' }
+            {
+                ANTHROPIC_MODEL: 'kimi-k2.5',
+                ANTHROPIC_BASE_URL: 'https://api.kimi.com/coding/'
+            }
         )).toBe(false);
     });
 });

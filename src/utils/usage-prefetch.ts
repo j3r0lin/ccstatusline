@@ -2,6 +2,10 @@ import type { StatusJSON } from '../types/StatusJSON';
 import type { WidgetItem } from '../types/Widget';
 
 import {
+    fetchGrokUsageData,
+    isGrokUsageContext
+} from './grok-usage';
+import {
     fetchKimiUsageData,
     isKimiUsageContext
 } from './kimi-usage';
@@ -192,6 +196,9 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
 
     const requirements = getUsageFieldRequirements(lines);
+    if (isGrokUsageContext(data)) {
+        return fetchGrokUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
+    }
     if (isKimiUsageContext(data)) {
         return fetchKimiUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
     }
