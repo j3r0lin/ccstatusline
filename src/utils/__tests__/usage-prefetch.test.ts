@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 
 import type { WidgetItem } from '../../types/Widget';
+import * as codexUsage from '../codex-usage';
 import * as grokUsage from '../grok-usage';
 import * as kimiUsage from '../kimi-usage';
 import * as usage from '../usage';
@@ -39,6 +40,10 @@ describe('usage prefetch', () => {
         mock: { calls: unknown[][] };
         mockResolvedValue: (value: UsageData) => void;
     };
+    let mockFetchCodexUsageData: {
+        mock: { calls: unknown[][] };
+        mockResolvedValue: (value: UsageData) => void;
+    };
     let originalAnthropicModel: string | undefined;
     let originalAnthropicHaikuModel: string | undefined;
     let originalAnthropicSonnetModel: string | undefined;
@@ -61,6 +66,7 @@ describe('usage prefetch', () => {
         mockFetchUsageData = vi.spyOn(usage, 'fetchUsageData');
         mockFetchKimiUsageData = vi.spyOn(kimiUsage, 'fetchKimiUsageData');
         mockFetchGrokUsageData = vi.spyOn(grokUsage, 'fetchGrokUsageData');
+        mockFetchCodexUsageData = vi.spyOn(codexUsage, 'fetchCodexUsageData');
     });
 
     afterEach(() => {
@@ -232,6 +238,40 @@ describe('usage prefetch', () => {
             [{ requiredFields: ['weeklyUsage', 'weeklyResetAt'] }]
         ]);
         expect(mockFetchKimiUsageData.mock.calls.length).toBe(0);
+        expect(mockFetchCodexUsageData.mock.calls.length).toBe(0);
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('uses Codex wham usage when the active model is Codex', async () => {
+        mockFetchCodexUsageData.mockResolvedValue({
+            sessionUsage: 42,
+            sessionResetAt: '2030-01-01T00:00:00.000Z',
+            weeklyUsage: 15,
+            weeklyResetAt: '2030-01-08T00:00:00.000Z'
+        });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'session-usage' }, { id: '2', type: 'weekly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'gpt-5.3-codex' },
+            rate_limits: {
+                five_hour: { used_percentage: 99 },
+                seven_day: { used_percentage: 99 }
+            }
+        });
+
+        expect(usageData).toEqual({
+            sessionUsage: 42,
+            sessionResetAt: '2030-01-01T00:00:00.000Z',
+            weeklyUsage: 15,
+            weeklyResetAt: '2030-01-08T00:00:00.000Z'
+        });
+        expect(mockFetchCodexUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['sessionUsage', 'weeklyUsage'] }]
+        ]);
+        expect(mockFetchKimiUsageData.mock.calls.length).toBe(0);
+        expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
         expect(mockFetchUsageData.mock.calls.length).toBe(0);
     });
 

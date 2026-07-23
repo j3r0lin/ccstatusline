@@ -2,6 +2,10 @@ import type { StatusJSON } from '../types/StatusJSON';
 import type { WidgetItem } from '../types/Widget';
 
 import {
+    fetchCodexUsageData,
+    isCodexUsageContext
+} from './codex-usage';
+import {
     fetchGrokUsageData,
     isGrokUsageContext
 } from './grok-usage';
@@ -201,6 +205,9 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
     if (isKimiUsageContext(data)) {
         return fetchKimiUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
+    }
+    if (isCodexUsageContext(data)) {
+        return fetchCodexUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
     }
 
     const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
