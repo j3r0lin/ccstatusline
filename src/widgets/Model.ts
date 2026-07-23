@@ -59,6 +59,88 @@ function formatGrokModelName(id: string | undefined, name: string | undefined): 
         .join(' ');
 }
 
+function titleCaseToken(token: string): string {
+    if (!token) {
+        return token;
+    }
+    return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+}
+
+function looksHumanCodexDisplayName(name: string): boolean {
+    // Prefer short human labels; reject slug ids like "gpt-5.6-terra".
+    if (/[-_/]/.test(name) && !/\s/.test(name)) {
+        return false;
+    }
+    return /^(?:Sol|Terra|Luna|Codex|GPT)\b/i.test(name) || /\s/.test(name);
+}
+
+/**
+ * Short display names for OpenAI / Codex models used with Claude Code status lines.
+ * GPT-5.6 tiers (Sol / Terra / Luna) collapse to the tier name alone.
+ */
+function formatCodexModelName(id: string | undefined, name: string | undefined): string | null {
+    const haystack = `${id ?? ''} ${name ?? ''}`;
+    const looksCodex = /codex|chatgpt-codex|(?:^|[\s/._-])(?:gpt-5|sol|terra|luna)(?:$|[\s/._-])/i.test(haystack)
+        || /^(?:sol|terra|luna)$/i.test((id ?? name ?? '').trim());
+    if (!looksCodex) {
+        return null;
+    }
+
+    // Keep a short human display_name (e.g. "Terra", "GPT 5.6 Sol").
+    if (name && /codex|gpt-?5|sol|terra|luna/i.test(name) && looksHumanCodexDisplayName(name)) {
+        const cleaned = name.replace(/\s*\(.*\)$/, '').trim();
+        const bareTierName = /^(sol|terra|luna)$/i.exec(cleaned);
+        if (bareTierName?.[1]) {
+            return titleCaseToken(bareTierName[1]);
+        }
+        return cleaned;
+    }
+
+    const slug = (id ?? name ?? '')
+        .replace(/^(?:openai|chatgpt)\//i, '')
+        .replace(/\[1m\]$/i, '')
+        .trim();
+
+    const bareTier = /^(sol|terra|luna)$/i.exec(slug);
+    if (bareTier?.[1]) {
+        return titleCaseToken(bareTier[1]);
+    }
+
+    const gptTier = /^gpt[-_]?(\d+(?:\.\d+)?)[-_](sol|terra|luna)$/i.exec(slug);
+    if (gptTier?.[2]) {
+        return titleCaseToken(gptTier[2]);
+    }
+
+    // Bare gpt-5.6 routes to Sol in Codex; still show the family when tier is omitted.
+    const bareGpt = /^gpt[-_]?(\d+(?:\.\d+)?)$/i.exec(slug);
+    if (bareGpt?.[1]) {
+        return `GPT ${bareGpt[1]}`;
+    }
+
+    const gptCodex = /^gpt[-_]?(\d+(?:\.\d+)?)[-_]?codex(?:[-_].*)?$/i.exec(slug);
+    if (gptCodex?.[1]) {
+        return `GPT ${gptCodex[1]} Codex`;
+    }
+
+    if (/^chatgpt[-_]?codex/i.test(slug) || /^codex$/i.test(slug)) {
+        return 'Codex';
+    }
+
+    if (/^codex[-_]?mini/i.test(slug)) {
+        return 'Codex Mini';
+    }
+
+    if (/codex/i.test(slug)) {
+        return slug
+            .split(/[-_]+/)
+            .filter(Boolean)
+            .map(titleCaseToken)
+            .join(' ');
+    }
+
+    return null;
+}
+
 function formatModelDisplayName(model: string | ModelInfo): string {
     const id = typeof model === 'string' ? undefined : model.id;
     const name = typeof model === 'string' ? model : (model.display_name ?? model.id);
@@ -78,6 +160,11 @@ function formatModelDisplayName(model: string | ModelInfo): string {
     const grokName = formatGrokModelName(id, name);
     if (grokName) {
         return grokName;
+    }
+
+    const codexName = formatCodexModelName(id, name);
+    if (codexName) {
+        return codexName;
     }
 
     return (name ?? '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');

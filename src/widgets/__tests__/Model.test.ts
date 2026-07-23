@@ -131,6 +131,41 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
         });
 
+        it('renders gpt-5.6-sol as "Sol"', () => {
+            const ctx = makeContext({ data: { model: { id: 'gpt-5.6-sol' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol');
+        });
+
+        it('renders gpt-5.6-terra as "Terra"', () => {
+            const ctx = makeContext({ data: { model: { id: 'gpt-5.6-terra' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra');
+        });
+
+        it('renders bare terra as "Terra"', () => {
+            const ctx = makeContext({ data: { model: { id: 'terra' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra');
+        });
+
+        it('renders openai/gpt-5.6-luna as "Luna"', () => {
+            const ctx = makeContext({ data: { model: { id: 'openai/gpt-5.6-luna' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Luna');
+        });
+
+        it('renders gpt-5.3-codex as "GPT 5.3 Codex"', () => {
+            const ctx = makeContext({ data: { model: { id: 'gpt-5.3-codex' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('GPT 5.3 Codex');
+        });
+
+        it('renders codex-mini as "Codex Mini"', () => {
+            const ctx = makeContext({ data: { model: { id: 'openai/codex-mini' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Codex Mini');
+        });
+
+        it('keeps a human Codex tier display_name', () => {
+            const ctx = makeContext({ data: { model: { id: 'gpt-5.6-sol', display_name: 'Sol' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol');
+        });
+
         it('includes Model: prefix when rawValue is false', () => {
             const ctx = makeContext({ data: { model: { id: 'claude-opus-4-6[1m]', display_name: 'Opus 4.6 (1M context)' } } });
             expect(new ModelWidget().render(ITEM, ctx, DEFAULT_SETTINGS)).toBe('Model: Opus 4.6');
