@@ -64,6 +64,42 @@ describe('WeeklyUsageWidget', () => {
         }, context)).toBe('Weekly: ▓▓░░░│░░░░');
     });
 
+    it('hides when session-usage is present and has promoted weekly into the primary slot', () => {
+        const widget = new WeeklyUsageWidget();
+
+        expect(render(widget, {
+            id: 'weekly',
+            type: 'weekly-usage'
+        }, {
+            hasSessionUsageWidget: true,
+            usageData: { weeklyUsage: 30 }
+        })).toBeNull();
+    });
+
+    it('still renders when session usage exists alongside weekly', () => {
+        const widget = new WeeklyUsageWidget();
+
+        expect(render(widget, {
+            id: 'weekly',
+            type: 'weekly-usage'
+        }, {
+            hasSessionUsageWidget: true,
+            usageData: { sessionUsage: 12, weeklyUsage: 30 }
+        })).toBe('Weekly: 30.0%');
+    });
+
+    it('still renders weekly alone when session-usage is not configured', () => {
+        const widget = new WeeklyUsageWidget();
+
+        expect(render(widget, {
+            id: 'weekly',
+            type: 'weekly-usage'
+        }, {
+            hasSessionUsageWidget: false,
+            usageData: { weeklyUsage: 30 }
+        })).toBe('Weekly: 30.0%');
+    });
+
     runUsagePercentWidgetSuite({
         baseItem: { id: 'weekly', type: 'weekly-usage' },
         createWidget: () => new WeeklyUsageWidget(),

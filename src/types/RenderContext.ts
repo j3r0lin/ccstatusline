@@ -46,6 +46,12 @@ export interface RenderContext {
     isPreview?: boolean;
     minimalist?: boolean;
     gitCacheTtlSeconds?: number;
+    /**
+     * True when a session-usage widget is configured on any line.
+     * WeeklyUsage uses this to hide itself when session has promoted weekly
+     * into the primary slot (providers with no session window).
+     */
+    hasSessionUsageWidget?: boolean;
     lineIndex?: number;  // Index of the current line being rendered (for theme cycling)
     globalSeparatorIndex?: number;  // Global separator index that continues across lines
 

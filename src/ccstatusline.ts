@@ -181,6 +181,8 @@ async function renderMultipleLines(data: StatusJSON) {
         }
     }
 
+    const hasSessionUsageWidget = lines.some(line => line.some(item => item.type === 'session-usage'));
+
     // Create render context
     const context: RenderContext = {
         data,
@@ -196,7 +198,8 @@ async function renderMultipleLines(data: StatusJSON) {
         transcriptThinkingEffort,
         isPreview: false,
         minimalist: settings.minimalistMode,
-        gitCacheTtlSeconds: settings.gitCacheTtlSeconds
+        gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
+        hasSessionUsageWidget
     };
 
     // Always pre-render all widgets once (for efficiency)

@@ -101,6 +101,13 @@ export class WeeklyUsageWidget implements Widget {
             return null;
         }
 
+        // SessionUsage promotes weekly into the primary bar when session is
+        // absent. Hide this dedicated weekly widget then so the same percent
+        // is not shown twice.
+        if (context.hasSessionUsageWidget && data.sessionUsage === undefined) {
+            return null;
+        }
+
         const percent = Math.max(0, Math.min(100, data.weeklyUsage));
         const renderedPercent = inverted ? 100 - percent : percent;
         const getCursorOptions = (): { cursorPercent: number } | undefined => {
