@@ -24,6 +24,41 @@ interface ModelInfo {
     display_name?: string;
 }
 
+function formatGrokModelName(id: string | undefined, name: string | undefined): string | null {
+    const haystack = `${id ?? ''} ${name ?? ''}`;
+    if (!/grok/i.test(haystack)) {
+        return null;
+    }
+
+    // Keep an already human-readable display_name (e.g. "Grok 4.5").
+    if (name && /grok/i.test(name) && (/\s/.test(name) || /^[A-Z]/.test(name))) {
+        return name.replace(/\s*\(.*\)$/, '').trim();
+    }
+
+    const slug = (id ?? name ?? '')
+        .replace(/^xai\//i, '')
+        .replace(/\[1m\]$/i, '');
+
+    const versionMatch = /^grok[-_]?(\d+(?:\.\d+)?)$/i.exec(slug);
+    if (versionMatch) {
+        return `Grok ${versionMatch[1]}`;
+    }
+
+    if (/^grok[-_]?code[-_]?fast/i.test(slug)) {
+        return 'Grok Code Fast';
+    }
+
+    if (/^grok[-_]?code/i.test(slug)) {
+        return 'Grok Code';
+    }
+
+    return slug
+        .split(/[-_]+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
+}
+
 function formatModelDisplayName(model: string | ModelInfo): string {
     const id = typeof model === 'string' ? undefined : model.id;
     const name = typeof model === 'string' ? model : (model.display_name ?? model.id);
@@ -38,6 +73,11 @@ function formatModelDisplayName(model: string | ModelInfo): string {
 
     if (/kimi/i.test(name ?? '')) {
         return 'Kimi';
+    }
+
+    const grokName = formatGrokModelName(id, name);
+    if (grokName) {
+        return grokName;
     }
 
     return (name ?? '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');

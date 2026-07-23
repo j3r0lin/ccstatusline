@@ -106,6 +106,31 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K3');
         });
 
+        it('renders grok-4.5 id as "Grok 4.5"', () => {
+            const ctx = makeContext({ data: { model: { id: 'grok-4.5' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
+        });
+
+        it('renders xai/grok-4 id as "Grok 4"', () => {
+            const ctx = makeContext({ data: { model: { id: 'xai/grok-4' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4');
+        });
+
+        it('renders grok-code-fast-1 as "Grok Code Fast"', () => {
+            const ctx = makeContext({ data: { model: { id: 'grok-code-fast-1' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok Code Fast');
+        });
+
+        it('keeps a human Grok display_name', () => {
+            const ctx = makeContext({ data: { model: { id: 'grok-4.5', display_name: 'Grok 4.5' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
+        });
+
+        it('renders legacy string grok model ids as "Grok 4.5"', () => {
+            const ctx = makeContext({ data: { model: 'grok-4.5' } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
+        });
+
         it('includes Model: prefix when rawValue is false', () => {
             const ctx = makeContext({ data: { model: { id: 'claude-opus-4-6[1m]', display_name: 'Opus 4.6 (1M context)' } } });
             expect(new ModelWidget().render(ITEM, ctx, DEFAULT_SETTINGS)).toBe('Model: Opus 4.6');
