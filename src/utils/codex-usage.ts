@@ -338,7 +338,7 @@ export function parseCodexUsageResponse(rawJson: string): UsageData | null {
 
         const primary = rateLimit.primary_window ?? rateLimit.primaryWindow;
         const secondary = rateLimit.secondary_window ?? rateLimit.secondaryWindow;
-        const hasSecondary = secondary != null
+        const hasSecondary = secondary !== null && secondary !== undefined
             && (windowUsedPercent(secondary) !== undefined || windowResetAt(secondary) !== undefined);
 
         const primaryDurationSeconds = windowDurationSeconds(primary);
