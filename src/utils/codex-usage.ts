@@ -314,6 +314,16 @@ function windowResetAt(window: WindowSnapshot | null | undefined): string | unde
     return epochSecondsToIso(window.reset_at ?? window.resetAt);
 }
 
+/**
+ * Map Codex wham/usage windows onto ccstatusline UsageData.
+ *
+ * Observed shapes:
+ * - Plus: only primary_window, and it is the weekly (7d) limit; secondary is null.
+ * - Higher plans: primary is the short session window (often 5h), secondary is weekly.
+ *
+ * Classification uses limit_window_seconds when present; otherwise falls back to
+ * "primary alone → weekly" because Plus (the common case) exposes a single weekly primary.
+ */
 export function parseCodexUsageResponse(rawJson: string): UsageData | null {
     try {
         const parsed = CodexUsageResponseSchema.safeParse(JSON.parse(rawJson));
@@ -328,20 +338,75 @@ export function parseCodexUsageResponse(rawJson: string): UsageData | null {
 
         const primary = rateLimit.primary_window ?? rateLimit.primaryWindow;
         const secondary = rateLimit.secondary_window ?? rateLimit.secondaryWindow;
+        const hasSecondary = secondary != null
+            && (windowUsedPercent(secondary) !== undefined || windowResetAt(secondary) !== undefined);
 
-        const usageData: UsageData = {
-            sessionUsage: windowUsedPercent(primary),
-            sessionResetAt: windowResetAt(primary),
-            weeklyUsage: windowUsedPercent(secondary),
-            weeklyResetAt: windowResetAt(secondary)
-        };
+        const primaryDurationSeconds = windowDurationSeconds(primary);
+        const secondaryDurationSeconds = windowDurationSeconds(secondary);
 
-        return usageData.sessionUsage === undefined && usageData.weeklyUsage === undefined
-            ? null
-            : usageData;
+        // Dual-window: prefer duration hints; default primary=session, secondary=weekly.
+        if (hasSecondary) {
+            const primaryIsWeekly = isWeeklyWindowDuration(primaryDurationSeconds)
+                && !isSessionWindowDuration(primaryDurationSeconds);
+            const secondaryIsSession = isSessionWindowDuration(secondaryDurationSeconds)
+                && !isWeeklyWindowDuration(secondaryDurationSeconds);
+
+            if (primaryIsWeekly && secondaryIsSession) {
+                return usageDataOrNull({
+                    sessionUsage: windowUsedPercent(secondary),
+                    sessionResetAt: windowResetAt(secondary),
+                    weeklyUsage: windowUsedPercent(primary),
+                    weeklyResetAt: windowResetAt(primary)
+                });
+            }
+
+            return usageDataOrNull({
+                sessionUsage: windowUsedPercent(primary),
+                sessionResetAt: windowResetAt(primary),
+                weeklyUsage: windowUsedPercent(secondary),
+                weeklyResetAt: windowResetAt(secondary)
+            });
+        }
+
+        // Single window: primary is weekly on Plus; only treat as session when duration is clearly short.
+        if (isSessionWindowDuration(primaryDurationSeconds) && !isWeeklyWindowDuration(primaryDurationSeconds)) {
+            return usageDataOrNull({
+                sessionUsage: windowUsedPercent(primary),
+                sessionResetAt: windowResetAt(primary)
+            });
+        }
+
+        return usageDataOrNull({
+            weeklyUsage: windowUsedPercent(primary),
+            weeklyResetAt: windowResetAt(primary)
+        });
     } catch {
         return null;
     }
+}
+
+function windowDurationSeconds(window: WindowSnapshot | null | undefined): number | undefined {
+    if (!window) {
+        return undefined;
+    }
+    const raw = window.limit_window_seconds ?? window.limitWindowSeconds;
+    return raw !== undefined && Number.isFinite(raw) && raw > 0 ? raw : undefined;
+}
+
+function isSessionWindowDuration(seconds: number | undefined): boolean {
+    // ~1h–12h: short rolling session / block window (Claude-style 5h is 18000s).
+    return seconds !== undefined && seconds >= 3600 && seconds < 12 * 3600;
+}
+
+function isWeeklyWindowDuration(seconds: number | undefined): boolean {
+    // ~3d–14d: weekly-class limit (Codex Plus primary is 604800s).
+    return seconds !== undefined && seconds >= 3 * 86400 && seconds <= 14 * 86400;
+}
+
+function usageDataOrNull(usageData: UsageData): UsageData | null {
+    return usageData.sessionUsage === undefined && usageData.weeklyUsage === undefined
+        ? null
+        : usageData;
 }
 
 function parseCachedUsage(rawJson: string): UsageData | null {
@@ -373,13 +438,44 @@ function readCachedUsage(maxAgeSeconds?: number): UsageData | null {
     }
 }
 
-function hasRequiredFields(data: UsageData, requiredFields: readonly UsageDataField[]): boolean {
-    return requiredFields.every(field => data[field] !== undefined);
+/**
+ * Session widgets promote weekly when session is absent (SessionUsage).
+ * Treat weekly* as satisfying session* for cache completeness so Plus single-window
+ * responses do not force a network refresh on every status-line tick.
+ */
+function isCodexFieldSatisfied(data: UsageData, field: UsageDataField): boolean {
+    if (data[field] !== undefined) {
+        return true;
+    }
+    if (field === 'sessionUsage') {
+        return data.weeklyUsage !== undefined;
+    }
+    if (field === 'sessionResetAt') {
+        return data.weeklyResetAt !== undefined;
+    }
+    return false;
 }
 
-function staleUsageOrError(error: UsageError, requiredFields: readonly UsageDataField[]): UsageData {
+function hasRequiredFields(data: UsageData, requiredFields: readonly UsageDataField[]): boolean {
+    return requiredFields.every(field => isCodexFieldSatisfied(data, field));
+}
+
+function hasAnyCodexUsageField(data: UsageData): boolean {
+    return (['sessionUsage', 'sessionResetAt', 'weeklyUsage', 'weeklyResetAt'] as const)
+        .some(field => data[field] !== undefined);
+}
+
+/**
+ * Prefer any usable cached fields over a bare error object.
+ * Do not attach error onto partial data — several widgets check error before
+ * field presence and would show [Timeout] even when weekly usage is available.
+ */
+function staleUsageOrError(error: UsageError, _requiredFields: readonly UsageDataField[]): UsageData {
     const stale = readCachedUsage();
-    return stale && hasRequiredFields(stale, requiredFields) ? stale : { error };
+    if (stale && hasAnyCodexUsageField(stale)) {
+        return stale;
+    }
+    return { error };
 }
 
 function readActiveLock(now: number): CodexUsageLock | null {

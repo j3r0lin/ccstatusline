@@ -119,9 +119,9 @@ describe('Codex auth.json parsing', () => {
 });
 
 describe('Codex usage response parsing', () => {
-    it('maps primary/secondary windows to session and weekly usage', () => {
+    it('maps dual windows: short primary → session, long secondary → weekly', () => {
         const result = parseCodexUsageResponse(JSON.stringify({
-            plan_type: 'plus',
+            plan_type: 'pro',
             rate_limit: {
                 primary_window: {
                     used_percent: 42,
@@ -144,7 +144,27 @@ describe('Codex usage response parsing', () => {
         });
     });
 
-    it('accepts camelCase window fields', () => {
+    it('maps Plus single primary window to weekly usage', () => {
+        const result = parseCodexUsageResponse(JSON.stringify({
+            plan_type: 'plus',
+            rate_limit: {
+                primary_window: {
+                    used_percent: 27,
+                    reset_at: 1785297999,
+                    limit_window_seconds: 604800
+                },
+                secondary_window: null
+            }
+        }));
+
+        expect(result).toEqual({
+            weeklyUsage: 27,
+            weeklyResetAt: '2026-07-29T04:06:39.000Z'
+        });
+        expect(result?.sessionUsage).toBeUndefined();
+    });
+
+    it('maps single primary without duration to weekly (Plus-shaped default)', () => {
         const result = parseCodexUsageResponse(JSON.stringify({
             rateLimit: {
                 primaryWindow: {
@@ -154,9 +174,27 @@ describe('Codex usage response parsing', () => {
             }
         }));
 
-        expect(result?.sessionUsage).toBe(10);
-        expect(result?.sessionResetAt).toBe('2030-01-01T00:00:00.000Z');
-        expect(result?.weeklyUsage).toBeUndefined();
+        expect(result?.weeklyUsage).toBe(10);
+        expect(result?.weeklyResetAt).toBe('2030-01-01T00:00:00.000Z');
+        expect(result?.sessionUsage).toBeUndefined();
+    });
+
+    it('maps single short primary window to session usage', () => {
+        const result = parseCodexUsageResponse(JSON.stringify({
+            rate_limit: {
+                primary_window: {
+                    used_percent: 8,
+                    reset_at: 1893456000,
+                    limit_window_seconds: 18000
+                },
+                secondary_window: null
+            }
+        }));
+
+        expect(result).toEqual({
+            sessionUsage: 8,
+            sessionResetAt: '2030-01-01T00:00:00.000Z'
+        });
     });
 
     it('rejects responses without usable windows', () => {
