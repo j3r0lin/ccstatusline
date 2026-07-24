@@ -13,16 +13,19 @@ import { StatusJSONSchema } from './types/StatusJSON';
 import { getVisibleText } from './utils/ansi';
 import { updateColorMap } from './utils/colors';
 import {
-    detectCompaction,
-    loadCompactionState,
-    saveCompactionState
+    ZERO_COMPACTION_STATS,
+    getCompactionStats
 } from './utils/compaction';
 import {
+    getConfigLoadError,
     initConfigPath,
     loadSettings,
     saveSettings
 } from './utils/config';
-import { calculateContextPercentageMetrics } from './utils/context-percentage';
+import {
+    GIT_REVIEW_REFRESH_FLAG,
+    refreshGitReviewCacheFromCli
+} from './utils/git-review-cache';
 import { handleHookInput } from './utils/hook-handler';
 import {
     getSessionDuration,
@@ -31,7 +34,9 @@ import {
 } from './utils/jsonl';
 import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
 import {
+    buildConfigWarningBadge,
     calculateMaxWidthsFromPreRendered,
+    countPowerlineStartCapSlots,
     preRenderAllWidgets,
     renderStatusLine
 } from './utils/renderer';
@@ -42,6 +47,10 @@ import {
     isWidgetSpeedWindowEnabled
 } from './utils/speed-window';
 import { readTranscriptData } from './utils/transcript-cache';
+import {
+    getPackageVersion,
+    getTerminalWidth
+} from './utils/terminal';
 import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
 
 function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
@@ -93,6 +102,7 @@ async function ensureWindowsUtf8CodePage() {
 
 async function renderMultipleLines(data: StatusJSON) {
     const settings = await loadSettings();
+    const configError = getConfigLoadError();
 
     // Set global chalk level based on settings
     chalk.level = settings.colorLevel;
@@ -161,25 +171,11 @@ async function renderMultipleLines(data: StatusJSON) {
         skillsMetrics = getSkillsMetrics(data.session_id);
     }
 
-    // Compaction detection — track context percentage drops between renders
-    let compactionCount = 0;
+    // Compaction stats — parse compact_boundary markers in this session's transcript
     const hasCompactionWidget = lines.some(line => line.some(item => item.type === 'compaction-counter'));
-    if (hasCompactionWidget && data.session_id) {
-        const prevState = loadCompactionState(data.session_id);
-        compactionCount = prevState.count;
-        const contextPercentageMetrics = calculateContextPercentageMetrics({ data, tokenMetrics });
-        if (contextPercentageMetrics !== null) {
-            const newState = detectCompaction(contextPercentageMetrics.usedPercentage, prevState, { windowSize: contextPercentageMetrics.windowSize });
-            if (
-                newState.count !== prevState.count
-                || newState.prevCtxPct !== prevState.prevCtxPct
-                || newState.prevWindowSize !== prevState.prevWindowSize
-            ) {
-                saveCompactionState(data.session_id, newState);
-            }
-            compactionCount = newState.count;
-        }
-    }
+    const compactionData = hasCompactionWidget
+        ? (data.transcript_path ? await getCompactionStats(data.transcript_path) : ZERO_COMPACTION_STATS)
+        : null;
 
     const hasSessionUsageWidget = lines.some(line => line.some(item => item.type === 'session-usage'));
 
@@ -192,14 +188,16 @@ async function renderMultipleLines(data: StatusJSON) {
         usageData,
         sessionDuration,
         skillsMetrics,
-        compactionData: hasCompactionWidget ? { count: compactionCount } : null,
+        compactionData,
         lastCompletionMs: tokenMetrics?.lastCompletionMs ?? null,
         lastPrompt,
         transcriptThinkingEffort,
+        terminalWidth: getTerminalWidth(),
         isPreview: false,
         minimalist: settings.minimalistMode,
         gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
-        hasSessionUsageWidget
+        hasSessionUsageWidget,
+        gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status'))
     };
 
     // Always pre-render all widgets once (for efficiency)
@@ -209,6 +207,8 @@ async function renderMultipleLines(data: StatusJSON) {
     // Render each line using pre-rendered content
     let globalSeparatorIndex = 0;
     let globalPowerlineThemeIndex = 0;
+    let globalPowerlineStartCapIndex = 0;
+    let configBadgePrepended = false;
     for (let i = 0; i < lines.length; i++) {
         const lineItems = lines[i];
         if (lineItems && lineItems.length > 0) {
@@ -217,14 +217,21 @@ async function renderMultipleLines(data: StatusJSON) {
                 ...context,
                 lineIndex: i,
                 globalSeparatorIndex,
-                globalPowerlineThemeIndex
+                globalPowerlineThemeIndex,
+                globalPowerlineStartCapIndex
             };
-            const line = renderStatusLine(lineItems, settings, lineContext, preRenderedWidgets, preCalculatedMaxWidths);
+            let line = renderStatusLine(lineItems, settings, lineContext, preRenderedWidgets, preCalculatedMaxWidths);
 
             // Only output the line if it has content (not just ANSI codes)
             // Strip ANSI codes to check if there's actual text
             const strippedLine = getVisibleText(line).trim();
             if (strippedLine.length > 0) {
+                if (configError && !configBadgePrepended) {
+                    // On the error path settings are always inMemoryDefaults(), whose separators render as ' | '.
+                    line = `${buildConfigWarningBadge(settings.colorLevel)} | ${line}`;
+                    configBadgePrepended = true;
+                }
+
                 // Replace all spaces with non-breaking spaces to prevent VSCode trimming
                 let outputLine = line.replace(/ /g, '\u00A0');
 
@@ -232,12 +239,20 @@ async function renderMultipleLines(data: StatusJSON) {
                 outputLine = '\x1b[0m' + outputLine;
                 console.log(outputLine);
 
-                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems);
+                globalSeparatorIndex = advanceGlobalSeparatorIndex(globalSeparatorIndex, lineItems, preRenderedWidgets);
+                if (settings.powerline.enabled) {
+                    globalPowerlineStartCapIndex += countPowerlineStartCapSlots(lineItems, preRenderedWidgets);
+                }
                 if (settings.powerline.enabled && settings.powerline.continueThemeAcrossLines) {
                     globalPowerlineThemeIndex = advanceGlobalPowerlineThemeIndex(globalPowerlineThemeIndex, preRenderedWidgets);
                 }
             }
         }
+    }
+
+    // Defensive fallback: if no content line was emitted, ensure the warning is not lost
+    if (configError && !configBadgePrepended) {
+        console.log('\x1b[0m' + buildConfigWarningBadge(settings.colorLevel).replace(/ /g, '\u00A0'));
     }
 
     // Check if there's an update message to display
@@ -288,7 +303,36 @@ async function handleHook(): Promise<void> {
     handleHookInput(input);
 }
 
+function handleGitReviewRefresh(): boolean {
+    const flagIndex = process.argv.indexOf(GIT_REVIEW_REFRESH_FLAG);
+    if (flagIndex === -1) {
+        return false;
+    }
+
+    const cwd = process.argv[flagIndex + 1];
+    const mode = process.argv[flagIndex + 2];
+    const lockPath = process.argv[flagIndex + 3];
+    if (!cwd || (mode !== 'metadata' && mode !== 'checks') || !lockPath) {
+        return true;
+    }
+
+    refreshGitReviewCacheFromCli(cwd, { includeChecks: mode === 'checks' }, lockPath);
+    return true;
+}
+
 async function main() {
+    // Detached cache refreshes re-enter this executable without reading stdin
+    // or loading user settings. This mode intentionally emits no output.
+    if (handleGitReviewRefresh()) {
+        return;
+    }
+
+    // Print version and exit (#461). Standard CLI behavior, runs before any other mode.
+    if (process.argv.includes('--version')) {
+        console.log(getPackageVersion());
+        process.exit(0);
+    }
+
     // Parse --config before anything else
     initConfigPath(parseConfigArg());
 

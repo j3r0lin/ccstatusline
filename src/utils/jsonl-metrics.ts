@@ -96,14 +96,15 @@ export async function getSessionDuration(transcriptPath: string): Promise<string
 export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetrics> {
     try {
         if (!fs.existsSync(transcriptPath)) {
-            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
+            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
         }
 
         const { entries } = await readTranscriptData(transcriptPath);
 
         let inputTokens = 0;
         let outputTokens = 0;
-        let cachedTokens = 0;
+        let cacheReadTokens = 0;
+        let cacheCreationTokens = 0;
         let contextLength = 0;
 
         // Claude Code writes multiple JSONL entries per API call during streaming:
@@ -130,7 +131,8 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
 
             inputTokens += usage[0];
             outputTokens += usage[1];
-            cachedTokens += usage[2] + usage[3];
+            cacheReadTokens += usage[2];
+            cacheCreationTokens += usage[3];
 
             // Track the most recent main-chain entry, skipping API error messages
             // (synthetic messages with 0 tokens)
@@ -148,11 +150,12 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
             contextLength = usage[0] + usage[2] + usage[3];
         }
 
+        const cachedTokens = cacheReadTokens + cacheCreationTokens;
         const totalTokens = inputTokens + outputTokens + cachedTokens;
 
-        return { inputTokens, outputTokens, cachedTokens, totalTokens, contextLength, lastCompletionMs: mostRecentTimestamp };
+        return { inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, totalTokens, contextLength, lastCompletionMs: mostRecentTimestamp };
     } catch {
-        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
+        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
     }
 }
 
