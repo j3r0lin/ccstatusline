@@ -58,6 +58,33 @@ describe('ContextBarWidget', () => {
         expect(widget.render({ id: 'ctx', type: 'context-bar' }, context, DEFAULT_SETTINGS)).toBe('Context: [bar:25.0:16] 50k/200k (25%)');
     });
 
+    it('falls back to transcript metrics when context_window usage is a zero placeholder', () => {
+        const context: RenderContext = {
+            data: {
+                model: { id: 'gpt-5.6-terra' },
+                context_window: {
+                    context_window_size: 200000,
+                    current_usage: {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_creation_input_tokens: 0,
+                        cache_read_input_tokens: 0
+                    }
+                }
+            },
+            tokenMetrics: {
+                inputTokens: 0,
+                outputTokens: 0,
+                cachedTokens: 0,
+                totalTokens: 0,
+                contextLength: 39297
+            }
+        };
+        const widget = new ContextBarWidget();
+
+        expect(widget.render({ id: 'ctx', type: 'context-bar' }, context, DEFAULT_SETTINGS)).toBe('Context: [bar:19.6:16] 39k/200k (20%)');
+    });
+
     it('uses 1M context label model IDs in fallback mode', () => {
         const context: RenderContext = {
             data: { model: { id: 'Opus 4.6 (1M context)' } },

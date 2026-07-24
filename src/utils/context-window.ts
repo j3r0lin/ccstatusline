@@ -134,3 +134,37 @@ export function getContextWindowUsedPercentage(data?: StatusJSON): number | null
 export function getContextWindowSize(data?: StatusJSON): number | null {
     return getContextWindowMetrics(data).windowSize;
 }
+
+/**
+ * Resolve current context length for display widgets.
+ *
+ * Prefer status JSON `context_window` when it has a real (non-zero) value.
+ * Some model paths (e.g. Codex/Terra) intermittently inject
+ * `current_usage: 0` as a placeholder while the transcript already has the
+ * real count — treat that as missing and fall back to transcript metrics.
+ */
+export function resolveContextLengthTokens(
+    contextWindowMetrics: ContextWindowMetrics,
+    tokenMetrics?: { contextLength: number } | null
+): number | null {
+    const fromWindow = contextWindowMetrics.contextLengthTokens;
+    const fromTranscript = tokenMetrics?.contextLength;
+
+    if (fromWindow !== null && fromWindow > 0) {
+        return fromWindow;
+    }
+
+    if (typeof fromTranscript === 'number' && fromTranscript > 0) {
+        return fromTranscript;
+    }
+
+    if (fromWindow !== null) {
+        return fromWindow;
+    }
+
+    if (typeof fromTranscript === 'number') {
+        return fromTranscript;
+    }
+
+    return null;
+}

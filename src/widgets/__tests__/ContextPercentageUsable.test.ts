@@ -83,6 +83,38 @@ describe('ContextPercentageUsableWidget', () => {
         expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx(u) Used: 5.0%');
     });
 
+    it('falls back to transcript metrics when context_window usage is a zero placeholder', () => {
+        const widget = new ContextPercentageUsableWidget();
+        const item: WidgetItem = {
+            id: 'context-percentage-usable',
+            type: 'context-percentage-usable'
+        };
+        const context: RenderContext = {
+            data: {
+                model: { id: 'gpt-5.6-terra' },
+                context_window: {
+                    context_window_size: 200000,
+                    current_usage: {
+                        input_tokens: 0,
+                        output_tokens: 0,
+                        cache_creation_input_tokens: 0,
+                        cache_read_input_tokens: 0
+                    }
+                }
+            },
+            tokenMetrics: {
+                inputTokens: 0,
+                outputTokens: 0,
+                cachedTokens: 0,
+                totalTokens: 0,
+                contextLength: 40000
+            }
+        };
+
+        // 40000 / (200000 * 0.8) = 25%
+        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('Ctx(u) Used: 25.0%');
+    });
+
     it('uses context_window_size for usable denominator even without [1m] model suffix', () => {
         const widget = new ContextPercentageUsableWidget();
         const item: WidgetItem = {

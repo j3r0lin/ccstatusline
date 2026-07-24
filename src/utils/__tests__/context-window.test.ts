@@ -4,7 +4,10 @@ import {
     it
 } from 'vitest';
 
-import { getContextWindowMetrics } from '../context-window';
+import {
+    getContextWindowMetrics,
+    resolveContextLengthTokens
+} from '../context-window';
 
 describe('getContextWindowMetrics', () => {
     it('returns null metrics when context_window is missing', () => {
@@ -71,5 +74,66 @@ describe('getContextWindowMetrics', () => {
             cachedTokens: null,
             totalTokens: 6000
         });
+    });
+});
+
+describe('resolveContextLengthTokens', () => {
+    it('prefers non-zero context_window usage over transcript metrics', () => {
+        const metrics = getContextWindowMetrics({
+            context_window: {
+                context_window_size: 200000,
+                current_usage: {
+                    input_tokens: 30000,
+                    output_tokens: 1000,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0
+                }
+            }
+        });
+
+        expect(resolveContextLengthTokens(metrics, { contextLength: 50000 })).toBe(30000);
+    });
+
+    it('falls back to transcript metrics when context_window usage is zero', () => {
+        const metrics = getContextWindowMetrics({
+            context_window: {
+                context_window_size: 200000,
+                current_usage: {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    cache_creation_input_tokens: 0,
+                    cache_read_input_tokens: 0
+                }
+            }
+        });
+
+        expect(resolveContextLengthTokens(metrics, { contextLength: 39297 })).toBe(39297);
+    });
+
+    it('falls back to transcript metrics when used_percentage is zero', () => {
+        const metrics = getContextWindowMetrics({
+            context_window: {
+                context_window_size: 200000,
+                used_percentage: 0
+            }
+        });
+
+        expect(resolveContextLengthTokens(metrics, { contextLength: 18000 })).toBe(18000);
+    });
+
+    it('keeps zero when transcript metrics are also zero', () => {
+        const metrics = getContextWindowMetrics({
+            context_window: {
+                context_window_size: 200000,
+                current_usage: 0
+            }
+        });
+
+        expect(resolveContextLengthTokens(metrics, { contextLength: 0 })).toBe(0);
+    });
+
+    it('returns null when neither source has a value', () => {
+        const metrics = getContextWindowMetrics(undefined);
+        expect(resolveContextLengthTokens(metrics, null)).toBeNull();
     });
 });

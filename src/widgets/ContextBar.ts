@@ -6,7 +6,10 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { getContextWindowMetrics } from '../utils/context-window';
+import {
+    getContextWindowMetrics,
+    resolveContextLengthTokens
+} from '../utils/context-window';
 import {
     getContextConfig,
     getModelContextIdentifier
@@ -27,6 +30,23 @@ function getDisplayMode(item: WidgetItem): DisplayMode {
 
 function isBarSliderMode(mode: DisplayMode): boolean {
     return mode === 'slider' || mode === 'slider-only';
+}
+
+function resolveContextBarMetrics(context: RenderContext): { used: number; total: number } | null {
+    const contextWindowMetrics = getContextWindowMetrics(context.data);
+    let total = contextWindowMetrics.windowSize;
+    const used = resolveContextLengthTokens(contextWindowMetrics, context.tokenMetrics);
+
+    if (total === null && context.tokenMetrics) {
+        const modelIdentifier = getModelContextIdentifier(context.data?.model);
+        total = getContextConfig(modelIdentifier).maxTokens;
+    }
+
+    if (used === null || total === null || total <= 0) {
+        return null;
+    }
+
+    return { used, total };
 }
 
 export class ContextBarWidget implements Widget {
@@ -90,24 +110,12 @@ export class ContextBarWidget implements Widget {
             return item.rawValue ? previewDisplay : `Context: ${previewDisplay}`;
         }
 
-        const contextWindowMetrics = getContextWindowMetrics(context.data);
-
-        let total = contextWindowMetrics.windowSize;
-        let used = contextWindowMetrics.contextLengthTokens;
-
-        if (used === null && context.tokenMetrics) {
-            used = context.tokenMetrics.contextLength;
-        }
-
-        if (total === null && context.tokenMetrics) {
-            const modelIdentifier = getModelContextIdentifier(context.data?.model);
-            total = getContextConfig(modelIdentifier).maxTokens;
-        }
-
-        if (used === null || total === null || total <= 0) {
+        const metrics = resolveContextBarMetrics(context);
+        if (!metrics) {
             return null;
         }
 
+        const { used, total } = metrics;
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
         const usedLabel = used >= 1_000_000 ? `${(used / 1_000_000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(used / 1000)}k`;
@@ -138,20 +146,12 @@ export class ContextBarWidget implements Widget {
 
         const COMPACT_SLIDER_WIDTH = 5;
 
-        const contextWindowMetrics = getContextWindowMetrics(context.data);
-        let total = contextWindowMetrics.windowSize;
-        let used = contextWindowMetrics.contextLengthTokens;
-
-        if (used === null && context.tokenMetrics) {
-            used = context.tokenMetrics.contextLength;
-        }
-        if (total === null && context.tokenMetrics) {
-            const modelIdentifier = getModelContextIdentifier(context.data?.model);
-            total = getContextConfig(modelIdentifier).maxTokens;
-        }
-        if (used === null || total === null || total <= 0)
+        const metrics = resolveContextBarMetrics(context);
+        if (!metrics) {
             return null;
+        }
 
+        const { used, total } = metrics;
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
         const usedLabel = used >= 1_000_000 ? `${(used / 1_000_000).toFixed(1).replace(/\.0$/, '')}M` : `${Math.round(used / 1000)}k`;

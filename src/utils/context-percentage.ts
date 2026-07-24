@@ -1,6 +1,9 @@
 import type { RenderContext } from '../types';
 
-import { getContextWindowMetrics } from './context-window';
+import {
+    getContextWindowMetrics,
+    resolveContextLengthTokens
+} from './context-window';
 import {
     getContextConfig,
     getModelContextIdentifier
@@ -21,19 +24,23 @@ export function calculateContextPercentageMetrics(context: Pick<RenderContext, '
     const modelIdentifier = getModelContextIdentifier(context.data?.model);
     const contextConfig = getContextConfig(modelIdentifier, contextWindowMetrics.windowSize);
 
-    if (contextWindowMetrics.usedPercentage !== null) {
+    // Prefer an explicit non-zero status percentage. A zero percentage is often a
+    // placeholder on non-Anthropic model paths while the transcript already has
+    // the real context length — fall through and recompute from resolved length.
+    if (contextWindowMetrics.usedPercentage !== null && contextWindowMetrics.usedPercentage > 0) {
         return {
             usedPercentage: contextWindowMetrics.usedPercentage,
             windowSize: contextConfig.maxTokens
         };
     }
 
-    if (!context.tokenMetrics) {
+    const resolvedLength = resolveContextLengthTokens(contextWindowMetrics, context.tokenMetrics);
+    if (resolvedLength === null) {
         return null;
     }
 
     return {
-        usedPercentage: Math.min(100, (context.tokenMetrics.contextLength / contextConfig.maxTokens) * 100),
+        usedPercentage: Math.min(100, (resolvedLength / contextConfig.maxTokens) * 100),
         windowSize: contextConfig.maxTokens
     };
 }

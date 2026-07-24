@@ -5,7 +5,10 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { getContextWindowContextLengthTokens } from '../utils/context-window';
+import {
+    getContextWindowMetrics,
+    resolveContextLengthTokens
+} from '../utils/context-window';
 import { formatTokens } from '../utils/renderer';
 
 export class ContextLengthWidget implements Widget {
@@ -22,14 +25,14 @@ export class ContextLengthWidget implements Widget {
             return item.rawValue ? '18.6k' : 'Ctx: 18.6k';
         }
 
-        const contextLengthTokens = getContextWindowContextLengthTokens(context.data);
+        const contextLengthTokens = resolveContextLengthTokens(
+            getContextWindowMetrics(context.data),
+            context.tokenMetrics
+        );
         if (contextLengthTokens !== null) {
             return item.rawValue ? formatTokens(contextLengthTokens) : `Ctx: ${formatTokens(contextLengthTokens)}`;
         }
 
-        if (context.tokenMetrics) {
-            return item.rawValue ? formatTokens(context.tokenMetrics.contextLength) : `Ctx: ${formatTokens(context.tokenMetrics.contextLength)}`;
-        }
         return null;
     }
 

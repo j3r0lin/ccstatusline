@@ -34,6 +34,37 @@ describe('calculateContextPercentage', () => {
             expect(percentage).toBe(12.5);
         });
 
+        it('should ignore zero used_percentage placeholders and use transcript metrics', () => {
+            const context: RenderContext = {
+                data: {
+                    model: { id: 'gpt-5.6-terra' },
+                    context_window: {
+                        context_window_size: 200000,
+                        used_percentage: 0,
+                        current_usage: {
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            cache_creation_input_tokens: 0,
+                            cache_read_input_tokens: 0
+                        }
+                    }
+                },
+                tokenMetrics: {
+                    inputTokens: 0,
+                    outputTokens: 0,
+                    cachedTokens: 0,
+                    totalTokens: 0,
+                    contextLength: 40000
+                }
+            };
+
+            expect(calculateContextPercentage(context)).toBe(20);
+            expect(calculateContextPercentageMetrics(context)).toEqual({
+                usedPercentage: 20,
+                windowSize: 200000
+            });
+        });
+
         it('should infer the window size for raw percentage metrics when size is missing', () => {
             const context: RenderContext = {
                 data: {

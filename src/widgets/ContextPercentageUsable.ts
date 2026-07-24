@@ -6,7 +6,10 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { getContextWindowMetrics } from '../utils/context-window';
+import {
+    getContextWindowMetrics,
+    resolveContextLengthTokens
+} from '../utils/context-window';
 import {
     getContextConfig,
     getModelContextIdentifier
@@ -66,17 +69,13 @@ export class ContextPercentageUsableWidget implements Widget {
             return formatContextPercentage(isInverse ? 88.4 : 11.6);
         }
 
-        if (contextWindowMetrics.contextLengthTokens !== null) {
-            const usedPercentage = Math.min(100, (contextWindowMetrics.contextLengthTokens / contextConfig.usableTokens) * 100);
+        const contextLengthTokens = resolveContextLengthTokens(contextWindowMetrics, context.tokenMetrics);
+        if (contextLengthTokens !== null) {
+            const usedPercentage = Math.min(100, (contextLengthTokens / contextConfig.usableTokens) * 100);
             const displayPercentage = isInverse ? (100 - usedPercentage) : usedPercentage;
             return formatContextPercentage(displayPercentage);
         }
 
-        if (context.tokenMetrics) {
-            const usedPercentage = Math.min(100, (context.tokenMetrics.contextLength / contextConfig.usableTokens) * 100);
-            const displayPercentage = isInverse ? (100 - usedPercentage) : usedPercentage;
-            return formatContextPercentage(displayPercentage);
-        }
         return null;
     }
 
