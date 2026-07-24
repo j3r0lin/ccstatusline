@@ -52,6 +52,7 @@ export class IdleWidget implements Widget {
     getDescription(): string {
         return 'Shows time elapsed since last API completion; shows the idle icon while a turn is in flight';
     }
+
     getDisplayName(): string { return 'Idle'; }
     getCategory(): string { return 'Session'; }
 

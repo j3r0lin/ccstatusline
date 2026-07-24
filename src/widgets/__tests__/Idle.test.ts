@@ -47,9 +47,7 @@ describe('IdleWidget', () => {
 
     it('renders the idle icon in raw mode while a turn is in flight', () => {
         const widget = new IdleWidget();
-        expect(visible(render(widget, { ...baseItem, rawValue: true }, {
-            turnInFlight: true
-        }))).toBe('󰔛');
+        expect(visible(render(widget, { ...baseItem, rawValue: true }, { turnInFlight: true }))).toBe('󰔛');
     });
 
     it('prefers the in-flight icon over elapsed time when both are available', () => {

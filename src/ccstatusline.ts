@@ -47,13 +47,13 @@ import {
     isWidgetSpeedWindowEnabled
 } from './utils/speed-window';
 import {
-    isTranscriptTurnInFlight,
-    readTranscriptData
-} from './utils/transcript-cache';
-import {
     getPackageVersion,
     getTerminalWidth
 } from './utils/terminal';
+import {
+    isTranscriptTurnInFlight,
+    readTranscriptData
+} from './utils/transcript-cache';
 import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
 
 function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
