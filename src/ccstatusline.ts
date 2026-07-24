@@ -46,7 +46,10 @@ import {
     getWidgetSpeedWindowSeconds,
     isWidgetSpeedWindowEnabled
 } from './utils/speed-window';
-import { readTranscriptData } from './utils/transcript-cache';
+import {
+    isTranscriptTurnInFlight,
+    readTranscriptData
+} from './utils/transcript-cache';
 import {
     getPackageVersion,
     getTerminalWidth
@@ -151,18 +154,21 @@ async function renderMultipleLines(data: StatusJSON) {
         windowedSpeedMetrics = speedMetricsCollection.windowed;
     }
 
-    // Last prompt and thinking effort come from the shared transcript cache;
-    // the transcript is already parsed (and memoized) by the token metrics
-    // step above, so this adds no extra IO.
+    // Last prompt, thinking effort, and turn-in-flight come from the shared
+    // transcript cache; the transcript is already parsed (and memoized) by the
+    // token metrics step above, so this adds no extra IO.
     let lastPrompt: string | null = null;
+    let turnInFlight = false;
     let transcriptThinkingEffort: RenderContext['transcriptThinkingEffort'];
     if (data.transcript_path) {
         try {
             const transcriptData = await readTranscriptData(data.transcript_path);
             lastPrompt = transcriptData.lastPrompt;
             transcriptThinkingEffort = transcriptData.thinkingEffort ?? null;
+            turnInFlight = isTranscriptTurnInFlight(transcriptData.entries);
         } catch {
             lastPrompt = null;
+            turnInFlight = false;
         }
     }
 
@@ -190,6 +196,7 @@ async function renderMultipleLines(data: StatusJSON) {
         skillsMetrics,
         compactionData,
         lastCompletionMs: tokenMetrics?.lastCompletionMs ?? null,
+        turnInFlight,
         lastPrompt,
         transcriptThinkingEffort,
         terminalWidth: getTerminalWidth(),

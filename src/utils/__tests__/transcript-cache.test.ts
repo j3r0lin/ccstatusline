@@ -12,7 +12,9 @@ import {
 import { getTokenMetrics } from '../jsonl';
 import {
     clearTranscriptMemo,
-    readTranscriptData
+    isTranscriptTurnInFlight,
+    readTranscriptData,
+    type SlimTranscriptEntry
 } from '../transcript-cache';
 
 function makeUsageLine(params: {
@@ -134,5 +136,46 @@ describe('transcript incremental cache', () => {
         const second = await getTokenMetrics(transcriptPath);
         expect(second.inputTokens).toBe(16);
         expect(second.outputTokens).toBe(4);
+    });
+});
+
+describe('isTranscriptTurnInFlight', () => {
+    it('returns false for an empty transcript', () => {
+        expect(isTranscriptTurnInFlight([])).toBe(false);
+    });
+
+    it('returns true when the newest main-chain row is a user turn', () => {
+        const entries: SlimTranscriptEntry[] = [
+            { y: 'assistant', t: 1 },
+            { y: 'user', t: 2 }
+        ];
+        expect(isTranscriptTurnInFlight(entries)).toBe(true);
+    });
+
+    it('returns false when the newest main-chain row is an assistant turn', () => {
+        const entries: SlimTranscriptEntry[] = [
+            { y: 'user', t: 1 },
+            { y: 'assistant', t: 2 }
+        ];
+        expect(isTranscriptTurnInFlight(entries)).toBe(false);
+    });
+
+    it('skips sidechain rows when deciding turn state', () => {
+        const entries: SlimTranscriptEntry[] = [
+            { y: 'user', t: 1 },
+            { y: 'assistant', t: 2 },
+            { y: 'user', t: 3, s: 1 }
+        ];
+        expect(isTranscriptTurnInFlight(entries)).toBe(false);
+    });
+
+    it('treats a trailing tool-result user row as in flight', () => {
+        const entries: SlimTranscriptEntry[] = [
+            { y: 'assistant', t: 1 },
+            { y: 'user', t: 2 },
+            { y: 'assistant', t: 3 },
+            { y: 'user', t: 4 }
+        ];
+        expect(isTranscriptTurnInFlight(entries)).toBe(true);
     });
 });

@@ -41,6 +41,11 @@ export interface RenderContext {
     skillsMetrics?: SkillsMetrics | null;
     compactionData?: CompactionData | null;
     lastCompletionMs?: number | null;
+    /**
+     * True when the transcript's newest main-chain row is still a user turn
+     * (prompt or tool result) awaiting an assistant reply — model is working.
+     */
+    turnInFlight?: boolean;
     lastPrompt?: string | null;
     /** Effort from the transcript's latest /model|/effort marker; null = checked, none found */
     transcriptThinkingEffort?: {

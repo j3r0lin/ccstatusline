@@ -14,6 +14,8 @@ const WARN_MS = 5 * 60 * 1000;
 const DANGER_MS = 15 * 60 * 1000;
 const STALE_MS = 60 * 60 * 1000;
 
+const IDLE_ICON = '󰔛';
+
 function formatElapsed(elapsedMs: number): string {
     const totalSeconds = Math.floor(elapsedMs / 1000);
     const minutes = Math.floor(totalSeconds / 60);
@@ -47,7 +49,9 @@ function getIdleColor(elapsedMs: number): string {
 
 export class IdleWidget implements Widget {
     getDefaultColor(): string { return 'brightGreen'; }
-    getDescription(): string { return 'Shows time elapsed since last API completion in this session'; }
+    getDescription(): string {
+        return 'Shows time elapsed since last API completion; shows the idle icon while a turn is in flight';
+    }
     getDisplayName(): string { return 'Idle'; }
     getCategory(): string { return 'Session'; }
 
@@ -59,7 +63,14 @@ export class IdleWidget implements Widget {
         const colorLevel = getColorLevelString(settings.colorLevel);
 
         if (context.isPreview) {
-            const text = applyColors('󰔛 2m', 'brightGreen', undefined, false, colorLevel);
+            const text = applyColors(`${IDLE_ICON} 2m`, 'brightGreen', undefined, false, colorLevel);
+            return formatRawOrLabeledValue(item, 'Idle: ', text);
+        }
+
+        // A trailing main-chain user row (prompt or tool result) means the model
+        // is still working — show the icon without an elapsed time.
+        if (context.turnInFlight) {
+            const text = applyColors(IDLE_ICON, 'brightGreen', undefined, false, colorLevel);
             return formatRawOrLabeledValue(item, 'Idle: ', text);
         }
 
@@ -70,7 +81,7 @@ export class IdleWidget implements Widget {
 
         const elapsedMs = Date.now() - lastMs;
         const color = getIdleColor(elapsedMs);
-        const text = applyColors(`󰔛 ${formatElapsed(elapsedMs)}`, color, undefined, false, colorLevel);
+        const text = applyColors(`${IDLE_ICON} ${formatElapsed(elapsedMs)}`, color, undefined, false, colorLevel);
         return formatRawOrLabeledValue(item, 'Idle: ', text);
     }
 

@@ -40,6 +40,28 @@ export interface TranscriptData {
     thinkingEffort: ResolvedThinkingEffort | undefined;
 }
 
+/**
+ * True when the newest main-chain transcript row is still a user turn
+ * (prompt or tool result) with no assistant reply after it — i.e. a model
+ * call is in flight. Mirrors CacheTimer's "HOT" detection without a second
+ * file read; callers pass entries already loaded via readTranscriptData.
+ */
+export function isTranscriptTurnInFlight(entries: SlimTranscriptEntry[]): boolean {
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i];
+        if (!entry || entry.s === 1) {
+            continue;
+        }
+        if (entry.y === 'assistant') {
+            return false;
+        }
+        if (entry.y === 'user') {
+            return true;
+        }
+    }
+    return false;
+}
+
 interface TranscriptCacheFile {
     v: number;
     path: string;
