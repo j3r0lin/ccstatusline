@@ -55,7 +55,7 @@ describe('WeeklyOpusUsageWidget', () => {
             id: 'weekly-opus',
             type: 'weekly-opus-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe('Weekly Opus: ▓▓░░░│░░░░ 20.0%');
+        }, context)).toBe('Weekly Opus: ▓▓░░░│░░░░ 20%');
         expect(render(widget, {
             id: 'weekly-opus',
             type: 'weekly-opus-usage',
@@ -74,7 +74,7 @@ describe('WeeklyOpusUsageWidget', () => {
         errorMessageMock: usageErrorMessageMock,
         expectedInvertedTime: 'Weekly Opus: 57.9%',
         expectedModifierText: '(long bar, remaining)',
-        expectedPreviewInvertedTime: 'Weekly Opus: 96.0%',
+        expectedPreviewInvertedTime: 'Weekly Opus: 96%',
         expectedProgress: 'Weekly Opus: [███████████████████░░░░░░░░░░░░░] 57.9%',
         expectedRawInvertedTime: '57.9%',
         expectedRawProgress: '[███████░░░░░░░░░] 42.1%',

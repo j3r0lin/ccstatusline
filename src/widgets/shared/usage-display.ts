@@ -324,3 +324,10 @@ export function getUsageTimerCustomKeybinds(
 
     return keybinds;
 }
+
+// Providers report usage as either whole numbers (Anthropic) or fractions
+// (Kimi), so keep one decimal when it carries information and drop a bare
+// trailing zero that only costs width.
+export function formatUsagePercent(percent: number): string {
+    return `${Number(percent.toFixed(1))}%`;
+}

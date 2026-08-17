@@ -55,7 +55,7 @@ describe('WeeklySonnetUsageWidget', () => {
             id: 'weekly-sonnet',
             type: 'weekly-sonnet-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe('Weekly Sonnet: ▓▓░░░│░░░░ 20.0%');
+        }, context)).toBe('Weekly Sonnet: ▓▓░░░│░░░░ 20%');
         expect(render(widget, {
             id: 'weekly-sonnet',
             type: 'weekly-sonnet-usage',
@@ -74,7 +74,7 @@ describe('WeeklySonnetUsageWidget', () => {
         errorMessageMock: usageErrorMessageMock,
         expectedInvertedTime: 'Weekly Sonnet: 57.9%',
         expectedModifierText: '(long bar, remaining)',
-        expectedPreviewInvertedTime: 'Weekly Sonnet: 92.0%',
+        expectedPreviewInvertedTime: 'Weekly Sonnet: 92%',
         expectedProgress: 'Weekly Sonnet: [███████████████████░░░░░░░░░░░░░] 57.9%',
         expectedRawInvertedTime: '57.9%',
         expectedRawProgress: '[███████░░░░░░░░░] 42.1%',
