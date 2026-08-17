@@ -1,3 +1,4 @@
+import { getColorLevelString } from '../types/ColorLevel';
 import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
@@ -17,6 +18,7 @@ import { makeTimerProgressBar } from './shared/progress-bar';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
     cycleUsageDisplayMode,
+    formatUsagePercent,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
     getUsagePercentCustomKeybinds,
@@ -29,6 +31,10 @@ import {
     toggleUsageCursor,
     toggleUsageInverted
 } from './shared/usage-display';
+import {
+    getUsagePaceIndicator,
+    withPaceSuffix
+} from './shared/usage-pace';
 
 const SESSION_LABEL = 'Session: ';
 const PROMOTED_WEEKLY_LABEL = 'Weekly: ';
@@ -108,17 +114,17 @@ export class SessionUsageWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
-                const progressDisplay = `[${progressBar}] ${renderedPercent.toFixed(1)}%`;
+                const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
                 return formatRawOrLabeledValue(item, SESSION_LABEL, progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} ${renderedPercent.toFixed(1)}%` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
                 return formatRawOrLabeledValue(item, SESSION_LABEL, sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, SESSION_LABEL, `${renderedPercent.toFixed(1)}%`);
+            return formatRawOrLabeledValue(item, SESSION_LABEL, formatUsagePercent(renderedPercent));
         }
 
         const data = context.usageData ?? {};
@@ -132,32 +138,43 @@ export class SessionUsageWidget implements Widget {
         const percent = Math.max(0, Math.min(100, source.percent));
         const renderedPercent = inverted ? 100 - percent : percent;
         const label = getSessionUsageLabel(source.promoted);
+        // Follows the promoted source, so a weekly percent is paced against the
+        // weekly window rather than the five-hour one.
+        const window = source.promoted
+            ? resolveWeeklyUsageWindow(data)
+            : resolveUsageWindowWithFallback(data, context.blockMetrics);
         const getCursorOptions = (): { cursorPercent: number } | undefined => {
             if (!showCursor) {
                 return undefined;
             }
 
-            const window = source.promoted
-                ? resolveWeeklyUsageWindow(data)
-                : resolveUsageWindowWithFallback(data, context.blockMetrics);
             return window ? { cursorPercent: window.elapsedPercent } : undefined;
         };
+
+        const colorLevel = getColorLevelString(settings.colorLevel);
+        const pace = getUsagePaceIndicator(percent, window);
 
         if (isUsageProgressMode(displayMode)) {
             const width = getUsageProgressBarWidth(displayMode);
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
-            const progressDisplay = `[${progressBar}] ${renderedPercent.toFixed(1)}%`;
-            return formatRawOrLabeledValue(item, label, progressDisplay);
+            const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+            return formatRawOrLabeledValue(item, label, withPaceSuffix(progressDisplay, pace, item, colorLevel));
         }
 
         if (isUsageSliderMode(displayMode)) {
             const slider = makeSliderBar(renderedPercent, undefined, getCursorOptions());
-            const sliderDisplay = displayMode === 'slider' ? `${slider} ${renderedPercent.toFixed(1)}%` : slider;
-            return formatRawOrLabeledValue(item, label, sliderDisplay);
+            // slider-only exists to be minimal, so it stays a bare bar.
+            if (displayMode !== 'slider') {
+                return formatRawOrLabeledValue(item, label, slider);
+            }
+
+            const sliderDisplay = `${slider} ${formatUsagePercent(renderedPercent)}`;
+            return formatRawOrLabeledValue(item, label, withPaceSuffix(sliderDisplay, pace, item, colorLevel));
         }
 
-        return formatRawOrLabeledValue(item, label, `${renderedPercent.toFixed(1)}%`);
+        const percentText = formatUsagePercent(renderedPercent);
+        return formatRawOrLabeledValue(item, label, withPaceSuffix(percentText, pace, item, colorLevel));
     }
 
     renderCompact(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
@@ -168,7 +185,7 @@ export class SessionUsageWidget implements Widget {
         if (context.isPreview) {
             const previewPercent = 20;
             const renderedPercent = isUsageInverted(item) ? 100 - previewPercent : previewPercent;
-            return formatRawOrLabeledValue(item, SESSION_LABEL, `${renderedPercent.toFixed(1)}%`);
+            return formatRawOrLabeledValue(item, SESSION_LABEL, formatUsagePercent(renderedPercent));
         }
 
         const data = context.usageData ?? {};
@@ -178,7 +195,7 @@ export class SessionUsageWidget implements Widget {
 
         const percent = Math.max(0, Math.min(100, source.percent));
         const renderedPercent = isUsageInverted(item) ? 100 - percent : percent;
-        return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), `${renderedPercent.toFixed(1)}%`);
+        return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), formatUsagePercent(renderedPercent));
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
@@ -187,4 +204,7 @@ export class SessionUsageWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
+    // The pace delta carries its own color, so the renderer hands color
+    // handling to this widget whenever a delta is present.
+    usesInlineColors(): boolean { return true; }
 }

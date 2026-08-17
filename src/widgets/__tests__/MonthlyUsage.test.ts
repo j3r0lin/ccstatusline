@@ -60,7 +60,7 @@ describe('MonthlyUsageWidget', () => {
             id: 'monthly',
             type: 'monthly-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe('Monthly: ▓▓░░░│░░░░ 20.0%');
+        }, context)).toBe(`Monthly: ▓▓░░░│░░░░ 20% ${applyColors('-30%', 'green', undefined, false, 'ansi256')}`);
         expect(render(widget, {
             id: 'monthly',
             type: 'monthly-usage',
@@ -105,7 +105,7 @@ describe('MonthlyUsageWidget', () => {
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(90));
 
             const output = render(widget, item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55\.0% -\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% -\d+%$/);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
@@ -116,8 +116,8 @@ describe('MonthlyUsageWidget', () => {
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = render(widget, item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55\.0% \+\d+%$/);
-            expect(output.startsWith('Monthly: 55.0% ')).toBe(true);
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% \+\d+%$/);
+            expect(output.startsWith('Monthly: 55% ')).toBe(true);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
@@ -129,8 +129,8 @@ describe('MonthlyUsageWidget', () => {
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = render(widget, explicit, context) ?? '';
-            expect(output).toContain(applyColors('55.0%', 'brightBlue', undefined, false, 'ansi256'));
-            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55\.0% \+\d+%$/);
+            expect(output).toContain(applyColors('55%', 'brightBlue', undefined, false, 'ansi256'));
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% \+\d+%$/);
         });
     });
 
@@ -168,7 +168,7 @@ describe('MonthlyUsageWidget', () => {
         }, {
             hasWeeklyUsageWidget: true,
             usageData: { weeklyUsage: 55, monthlyUsage: 10, monthlyResetAt: '2026-09-12T12:24:00.000Z' }
-        })).toBe('Monthly: 10.0%');
+        })).toBe('Monthly: 10%');
     });
 
     it('still renders when no weekly-usage widget is configured', () => {
@@ -184,7 +184,7 @@ describe('MonthlyUsageWidget', () => {
         }, {
             hasWeeklyUsageWidget: false,
             usageData: { weeklyUsage: 10, monthlyUsage: 55, monthlyResetAt: '2026-09-12T12:24:00.000Z' }
-        })).toBe('Monthly: 55.0%');
+        })).toBe('Monthly: 55%');
     });
 
     runUsagePercentWidgetSuite({
@@ -193,7 +193,7 @@ describe('MonthlyUsageWidget', () => {
         errorMessageMock: usageErrorMessageMock,
         expectedInvertedTime: 'Monthly: 57.9%',
         expectedModifierText: '(long bar, remaining)',
-        expectedPreviewInvertedTime: 'Monthly: 88.0%',
+        expectedPreviewInvertedTime: 'Monthly: 88%',
         expectedProgress: 'Monthly: [███████████████████░░░░░░░░░░░░░] 57.9%',
         expectedRawInvertedTime: '57.9%',
         expectedRawProgress: '[███████░░░░░░░░░] 42.1%',

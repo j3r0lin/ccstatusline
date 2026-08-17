@@ -7,7 +7,6 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { applyColors } from '../utils/colors';
 import {
     getUsageErrorMessage,
     resolveMonthlyUsageWindow,
@@ -19,6 +18,7 @@ import { makeTimerProgressBar } from './shared/progress-bar';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
     cycleUsageDisplayMode,
+    formatUsagePercent,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
     getUsagePercentCustomKeybinds,
@@ -31,7 +31,10 @@ import {
     toggleUsageCursor,
     toggleUsageInverted
 } from './shared/usage-display';
-import { getUsagePaceIndicator } from './shared/usage-pace';
+import {
+    getUsagePaceIndicator,
+    withPaceSuffix
+} from './shared/usage-pace';
 
 // When the monthly pool is the tighter cap, the weekly slot renders it with an
 // "M"-flavored prefix so the same position always shows the binding number.
@@ -88,17 +91,17 @@ export class WeeklyUsageWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
-                const progressDisplay = `[${progressBar}] ${renderedPercent.toFixed(1)}%`;
+                const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
                 return formatRawOrLabeledValue(item, 'Weekly: ', progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} ${renderedPercent.toFixed(1)}%` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
                 return formatRawOrLabeledValue(item, 'Weekly: ', sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, 'Weekly: ', `${renderedPercent.toFixed(1)}%`);
+            return formatRawOrLabeledValue(item, 'Weekly: ', formatUsagePercent(renderedPercent));
         }
 
         const data = context.usageData ?? {};
@@ -133,39 +136,30 @@ export class WeeklyUsageWidget implements Widget {
             return window ? { cursorPercent: window.elapsedPercent } : undefined;
         };
 
+        const colorLevel = getColorLevelString(settings.colorLevel);
+        const pace = getUsagePaceIndicator(percent, window);
+
         if (isUsageProgressMode(displayMode)) {
             const width = getUsageProgressBarWidth(displayMode);
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
-            const progressDisplay = `[${progressBar}] ${renderedPercent.toFixed(1)}%`;
-            return formatRawOrLabeledValue(renderItem, label, progressDisplay);
+            const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+            return formatRawOrLabeledValue(renderItem, label, withPaceSuffix(progressDisplay, pace, item, colorLevel));
         }
 
         if (isUsageSliderMode(displayMode)) {
             const slider = makeSliderBar(renderedPercent, undefined, getCursorOptions());
-            const sliderDisplay = displayMode === 'slider' ? `${slider} ${renderedPercent.toFixed(1)}%` : slider;
-            return formatRawOrLabeledValue(renderItem, label, sliderDisplay);
+            // slider-only exists to be minimal, so it stays a bare bar.
+            if (displayMode !== 'slider') {
+                return formatRawOrLabeledValue(renderItem, label, slider);
+            }
+
+            const sliderDisplay = `${slider} ${formatUsagePercent(renderedPercent)}`;
+            return formatRawOrLabeledValue(renderItem, label, withPaceSuffix(sliderDisplay, pace, item, colorLevel));
         }
 
-        // Bar modes already show pace as the cursor, so the delta only appears
-        // in text mode, where nothing else conveys it.
-        const percentText = `${renderedPercent.toFixed(1)}%`;
-        const pace = getUsagePaceIndicator(percent, window);
-        if (!pace) {
-            return formatRawOrLabeledValue(renderItem, label, percentText);
-        }
-
-        // Emitting any SGR here makes the renderer skip the configured
-        // foreground color for the whole widget, so apply it to the percent
-        // ourselves to keep it working alongside the pace color.
-        const colorLevel = getColorLevelString(settings.colorLevel);
-        const percentPart = item.color
-            ? applyColors(percentText, item.color, undefined, false, colorLevel)
-            : percentText;
-        const paceText = pace.color
-            ? applyColors(pace.text, pace.color, undefined, false, colorLevel)
-            : pace.text;
-        return formatRawOrLabeledValue(renderItem, label, `${percentPart} ${paceText}`);
+        const percentText = formatUsagePercent(renderedPercent);
+        return formatRawOrLabeledValue(renderItem, label, withPaceSuffix(percentText, pace, item, colorLevel));
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

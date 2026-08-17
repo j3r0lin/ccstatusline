@@ -10,6 +10,7 @@ import {
 import type { RenderContext } from '../../types/RenderContext';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
+import { applyColors } from '../../utils/colors';
 import * as usage from '../../utils/usage';
 import type { UsageWindowMetrics } from '../../utils/usage-types';
 import {
@@ -42,7 +43,10 @@ describe('SessionUsageWidget', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         mockGetUsageErrorMessage = vi.spyOn(usage, 'getUsageErrorMessage');
-        // makeUsageProgressBar no longer used; SessionUsage uses makeTimerProgressBar directly
+        // Without a session reset time the widget falls back to cached block
+        // metrics on disk, which would make the pace delta depend on the
+        // machine. Cases that need a window install their own.
+        vi.spyOn(usage, 'resolveUsageWindowWithFallback').mockReturnValue(null);
     });
 
     afterEach(() => {
@@ -59,7 +63,7 @@ describe('SessionUsageWidget', () => {
             id: 'session',
             type: 'session-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe('Session: ▓▓░░░│░░░░ 20.0%');
+        }, context)).toBe(`Session: ▓▓░░░│░░░░ 20% ${applyColors('-30%', 'green', undefined, false, 'ansi256')}`);
         expect(render(widget, {
             id: 'session',
             type: 'session-usage',
@@ -75,7 +79,8 @@ describe('SessionUsageWidget', () => {
             id: 'session',
             type: 'session-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, { usageData: { weeklyUsage: 30, weeklyResetAt: '2030-01-07T00:00:00Z' } })).toBe('Weekly: ▓▓▓░░│░░░░ 30.0%');
+        }, { usageData: { weeklyUsage: 30, weeklyResetAt: '2030-01-07T00:00:00Z' } }))
+            .toBe(`Weekly: ▓▓▓░░│░░░░ 30% ${applyColors('-20%', 'green', undefined, false, 'ansi256')}`);
     });
 
     it('prefers session usage over weekly usage when both are present', () => {
@@ -85,7 +90,7 @@ describe('SessionUsageWidget', () => {
             id: 'session',
             type: 'session-usage',
             metadata: { display: 'slider' }
-        }, { usageData: { sessionUsage: 12, weeklyUsage: 90 } })).toBe('Session: ▓░░░░░░░░░ 12.0%');
+        }, { usageData: { sessionUsage: 12, weeklyUsage: 90 } })).toBe('Session: ▓░░░░░░░░░ 12%');
     });
 
     it('treats zero session usage as present and does not promote weekly', () => {
@@ -94,7 +99,7 @@ describe('SessionUsageWidget', () => {
         expect(render(widget, {
             id: 'session',
             type: 'session-usage'
-        }, { usageData: { sessionUsage: 0, weeklyUsage: 90 } })).toBe('Session: 0.0%');
+        }, { usageData: { sessionUsage: 0, weeklyUsage: 90 } })).toBe('Session: 0%');
     });
 
     it('still surfaces usage errors when neither session nor weekly usage is available', () => {
@@ -134,7 +139,7 @@ describe('SessionUsageWidget', () => {
         errorMessageMock: usageErrorMessageMock,
         expectedInvertedTime: 'Session: 76.5%',
         expectedModifierText: '(medium bar, remaining)',
-        expectedPreviewInvertedTime: 'Session: 80.0%',
+        expectedPreviewInvertedTime: 'Session: 80%',
         expectedProgress: 'Session: [████████████░░░░] 76.5%',
         expectedRawInvertedTime: '76.5%',
         expectedRawProgress: '[████████░░░░░░░░░░░░░░░░░░░░░░░░] 23.4%',

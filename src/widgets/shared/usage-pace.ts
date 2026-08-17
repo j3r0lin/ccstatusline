@@ -1,3 +1,6 @@
+import type { ColorLevelString } from '../../types/ColorLevel';
+import type { WidgetItem } from '../../types/Widget';
+import { applyColors } from '../../utils/colors';
 import {
     SEVEN_DAY_WINDOW_MS,
     type UsageWindowMetrics
@@ -11,11 +14,13 @@ import {
 // or 30-day window a ratio explodes early on (2% elapsed, 12% used reads as 6x),
 // while a difference stays bounded by the window progress itself.
 //
-// The cutoffs come from CodexBar's pace stages (ahead past 6, far ahead past
-// 12). It uses them only to word the label, having no pace color of its own; a
-// one-line status bar has no room for words, so they drive the color here.
+// The cutoffs come from CodexBar's pace stages: on track within 2, far
+// ahead/behind past 12. It uses them only to word the label, having no pace
+// color of its own; a one-line status bar has no room for words, so they drive
+// the color here. Calling anything wider than 2 "on pace" would drain the word
+// of meaning, so that narrow band is the only colorless one.
 const PACE_RED_DELTA = 12;
-const PACE_YELLOW_DELTA = 6;
+const PACE_YELLOW_DELTA = 2;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -125,4 +130,22 @@ export function getUsagePaceIndicator(
         color: getPaceColor(delta),
         text: delta >= 0 ? `+${delta}%` : `${delta}%`
     };
+}
+
+// Appends the pace delta to an already-rendered body, coloring each part
+// separately. Emitting any SGR makes the renderer skip the configured
+// foreground color for the whole widget, so the body carries it here instead.
+export function withPaceSuffix(
+    body: string,
+    pace: UsagePaceIndicator | null,
+    item: WidgetItem,
+    colorLevel: ColorLevelString
+): string {
+    if (!pace) {
+        return body;
+    }
+
+    const head = item.color ? applyColors(body, item.color, undefined, false, colorLevel) : body;
+    const tail = pace.color ? applyColors(pace.text, pace.color, undefined, false, colorLevel) : pace.text;
+    return `${head} ${tail}`;
 }

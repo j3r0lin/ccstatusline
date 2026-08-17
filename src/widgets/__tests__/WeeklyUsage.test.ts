@@ -57,11 +57,13 @@ describe('WeeklyUsageWidget', () => {
 
         vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(halfElapsedWindow);
 
-        expect(render(widget, {
+        expect(stripSgrCodes(render(widget, {
             id: 'weekly',
             type: 'weekly-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe('Weekly: ▓▓░░░│░░░░ 20.0%');
+        // The weekly pace baseline counts workdays, so the delta shifts with the
+        // current weekday; this case is about the cursor, not the number.
+        }, context) ?? '')).toMatch(/^Weekly: ▓▓░░░│░░░░ 20% -\d+%$/);
         expect(render(widget, {
             id: 'weekly',
             type: 'weekly-usage',
@@ -109,7 +111,7 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(90));
 
             const output = renderColored(item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55\.0% -\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% -\d+%$/);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
@@ -119,7 +121,7 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = renderColored(item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55\.0% \+\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% \+\d+%$/);
         });
 
         it('says nothing when the window has not started yet', () => {
@@ -127,7 +129,7 @@ describe('WeeklyUsageWidget', () => {
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(0));
 
-            expect(renderColored(item, context)).toBe('Weekly: 55.0%');
+            expect(renderColored(item, context)).toBe('Weekly: 55%');
         });
 
         it('colors only the delta, leaving the percent plain', () => {
@@ -136,7 +138,7 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = renderColored(item, context) ?? '';
-            expect(output.startsWith('Weekly: 55.0% ')).toBe(true);
+            expect(output.startsWith('Weekly: 55% ')).toBe(true);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
@@ -150,10 +152,10 @@ describe('WeeklyUsageWidget', () => {
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(90));
-            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55\.0% -\d+%$/);
+            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55% -\d+%$/);
 
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
-            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55\.0% \+\d+%$/);
+            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55% \+\d+%$/);
         });
 
         it('keeps the configured color on the percent', () => {
@@ -163,17 +165,26 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = renderColored(explicit, context) ?? '';
-            expect(output).toContain(applyColors('55.0%', 'brightBlue', undefined, false, 'ansi256'));
-            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55\.0% \+\d+%$/);
+            expect(output).toContain(applyColors('55%', 'brightBlue', undefined, false, 'ansi256'));
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% \+\d+%$/);
         });
 
-        it('omits the delta in bar modes, where the cursor already shows pace', () => {
+        it('shows the delta in bar modes too, so the cursor is not the only cue', () => {
             const context: RenderContext = { usageData: { weeklyUsage: 55 } };
             const barItem: WidgetItem = { ...item, metadata: { display: 'slider' } };
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
-            expect(renderColored(barItem, context)).toMatch(/55\.0%$/);
+            expect(stripSgrCodes(renderColored(barItem, context) ?? '')).toMatch(/55% \+\d+%$/);
+        });
+
+        it('keeps slider-only a bare bar', () => {
+            const context: RenderContext = { usageData: { weeklyUsage: 55 } };
+            const barItem: WidgetItem = { ...item, metadata: { display: 'slider-only' } };
+
+            vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
+
+            expect(renderColored(barItem, context)).not.toMatch(/%/);
         });
     });
 
@@ -198,7 +209,7 @@ describe('WeeklyUsageWidget', () => {
         }, {
             hasSessionUsageWidget: true,
             usageData: { sessionUsage: 12, weeklyUsage: 30 }
-        })).toBe('Weekly: 30.0%');
+        })).toBe('Weekly: 30%');
     });
 
     it('still renders weekly alone when session-usage is not configured', () => {
@@ -210,7 +221,7 @@ describe('WeeklyUsageWidget', () => {
         }, {
             hasSessionUsageWidget: false,
             usageData: { weeklyUsage: 30 }
-        })).toBe('Weekly: 30.0%');
+        })).toBe('Weekly: 30%');
     });
 
     describe('monthly promotion', () => {
@@ -235,7 +246,7 @@ describe('WeeklyUsageWidget', () => {
             expect(render(widget, {
                 id: 'weekly',
                 type: 'weekly-usage'
-            }, promotedContext)).toBe('Monthly: 55.0%');
+            }, promotedContext)).toBe('Monthly: 55%');
         });
 
         it('swaps a W prefix to M in raw-value mode', () => {
@@ -246,7 +257,7 @@ describe('WeeklyUsageWidget', () => {
                 type: 'weekly-usage',
                 rawValue: true,
                 metadata: { prefix: 'W ' }
-            }, promotedContext)).toBe('M 55.0%');
+            }, promotedContext)).toBe('M 55%');
         });
 
         it('leaves non-W prefixes untouched in raw-value mode', () => {
@@ -257,7 +268,7 @@ describe('WeeklyUsageWidget', () => {
                 type: 'weekly-usage',
                 rawValue: true,
                 metadata: { prefix: 'Quota ' }
-            }, promotedContext)).toBe('Quota 55.0%');
+            }, promotedContext)).toBe('Quota 55%');
         });
 
         it('uses the monthly window for the time cursor', () => {
@@ -291,7 +302,7 @@ describe('WeeklyUsageWidget', () => {
                 type: 'weekly-usage',
                 rawValue: true,
                 metadata: { prefix: 'W ' }
-            }, { usageData: { weeklyUsage: 55, monthlyUsage: 10 } })).toBe('W 55.0%');
+            }, { usageData: { weeklyUsage: 55, monthlyUsage: 10 } })).toBe('W 55%');
         });
     });
 
@@ -301,7 +312,7 @@ describe('WeeklyUsageWidget', () => {
         errorMessageMock: usageErrorMessageMock,
         expectedInvertedTime: 'Weekly: 57.9%',
         expectedModifierText: '(long bar, remaining)',
-        expectedPreviewInvertedTime: 'Weekly: 88.0%',
+        expectedPreviewInvertedTime: 'Weekly: 88%',
         expectedProgress: 'Weekly: [███████████████████░░░░░░░░░░░░░] 57.9%',
         expectedRawInvertedTime: '57.9%',
         expectedRawProgress: '[███████░░░░░░░░░] 42.1%',
