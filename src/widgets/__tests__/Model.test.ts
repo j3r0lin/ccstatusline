@@ -106,6 +106,16 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K3');
         });
 
+        it('renders k3-256k id as "K3 256K"', () => {
+            const ctx = makeContext({ data: { model: { id: 'k3-256k' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K3 256K');
+        });
+
+        it('prefers k3-256k id over kimi display_name', () => {
+            const ctx = makeContext({ data: { model: { id: 'k3-256k', display_name: 'Kimi K3 256K' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K3 256K');
+        });
+
         it('renders grok-4.5 id as "Grok 4.5"', () => {
             const ctx = makeContext({ data: { model: { id: 'grok-4.5' } } });
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');

@@ -149,8 +149,9 @@ function formatModelDisplayName(model: string | ModelInfo): string {
         return 'Kimi Fast';
     }
 
-    if (/^k3(?:\[1m\])?$/i.test(id ?? '')) {
-        return 'K3';
+    const k3Match = /^k3(-256k)?(?:\[1m\])?$/i.exec(id ?? '');
+    if (k3Match) {
+        return k3Match[1] ? 'K3 256K' : 'K3';
     }
 
     if (/kimi/i.test(name ?? '')) {
