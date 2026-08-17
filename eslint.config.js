@@ -140,6 +140,9 @@ export default ts.config([
         ignores: [
             '**/dist/',
             '**/node_modules/',
+            // Worktrees are separate checkouts of this repo; linting them here
+            // reports every file as outside tsconfig's project.
+            '.claude/',
             '**/*.js',
             '!eslint.config.js'
         ]
