@@ -26,6 +26,26 @@ const MACOS_SECURITY_DUMP_MAX_BUFFER = 8 * 1024 * 1024;
 
 type UsageDataField = Exclude<keyof UsageData, 'error'>;
 
+// Fields the Anthropic OAuth usage API can actually provide. The monthly
+// membership pool fields are served only by the Kimi web gateway; letting them
+// into the requirement set here would make every cache/lock check permanently
+// unsatisfiable and churn the lock into persistent [Timeout] errors.
+export const ANTHROPIC_USAGE_FIELDS = new Set<UsageDataField>([
+    'sessionUsage',
+    'sessionResetAt',
+    'weeklyUsage',
+    'weeklyResetAt',
+    'weeklySonnetUsage',
+    'weeklySonnetResetAt',
+    'weeklyOpusUsage',
+    'weeklyOpusResetAt',
+    'extraUsageEnabled',
+    'extraUsageLimit',
+    'extraUsageUsed',
+    'extraUsageUtilization',
+    'extraUsageCurrency'
+]);
+
 export interface FetchUsageDataOptions { requiredFields?: readonly UsageDataField[] }
 
 const EXTRA_USAGE_DETAIL_FIELDS = new Set<UsageDataField>([
@@ -601,7 +621,7 @@ export async function fetchUsageData(options: FetchUsageDataOptions = {}): Promi
     }
 
     const now = Math.floor(Date.now() / 1000);
-    const requiredFields = options.requiredFields ?? [];
+    const requiredFields = (options.requiredFields ?? []).filter(field => ANTHROPIC_USAGE_FIELDS.has(field));
 
     // Check memory cache (fast path)
     if (cachedUsageData) {

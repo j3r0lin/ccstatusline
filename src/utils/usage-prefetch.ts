@@ -14,7 +14,10 @@ import {
     isKimiUsageContext
 } from './kimi-usage';
 import type { UsageData } from './usage';
-import { fetchUsageData } from './usage';
+import {
+    ANTHROPIC_USAGE_FIELDS,
+    fetchUsageData
+} from './usage';
 
 type UsageDataField = Exclude<keyof UsageData, 'error'>;
 
@@ -230,7 +233,10 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
 
     const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
-    const missingRequirements = getMissingFetchRequirements(rateLimitsData, requirements);
+    // Fields the Anthropic usage API can never provide must not count as
+    // missing here, or every render would refetch and churn the lock.
+    const anthropicRequirements = requirements.filter(requirement => ANTHROPIC_USAGE_FIELDS.has(requirement.field));
+    const missingRequirements = getMissingFetchRequirements(rateLimitsData, anthropicRequirements);
     const missingFields = missingRequirements.fields;
 
     if (missingFields.length === 0) {

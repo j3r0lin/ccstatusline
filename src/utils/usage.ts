@@ -1,4 +1,4 @@
-export { fetchUsageData, isOfficialAnthropicEndpoint } from './usage-fetch';
+export { ANTHROPIC_USAGE_FIELDS, fetchUsageData, isOfficialAnthropicEndpoint } from './usage-fetch';
 export {
     formatUsageDuration,
     formatUsageResetAt,
