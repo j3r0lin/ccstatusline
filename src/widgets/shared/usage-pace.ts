@@ -24,6 +24,12 @@ const PACE_YELLOW_DELTA = 2;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// A triangle rather than a signed percent: it marks the number as a comparison
+// against the window's own progress, which a second "%" next to the usage
+// percent would read as just another absolute figure.
+const AHEAD_MARK = '▴';
+const BEHIND_MARK = '▾';
+
 const YELLOW_COLOR = 'yellow';
 const RED_COLOR = 'brightRed';
 const GREEN_COLOR = 'green';
@@ -128,7 +134,7 @@ export function getUsagePaceIndicator(
     const delta = Math.round(percent - getExpectedUsedPercent(window, nowMs));
     return {
         color: getPaceColor(delta),
-        text: delta >= 0 ? `+${delta}%` : `${delta}%`
+        text: `${delta >= 0 ? AHEAD_MARK : BEHIND_MARK}${Math.abs(delta)}`
     };
 }
 

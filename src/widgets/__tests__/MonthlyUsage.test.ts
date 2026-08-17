@@ -60,7 +60,7 @@ describe('MonthlyUsageWidget', () => {
             id: 'monthly',
             type: 'monthly-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe(`Monthly: ▓▓░░░│░░░░ 20% ${applyColors('-30%', 'green', undefined, false, 'ansi256')}`);
+        }, context)).toBe(`Monthly: ▓▓░░░│░░░░ 20% ${applyColors('▾30', 'green', undefined, false, 'ansi256')}`);
         expect(render(widget, {
             id: 'monthly',
             type: 'monthly-usage',
@@ -105,7 +105,7 @@ describe('MonthlyUsageWidget', () => {
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(90));
 
             const output = render(widget, item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% -\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% ▾\d+$/);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
@@ -116,7 +116,7 @@ describe('MonthlyUsageWidget', () => {
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = render(widget, item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% \+\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% ▴\d+$/);
             expect(output.startsWith('Monthly: 55% ')).toBe(true);
             expect(output).not.toBe(stripSgrCodes(output));
         });
@@ -130,7 +130,7 @@ describe('MonthlyUsageWidget', () => {
 
             const output = render(widget, explicit, context) ?? '';
             expect(output).toContain(applyColors('55%', 'brightBlue', undefined, false, 'ansi256'));
-            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% \+\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55% ▴\d+$/);
         });
     });
 

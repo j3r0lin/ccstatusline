@@ -63,7 +63,7 @@ describe('WeeklyUsageWidget', () => {
             metadata: { cursor: 'true', display: 'slider' }
         // The weekly pace baseline counts workdays, so the delta shifts with the
         // current weekday; this case is about the cursor, not the number.
-        }, context) ?? '')).toMatch(/^Weekly: ▓▓░░░│░░░░ 20% -\d+%$/);
+        }, context) ?? '')).toMatch(/^Weekly: ▓▓░░░│░░░░ 20% ▾\d+$/);
         expect(render(widget, {
             id: 'weekly',
             type: 'weekly-usage',
@@ -111,7 +111,7 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(90));
 
             const output = renderColored(item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% -\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% ▾\d+$/);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
@@ -121,7 +121,7 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = renderColored(item, context) ?? '';
-            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% \+\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% ▴\d+$/);
         });
 
         it('says nothing when the window has not started yet', () => {
@@ -152,10 +152,10 @@ describe('WeeklyUsageWidget', () => {
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(90));
-            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55% -\d+%$/);
+            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55% ▾\d+$/);
 
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
-            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55% \+\d+%$/);
+            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55% ▴\d+$/);
         });
 
         it('keeps the configured color on the percent', () => {
@@ -166,7 +166,7 @@ describe('WeeklyUsageWidget', () => {
 
             const output = renderColored(explicit, context) ?? '';
             expect(output).toContain(applyColors('55%', 'brightBlue', undefined, false, 'ansi256'));
-            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% \+\d+%$/);
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55% ▴\d+$/);
         });
 
         it('shows the delta in bar modes too, so the cursor is not the only cue', () => {
@@ -175,7 +175,7 @@ describe('WeeklyUsageWidget', () => {
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
-            expect(stripSgrCodes(renderColored(barItem, context) ?? '')).toMatch(/55% \+\d+%$/);
+            expect(stripSgrCodes(renderColored(barItem, context) ?? '')).toMatch(/55% ▴\d+$/);
         });
 
         it('keeps slider-only a bare bar', () => {

@@ -63,7 +63,7 @@ describe('SessionUsageWidget', () => {
             id: 'session',
             type: 'session-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        }, context)).toBe(`Session: ▓▓░░░│░░░░ 20% ${applyColors('-30%', 'green', undefined, false, 'ansi256')}`);
+        }, context)).toBe(`Session: ▓▓░░░│░░░░ 20% ${applyColors('▾30', 'green', undefined, false, 'ansi256')}`);
         expect(render(widget, {
             id: 'session',
             type: 'session-usage',
@@ -80,7 +80,7 @@ describe('SessionUsageWidget', () => {
             type: 'session-usage',
             metadata: { cursor: 'true', display: 'slider' }
         }, { usageData: { weeklyUsage: 30, weeklyResetAt: '2030-01-07T00:00:00Z' } }))
-            .toBe(`Weekly: ▓▓▓░░│░░░░ 30% ${applyColors('-20%', 'green', undefined, false, 'ansi256')}`);
+            .toBe(`Weekly: ▓▓▓░░│░░░░ 30% ${applyColors('▾20', 'green', undefined, false, 'ansi256')}`);
     });
 
     it('prefers session usage over weekly usage when both are present', () => {
