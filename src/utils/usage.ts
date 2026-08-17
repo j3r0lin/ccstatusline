@@ -7,13 +7,16 @@ export {
     getUsageWindowFromResetAt,
     getWeeklyUsageWindowFromResetAt,
     makeUsageProgressBar,
+    resolveMonthlyUsageWindow,
     resolveUsageWindowWithFallback,
     resolveWeeklyOpusUsageWindow,
     resolveWeeklySonnetUsageWindow,
-    resolveWeeklyUsageWindow
+    resolveWeeklyUsageWindow,
+    shouldPromoteMonthlyUsage
 } from './usage-windows';
 export {
     FIVE_HOUR_BLOCK_MS,
+    MONTHLY_WINDOW_MS,
     SEVEN_DAY_WINDOW_MS,
     type UsageData,
     type UsageError,

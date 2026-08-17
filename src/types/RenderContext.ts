@@ -16,6 +16,8 @@ export interface RenderUsageData {
     weeklySonnetResetAt?: string;
     weeklyOpusUsage?: number;
     weeklyOpusResetAt?: string;
+    monthlyUsage?: number;
+    monthlyResetAt?: string;
     extraUsageEnabled?: boolean;
     extraUsageLimit?: number;
     extraUsageUsed?: number;
@@ -62,6 +64,12 @@ export interface RenderContext {
      * into the primary slot (providers with no session window).
      */
     hasSessionUsageWidget?: boolean;
+    /**
+     * True when a weekly-usage widget is configured on any line.
+     * MonthlyUsage uses this to hide itself when the weekly slot has promoted
+     * the monthly pool (the tighter cap) into its place.
+     */
+    hasWeeklyUsageWidget?: boolean;
     gitReviewNeedsChecks?: boolean;
     lineIndex?: number;  // Index of the current line being rendered (for theme cycling)
     globalSeparatorIndex?: number;  // Global separator index that continues across lines

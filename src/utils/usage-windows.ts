@@ -3,6 +3,7 @@ import type { BlockMetrics } from '../types';
 import { getCachedBlockMetrics } from './jsonl';
 import {
     FIVE_HOUR_BLOCK_MS,
+    MONTHLY_WINDOW_MS,
     SEVEN_DAY_WINDOW_MS,
     type UsageData,
     type UsageError,
@@ -87,6 +88,31 @@ export function getWeeklyUsageWindowFromResetAt(weeklyResetAt: string | undefine
 
 export function resolveWeeklyUsageWindow(usageData: UsageData, nowMs = Date.now()): UsageWindowMetrics | null {
     return getWeeklyUsageWindowFromResetAt(usageData.weeklyResetAt, nowMs);
+}
+
+// The monthly membership pool (Kimi) and the weekly window cap the same
+// budget; when the monthly pool is tighter, weekly widgets render it instead
+// so the slot always shows the binding constraint.
+export function shouldPromoteMonthlyUsage(usageData: UsageData): boolean {
+    return usageData.monthlyUsage !== undefined
+        && usageData.weeklyUsage !== undefined
+        && usageData.monthlyUsage > usageData.weeklyUsage;
+}
+
+// The monthly pool resets on the subscription cycle, not a fixed calendar
+// window, so the cursor approximates the cycle as 30 days ending at the
+// reported expiry time.
+export function resolveMonthlyUsageWindow(usageData: UsageData, nowMs = Date.now()): UsageWindowMetrics | null {
+    if (!usageData.monthlyResetAt) {
+        return null;
+    }
+
+    const resetAtMs = Date.parse(usageData.monthlyResetAt);
+    if (Number.isNaN(resetAtMs)) {
+        return null;
+    }
+
+    return buildUsageWindow(resetAtMs, nowMs, MONTHLY_WINDOW_MS);
 }
 
 export function resolveWeeklySonnetUsageWindow(usageData: UsageData, nowMs = Date.now()): UsageWindowMetrics | null {

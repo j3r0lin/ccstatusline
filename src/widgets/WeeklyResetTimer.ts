@@ -13,7 +13,9 @@ import {
     formatUsageDuration,
     formatUsageResetAt,
     getUsageErrorMessage,
-    resolveWeeklyUsageWindow
+    resolveMonthlyUsageWindow,
+    resolveWeeklyUsageWindow,
+    shouldPromoteMonthlyUsage
 } from '../utils/usage';
 
 import { makeModifierText } from './shared/editor-display';
@@ -215,7 +217,10 @@ export class WeeklyResetTimerWidget implements Widget {
         }
 
         const usageData = context.usageData ?? {};
-        const window = resolveWeeklyUsageWindow(usageData);
+        // When the monthly pool is the tighter cap, the weekly slot shows the
+        // monthly percentage; follow it with the monthly reset here.
+        const monthlyPromoted = shouldPromoteMonthlyUsage(usageData);
+        const window = monthlyPromoted ? resolveMonthlyUsageWindow(usageData) : resolveWeeklyUsageWindow(usageData);
 
         if (!window) {
             if (usageData.error) {
@@ -245,7 +250,8 @@ export class WeeklyResetTimerWidget implements Widget {
         if (dateMode) {
             const timezone = getUsageTimezone(item);
             const locale = getUsageLocale(item);
-            const resetAt = formatUsageResetAt(usageData.weeklyResetAt, compact, timezone, locale, isUsage12HourClock(item), isUsageWeekdayEnabled(item));
+            const resetAtIso = monthlyPromoted ? usageData.monthlyResetAt : usageData.weeklyResetAt;
+            const resetAt = formatUsageResetAt(resetAtIso, compact, timezone, locale, isUsage12HourClock(item), isUsageWeekdayEnabled(item));
             if (resetAt) {
                 return formatRawOrLabeledValue(item, 'Weekly Reset: ', resetAt);
             }

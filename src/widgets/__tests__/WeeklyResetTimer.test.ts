@@ -416,6 +416,74 @@ describe('WeeklyResetTimerWidget', () => {
         }).modifierText).toBe('(short bar)');
     });
 
+    describe('monthly promotion', () => {
+        let mockResolveMonthlyUsageWindow: { mockReturnValue: (value: UsageWindowMetrics | null) => void };
+
+        beforeEach(() => {
+            mockResolveMonthlyUsageWindow = vi.spyOn(usage, 'resolveMonthlyUsageWindow');
+        });
+
+        const promotedUsageData = {
+            weeklyUsage: 10,
+            weeklyResetAt: '2026-08-20T00:00:00.000Z',
+            monthlyUsage: 55,
+            monthlyResetAt: '2026-09-12T12:24:00.000Z'
+        };
+
+        it('uses the monthly window for remaining time when monthly is the tighter cap', () => {
+            const widget = new WeeklyResetTimerWidget();
+
+            mockResolveMonthlyUsageWindow.mockReturnValue({
+                sessionDurationMs: 2592000000,
+                elapsedMs: 1296000000,
+                remainingMs: 1296000000,
+                elapsedPercent: 50,
+                remainingPercent: 50
+            });
+            mockResolveWeeklyUsageWindow.mockReturnValue(null);
+            mockFormatUsageDuration.mockReturnValue('360hr 0m');
+
+            expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, { usageData: promotedUsageData })).toBe('Weekly Reset: 360hr 0m');
+            expect(mockFormatUsageDuration).toHaveBeenCalledWith(1296000000, false, true);
+        });
+
+        it('formats the monthly reset timestamp in date mode', () => {
+            const widget = new WeeklyResetTimerWidget();
+
+            mockResolveMonthlyUsageWindow.mockReturnValue({
+                sessionDurationMs: 2592000000,
+                elapsedMs: 1296000000,
+                remainingMs: 1296000000,
+                elapsedPercent: 50,
+                remainingPercent: 50
+            });
+            mockResolveWeeklyUsageWindow.mockReturnValue(null);
+            mockFormatUsageResetAt.mockReturnValue('2026-09-12 20:24 GMT+8');
+
+            expect(render(widget,
+                { id: 'weekly-reset', type: 'weekly-reset-timer', metadata: { absolute: 'true' } },
+                { usageData: promotedUsageData }
+            )).toBe('Weekly Reset: 2026-09-12 20:24 GMT+8');
+            expect(mockFormatUsageResetAt).toHaveBeenCalledWith('2026-09-12T12:24:00.000Z', false, undefined, undefined, false, false);
+        });
+
+        it('keeps the weekly window when monthly usage is lower', () => {
+            const widget = new WeeklyResetTimerWidget();
+
+            mockResolveWeeklyUsageWindow.mockReturnValue({
+                sessionDurationMs: 604800000,
+                elapsedMs: 120000000,
+                remainingMs: 484800000,
+                elapsedPercent: 20,
+                remainingPercent: 80
+            });
+            mockFormatUsageDuration.mockReturnValue('134hr 40m');
+
+            expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, { usageData: { weeklyUsage: 55, weeklyResetAt: '2026-08-20T00:00:00.000Z', monthlyUsage: 10 } })).toBe('Weekly Reset: 134hr 40m');
+            expect(mockResolveMonthlyUsageWindow).not.toHaveBeenCalled();
+        });
+    });
+
     runUsageTimerEditorSuite({
         baseItem: { id: 'weekly-reset', type: 'weekly-reset-timer' },
         createWidget: () => new WeeklyResetTimerWidget(),

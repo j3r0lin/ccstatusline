@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const FIVE_HOUR_BLOCK_MS = 5 * 60 * 60 * 1000;
 export const SEVEN_DAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const MONTHLY_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const UsageErrorSchema = z.enum(['no-credentials', 'timeout', 'rate-limited', 'api-error', 'parse-error']);
 export type UsageError = z.infer<typeof UsageErrorSchema>;
@@ -15,6 +16,8 @@ export interface UsageData {
     weeklySonnetResetAt?: string; // seven_day_sonnet.resets_at
     weeklyOpusUsage?: number;     // seven_day_opus.utilization (percentage)
     weeklyOpusResetAt?: string;   // seven_day_opus.resets_at
+    monthlyUsage?: number;        // membership monthly pool usage (percentage)
+    monthlyResetAt?: string;      // membership monthly pool expiry/reset
     extraUsageEnabled?: boolean;
     extraUsageLimit?: number;      // in cents (divide by 100 for dollars)
     extraUsageUsed?: number;       // in cents (divide by 100 for dollars)

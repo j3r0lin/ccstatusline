@@ -184,6 +184,7 @@ async function renderMultipleLines(data: StatusJSON) {
         : null;
 
     const hasSessionUsageWidget = lines.some(line => line.some(item => item.type === 'session-usage'));
+    const hasWeeklyUsageWidget = lines.some(line => line.some(item => item.type === 'weekly-usage'));
 
     // Create render context
     const context: RenderContext = {
@@ -204,6 +205,7 @@ async function renderMultipleLines(data: StatusJSON) {
         minimalist: settings.minimalistMode,
         gitCacheTtlSeconds: settings.gitCacheTtlSeconds,
         hasSessionUsageWidget,
+        hasWeeklyUsageWidget,
         gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status'))
     };
 

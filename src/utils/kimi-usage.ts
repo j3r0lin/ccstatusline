@@ -7,6 +7,10 @@ import { z } from 'zod';
 
 import type { StatusJSON } from '../types/StatusJSON';
 
+import {
+    decodeKimiJwtPayload,
+    resolveKimiWebAuthToken
+} from './kimi-web-auth';
 import type {
     UsageData,
     UsageError
@@ -17,11 +21,17 @@ const LOCK_MAX_AGE_SECONDS = 30;
 const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 300;
 const REQUEST_TIMEOUT_MS = 5000;
 const DEFAULT_API_BASE_URL = 'https://api.kimi.com';
+const SUBSCRIPTION_STATS_URL = 'https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats';
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'ccstatusline');
 const CACHE_FILE = path.join(CACHE_DIR, 'kimi-usage.json');
 const LOCK_FILE = path.join(CACHE_DIR, 'kimi-usage.lock');
 
 type UsageDataField = Exclude<keyof UsageData, 'error'>;
+
+// UsageData plus bookkeeping for the web-only monthly membership pool: when no
+// web session is available the absence is cached as conclusive (for one cache
+// TTL) so renders do not retry the keychain/cookie lookup every time.
+interface CachedKimiUsage extends UsageData { monthlyUnavailable?: boolean }
 
 export interface FetchKimiUsageDataOptions { requiredFields?: readonly UsageDataField[] }
 
@@ -30,6 +40,11 @@ const KIMI_USAGE_FIELDS = new Set<UsageDataField>([
     'sessionResetAt',
     'weeklyUsage',
     'weeklyResetAt'
+]);
+
+const KIMI_MONTHLY_FIELDS = new Set<UsageDataField>([
+    'monthlyUsage',
+    'monthlyResetAt'
 ]);
 
 const NumericValueSchema = z.union([z.number(), z.string()]).transform((value, context) => {
@@ -60,7 +75,17 @@ const CachedKimiUsageSchema = z.looseObject({
     sessionUsage: z.number().optional(),
     sessionResetAt: z.string().optional(),
     weeklyUsage: z.number().optional(),
-    weeklyResetAt: z.string().optional()
+    weeklyResetAt: z.string().optional(),
+    monthlyUsage: z.number().optional(),
+    monthlyResetAt: z.string().optional(),
+    monthlyUnavailable: z.boolean().optional()
+});
+
+const KimiSubscriptionStatsSchema = z.looseObject({
+    subscriptionBalance: z.looseObject({
+        amountUsedRatio: z.number().nullable().optional(),
+        expireTime: z.string().nullable().optional()
+    }).nullable().optional()
 });
 
 const KimiUsageLockSchema = z.object({
@@ -185,10 +210,44 @@ export function parseKimiUsageResponse(rawJson: string): UsageData | null {
     }
 }
 
-function parseCachedUsage(rawJson: string): UsageData | null {
+export function parseKimiSubscriptionStats(rawJson: string): Pick<UsageData, 'monthlyUsage' | 'monthlyResetAt'> | null {
+    try {
+        const parsed = KimiSubscriptionStatsSchema.safeParse(JSON.parse(rawJson));
+        if (!parsed.success) {
+            return null;
+        }
+
+        const balance = parsed.data.subscriptionBalance;
+        const ratio = balance?.amountUsedRatio;
+        if (typeof ratio !== 'number' || !Number.isFinite(ratio)) {
+            return null;
+        }
+
+        return {
+            monthlyUsage: Math.max(0, Math.min(100, ratio * 100)),
+            monthlyResetAt: balance?.expireTime ?? undefined
+        };
+    } catch {
+        return null;
+    }
+}
+
+function parseCachedUsage(rawJson: string): CachedKimiUsage | null {
     try {
         const parsed = CachedKimiUsageSchema.safeParse(JSON.parse(rawJson));
-        return parsed.success ? parsed.data : null;
+        if (!parsed.success) {
+            return null;
+        }
+
+        return {
+            sessionUsage: parsed.data.sessionUsage,
+            sessionResetAt: parsed.data.sessionResetAt,
+            weeklyUsage: parsed.data.weeklyUsage,
+            weeklyResetAt: parsed.data.weeklyResetAt,
+            monthlyUsage: parsed.data.monthlyUsage,
+            monthlyResetAt: parsed.data.monthlyResetAt,
+            monthlyUnavailable: parsed.data.monthlyUnavailable
+        };
     } catch {
         return null;
     }
@@ -214,8 +273,13 @@ function readCachedUsage(maxAgeSeconds?: number): UsageData | null {
     }
 }
 
-function hasRequiredFields(data: UsageData, requiredFields: readonly UsageDataField[]): boolean {
-    return requiredFields.every(field => data[field] !== undefined);
+function hasRequiredFields(data: CachedKimiUsage, requiredFields: readonly UsageDataField[]): boolean {
+    return requiredFields.every((field) => {
+        if (KIMI_MONTHLY_FIELDS.has(field)) {
+            return data[field] !== undefined || data.monthlyUnavailable === true;
+        }
+        return data[field] !== undefined;
+    });
 }
 
 function staleUsageOrError(error: UsageError, requiredFields: readonly UsageDataField[]): UsageData {
@@ -349,8 +413,94 @@ function fetchFromKimiApi(apiKey: string, endpoint: URL): Promise<KimiFetchResul
     });
 }
 
+function buildKimiWebHeaders(token: string): Record<string, string> {
+    const claims = decodeKimiJwtPayload(token);
+    const deviceId = claims?.device_id;
+    const sessionId = claims?.ssid;
+    const trafficId = claims?.sub;
+
+    return {
+        'Accept': '*/*',
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'Cookie': `kimi-auth=${token}`,
+        'Origin': 'https://www.kimi.com',
+        'Referer': 'https://www.kimi.com/code/console',
+        'connect-protocol-version': '1',
+        'x-msh-platform': 'web',
+        ...(typeof deviceId === 'string' ? { 'x-msh-device-id': deviceId } : {}),
+        ...(typeof sessionId === 'string' ? { 'x-msh-session-id': sessionId } : {}),
+        ...(typeof trafficId === 'string' ? { 'x-traffic-id': trafficId } : {})
+    };
+}
+
+// Best-effort monthly membership pool fetch against the kimi.com web gateway.
+// The gateway requires the kimi-auth web session JWT, not the coding API key.
+// Returns the response body on HTTP 200, null on any failure.
+function fetchKimiSubscriptionStats(webAuthToken: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (body: string | null) => {
+            if (!settled) {
+                settled = true;
+                resolve(body);
+            }
+        };
+
+        let agent: HttpsProxyAgent<string> | undefined;
+        const proxyUrl = process.env.HTTPS_PROXY?.trim();
+        try {
+            agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+        } catch {
+            finish(null);
+            return;
+        }
+
+        const request = https.request(SUBSCRIPTION_STATS_URL, {
+            method: 'POST',
+            headers: buildKimiWebHeaders(webAuthToken),
+            timeout: REQUEST_TIMEOUT_MS,
+            ...(agent ? { agent } : {})
+        }, (response) => {
+            let body = '';
+            response.setEncoding('utf8');
+            response.on('data', (chunk: string) => {
+                body += chunk;
+            });
+            response.on('end', () => {
+                finish(response.statusCode === 200 && body ? body : null);
+            });
+        });
+
+        request.on('error', () => { finish(null); });
+        request.on('timeout', () => {
+            request.destroy();
+            finish(null);
+        });
+        request.end('{}');
+    });
+}
+
+async function resolveMonthlyUsage(
+    monthlyRequired: boolean,
+    statsRequest: Promise<string | null> | null
+): Promise<Pick<CachedKimiUsage, 'monthlyUsage' | 'monthlyResetAt' | 'monthlyUnavailable'>> {
+    if (!monthlyRequired) {
+        return {};
+    }
+    if (!statsRequest) {
+        return { monthlyUnavailable: true };
+    }
+
+    const body = await statsRequest;
+    const stats = body ? parseKimiSubscriptionStats(body) : null;
+    return stats
+        ? { monthlyUsage: stats.monthlyUsage, monthlyResetAt: stats.monthlyResetAt }
+        : { monthlyUnavailable: true };
+}
+
 export async function fetchKimiUsageData(options: FetchKimiUsageDataOptions = {}): Promise<UsageData> {
-    const requiredFields = (options.requiredFields ?? []).filter(field => KIMI_USAGE_FIELDS.has(field));
+    const requiredFields = (options.requiredFields ?? []).filter(field => KIMI_USAGE_FIELDS.has(field) || KIMI_MONTHLY_FIELDS.has(field));
     if (options.requiredFields?.length && requiredFields.length === 0) {
         return {};
     }
@@ -377,6 +527,12 @@ export async function fetchKimiUsageData(options: FetchKimiUsageDataOptions = {}
     }
     writeLock(now + LOCK_MAX_AGE_SECONDS, 'timeout');
 
+    // Resolve the web session and start the monthly stats request up front so
+    // it overlaps the coding API call instead of doubling render latency.
+    const monthlyRequired = requiredFields.some(field => KIMI_MONTHLY_FIELDS.has(field));
+    const webAuthToken = monthlyRequired ? resolveKimiWebAuthToken() : null;
+    const statsRequest = webAuthToken ? fetchKimiSubscriptionStats(webAuthToken) : null;
+
     const response = await fetchFromKimiApi(apiKey, endpoint);
     if (response.kind === 'auth-error') {
         return staleUsageOrError('no-credentials', requiredFields);
@@ -398,11 +554,14 @@ export async function fetchKimiUsageData(options: FetchKimiUsageDataOptions = {}
         return staleUsageOrError('parse-error', requiredFields);
     }
 
+    const monthlyData = await resolveMonthlyUsage(monthlyRequired, statsRequest);
+    const mergedUsage: CachedKimiUsage = { ...usageData, ...monthlyData };
+
     try {
         ensureCacheDirExists();
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(usageData));
+        fs.writeFileSync(CACHE_FILE, JSON.stringify(mergedUsage));
     } catch {
         // Cache writes are best-effort.
     }
-    return usageData;
+    return mergedUsage;
 }

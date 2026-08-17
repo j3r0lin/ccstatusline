@@ -11,7 +11,6 @@ import { applyColors } from '../utils/colors';
 import {
     getUsageErrorMessage,
     resolveMonthlyUsageWindow,
-    resolveWeeklyUsageWindow,
     shouldPromoteMonthlyUsage
 } from '../utils/usage';
 
@@ -33,24 +32,10 @@ import {
 } from './shared/usage-display';
 import { getUsagePaceIndicator } from './shared/usage-level-color';
 
-// When the monthly pool is the tighter cap, the weekly slot renders it with an
-// "M"-flavored prefix so the same position always shows the binding number.
-function withMonthlyPrefix(item: WidgetItem): WidgetItem {
-    const prefix = item.metadata?.prefix;
-    if (!prefix) {
-        return item;
-    }
-
-    return {
-        ...item,
-        metadata: { ...item.metadata, prefix: prefix.replace(/^W(?=\s|$)/, 'M') }
-    };
-}
-
-export class WeeklyUsageWidget implements Widget {
-    getDefaultColor(): string { return 'brightBlue'; }
-    getDescription(): string { return 'Shows weekly API usage percentage'; }
-    getDisplayName(): string { return 'Weekly Usage'; }
+export class MonthlyUsageWidget implements Widget {
+    getDefaultColor(): string { return 'brightMagenta'; }
+    getDescription(): string { return 'Shows monthly membership pool usage percentage (Kimi)'; }
+    getDisplayName(): string { return 'Monthly Usage'; }
     getCategory(): string { return 'Usage'; }
 
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
@@ -89,42 +74,35 @@ export class WeeklyUsageWidget implements Widget {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
                 const progressDisplay = `[${progressBar}] ${renderedPercent.toFixed(1)}%`;
-                return formatRawOrLabeledValue(item, 'Weekly: ', progressDisplay);
+                return formatRawOrLabeledValue(item, 'Monthly: ', progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
                 const sliderDisplay = displayMode === 'slider' ? `${slider} ${renderedPercent.toFixed(1)}%` : slider;
-                return formatRawOrLabeledValue(item, 'Weekly: ', sliderDisplay);
+                return formatRawOrLabeledValue(item, 'Monthly: ', sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, 'Weekly: ', `${renderedPercent.toFixed(1)}%`);
+            return formatRawOrLabeledValue(item, 'Monthly: ', `${renderedPercent.toFixed(1)}%`);
         }
 
         const data = context.usageData ?? {};
-        if (data.weeklyUsage === undefined) {
+        if (data.monthlyUsage === undefined) {
             if (data.error)
                 return getUsageErrorMessage(data.error);
             return null;
         }
 
-        // SessionUsage promotes weekly into the primary bar when session is
-        // absent. Hide this dedicated weekly widget then so the same percent
-        // is not shown twice.
-        if (context.hasSessionUsageWidget && data.sessionUsage === undefined) {
+        // When the monthly pool is the tighter cap and a weekly-usage widget is
+        // configured, the weekly slot renders it (as "M …") instead. Hide this
+        // dedicated widget then so the same percent is not shown twice.
+        if (context.hasWeeklyUsageWidget && data.weeklyUsage !== undefined && shouldPromoteMonthlyUsage(data)) {
             return null;
         }
 
-        // shouldPromoteMonthlyUsage already implies monthlyUsage is defined;
-        // keeping the value in a local lets TS narrow it for the ternary.
-        const monthlyValue = shouldPromoteMonthlyUsage(data) ? data.monthlyUsage : undefined;
-        const monthlyPromoted = monthlyValue !== undefined;
-        const label = monthlyPromoted ? 'Monthly: ' : 'Weekly: ';
-        const renderItem = monthlyPromoted ? withMonthlyPrefix(item) : item;
-
-        const percent = Math.max(0, Math.min(100, monthlyPromoted ? monthlyValue : data.weeklyUsage));
+        const percent = Math.max(0, Math.min(100, data.monthlyUsage));
         const renderedPercent = inverted ? 100 - percent : percent;
-        const window = monthlyPromoted ? resolveMonthlyUsageWindow(data) : resolveWeeklyUsageWindow(data);
+        const window = resolveMonthlyUsageWindow(data);
         const getCursorOptions = (): { cursorPercent: number } | undefined => {
             if (!showCursor) {
                 return undefined;
@@ -138,13 +116,13 @@ export class WeeklyUsageWidget implements Widget {
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
             const progressDisplay = `[${progressBar}] ${renderedPercent.toFixed(1)}%`;
-            return formatRawOrLabeledValue(renderItem, label, progressDisplay);
+            return formatRawOrLabeledValue(item, 'Monthly: ', progressDisplay);
         }
 
         if (isUsageSliderMode(displayMode)) {
             const slider = makeSliderBar(renderedPercent, undefined, getCursorOptions());
             const sliderDisplay = displayMode === 'slider' ? `${slider} ${renderedPercent.toFixed(1)}%` : slider;
-            return formatRawOrLabeledValue(renderItem, label, sliderDisplay);
+            return formatRawOrLabeledValue(item, 'Monthly: ', sliderDisplay);
         }
 
         // Bar modes already show pace as the cursor, so the delta only appears
@@ -152,14 +130,14 @@ export class WeeklyUsageWidget implements Widget {
         const percentText = `${renderedPercent.toFixed(1)}%`;
         const pace = getUsagePaceIndicator(percent, window);
         if (!pace) {
-            return formatRawOrLabeledValue(renderItem, label, percentText);
+            return formatRawOrLabeledValue(item, 'Monthly: ', percentText);
         }
 
         const colorLevel = getColorLevelString(settings.colorLevel);
         const paceText = pace.color
             ? applyColors(pace.text, pace.color, undefined, false, colorLevel)
             : pace.text;
-        return formatRawOrLabeledValue(renderItem, label, `${percentText} ${paceText}`);
+        return formatRawOrLabeledValue(item, 'Monthly: ', `${percentText} ${paceText}`);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

@@ -24,9 +24,11 @@ type UsageDataField = Exclude<keyof UsageData, 'error'>;
 const USAGE_WIDGET_TYPES = new Set<string>([
     'session-usage',
     'weekly-usage',
+    'monthly-usage',
     'weekly-sonnet-usage',
     'weekly-opus-usage',
     'block-timer',
+    'monthly-usage',
     'reset-timer',
     'weekly-reset-timer',
     'extra-usage-utilization',
@@ -44,9 +46,13 @@ const USAGE_DATA_FIELDS: UsageDataField[] = [
     'weeklySonnetResetAt',
     'weeklyOpusUsage',
     'weeklyOpusResetAt',
+    'monthlyUsage',
+    'monthlyResetAt',
     'extraUsageEnabled',
     'extraUsageLimit',
     'extraUsageUsed',
+    'monthlyUsage',
+    'monthlyResetAt',
     'extraUsageUtilization',
     'extraUsageCurrency'
 ];
@@ -62,12 +68,16 @@ const EMPTY_USAGE_REQUIREMENTS: UsageFieldRequirement[] = [];
 const USAGE_WIDGET_REQUIREMENTS: Record<string, UsageFieldRequirement[]> = {
     'session-usage': [{ field: 'sessionUsage' }],
     'usage-projection': [{ field: 'sessionUsage' }, { field: 'sessionResetAt', suppressFetchError: true }],
-    'weekly-usage': [{ field: 'weeklyUsage' }],
+    // Weekly slots also request the monthly pool so providers with a tighter
+    // monthly cap (Kimi) can promote it into the weekly slot. Providers
+    // without monthly data filter these fields out in their fetchers.
+    'weekly-usage': [{ field: 'weeklyUsage' }, { field: 'monthlyUsage', suppressFetchError: true }],
+    'monthly-usage': [{ field: 'monthlyUsage' }],
     'weekly-sonnet-usage': [{ field: 'weeklySonnetUsage' }],
     'weekly-opus-usage': [{ field: 'weeklyOpusUsage' }],
     'block-timer': [{ field: 'sessionResetAt', suppressFetchError: true }],
     'reset-timer': [{ field: 'sessionResetAt', suppressFetchError: true }],
-    'weekly-reset-timer': [{ field: 'weeklyResetAt', suppressFetchError: true }],
+    'weekly-reset-timer': [{ field: 'weeklyResetAt', suppressFetchError: true }, { field: 'monthlyResetAt', suppressFetchError: true }],
     'extra-usage-utilization': [
         { field: 'extraUsageEnabled' },
         { field: 'extraUsageUtilization' }
@@ -86,6 +96,7 @@ const USAGE_WIDGET_REQUIREMENTS: Record<string, UsageFieldRequirement[]> = {
 const USAGE_CURSOR_REQUIREMENTS: Record<string, UsageFieldRequirement> = {
     'session-usage': { field: 'sessionResetAt' },
     'weekly-usage': { field: 'weeklyResetAt' },
+    'monthly-usage': { field: 'monthlyResetAt' },
     'weekly-sonnet-usage': { field: 'weeklySonnetResetAt', alternatives: ['weeklyResetAt'] },
     'weekly-opus-usage': { field: 'weeklyOpusResetAt', alternatives: ['weeklyResetAt'] }
 };
@@ -163,9 +174,13 @@ function pickDefinedUsageFields(data: UsageData | null | undefined): Partial<Usa
         ...(data?.weeklySonnetResetAt !== undefined ? { weeklySonnetResetAt: data.weeklySonnetResetAt } : {}),
         ...(data?.weeklyOpusUsage !== undefined ? { weeklyOpusUsage: data.weeklyOpusUsage } : {}),
         ...(data?.weeklyOpusResetAt !== undefined ? { weeklyOpusResetAt: data.weeklyOpusResetAt } : {}),
+        ...(data?.monthlyUsage !== undefined ? { monthlyUsage: data.monthlyUsage } : {}),
+        ...(data?.monthlyResetAt !== undefined ? { monthlyResetAt: data.monthlyResetAt } : {}),
         ...(data?.extraUsageEnabled !== undefined ? { extraUsageEnabled: data.extraUsageEnabled } : {}),
         ...(data?.extraUsageLimit !== undefined ? { extraUsageLimit: data.extraUsageLimit } : {}),
         ...(data?.extraUsageUsed !== undefined ? { extraUsageUsed: data.extraUsageUsed } : {}),
+        ...(data?.monthlyUsage !== undefined ? { monthlyUsage: data.monthlyUsage } : {}),
+        ...(data?.monthlyResetAt !== undefined ? { monthlyResetAt: data.monthlyResetAt } : {}),
         ...(data?.extraUsageUtilization !== undefined ? { extraUsageUtilization: data.extraUsageUtilization } : {}),
         ...(data?.extraUsageCurrency !== undefined ? { extraUsageCurrency: data.extraUsageCurrency } : {})
     };
@@ -222,19 +237,22 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
 
     const requirements = getUsageFieldRequirements(lines);
+    // The monthly pool fields are only served by the Kimi web gateway; other
+    // providers' fetchers ignore them, so don't even ask.
+    const nonMonthlyRequirements = requirements.filter(requirement => requirement.field !== 'monthlyUsage' && requirement.field !== 'monthlyResetAt');
     if (isGrokUsageContext(data)) {
-        return fetchGrokUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
+        return fetchGrokUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field) });
     }
     if (isKimiUsageContext(data)) {
         return fetchKimiUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
     }
     if (isCodexUsageContext(data)) {
-        return fetchCodexUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
+        return fetchCodexUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field) });
     }
 
     const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
-    // Fields the Anthropic usage API can never provide must not count as
-    // missing here, or every render would refetch and churn the lock.
+    // Fields the Anthropic usage API can never provide (e.g. the Kimi monthly
+    // pool) must not count as missing here, or every render would refetch.
     const anthropicRequirements = requirements.filter(requirement => ANTHROPIC_USAGE_FIELDS.has(requirement.field));
     const missingRequirements = getMissingFetchRequirements(rateLimitsData, anthropicRequirements);
     const missingFields = missingRequirements.fields;

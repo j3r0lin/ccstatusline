@@ -207,7 +207,7 @@ describe('usage prefetch', () => {
         expect(usageData?.sessionUsage).toBe(25);
         expect(usageData?.weeklyUsage).toBe(50);
         expect(mockFetchKimiUsageData.mock.calls).toEqual([
-            [{ requiredFields: ['sessionUsage', 'weeklyUsage'] }]
+            [{ requiredFields: ['sessionUsage', 'weeklyUsage', 'monthlyUsage'] }]
         ]);
         expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
         expect(mockFetchUsageData.mock.calls.length).toBe(0);

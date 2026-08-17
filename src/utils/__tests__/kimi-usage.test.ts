@@ -7,6 +7,7 @@ import {
 import {
     getKimiUsageEndpoint,
     isKimiUsageContext,
+    parseKimiSubscriptionStats,
     parseKimiUsageResponse,
     resolveKimiCodeApiKey
 } from '../kimi-usage';
@@ -113,6 +114,33 @@ describe('Kimi usage response parsing', () => {
     it('rejects malformed responses', () => {
         expect(parseKimiUsageResponse('{"usage":{"remaining":"10"}}')).toBeNull();
         expect(parseKimiUsageResponse('not-json')).toBeNull();
+    });
+});
+
+describe('Kimi subscription stats parsing', () => {
+    it('maps the monthly pool ratio and expiry to shared usage fields', () => {
+        const result = parseKimiSubscriptionStats(JSON.stringify({
+            ratelimitCode5h: { ratio: 0.1, enabled: true, resetTime: '2030-01-01T05:00:00Z' },
+            ratelimitCode7d: { ratio: 0.02, enabled: true, resetTime: '2030-01-07T00:00:00Z' },
+            subscriptionBalance: {
+                feature: 'FEATURE_OMNI',
+                type: 'SUBSCRIPTION',
+                amountUsedRatio: 0.0625,
+                kimiCodeUsedRatio: 0.03125,
+                expireTime: '2030-02-12T12:24:00Z'
+            }
+        }));
+
+        expect(result).toEqual({
+            monthlyUsage: 6.25,
+            monthlyResetAt: '2030-02-12T12:24:00Z'
+        });
+    });
+
+    it('rejects responses without a usable balance ratio', () => {
+        expect(parseKimiSubscriptionStats('{}')).toBeNull();
+        expect(parseKimiSubscriptionStats('{"subscriptionBalance":{}}')).toBeNull();
+        expect(parseKimiSubscriptionStats('not-json')).toBeNull();
     });
 });
 
