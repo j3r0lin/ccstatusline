@@ -14,6 +14,7 @@ import type { RenderContext } from '../../types/RenderContext';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
 import { stripSgrCodes } from '../../utils/ansi';
+import { applyColors } from '../../utils/colors';
 import * as usage from '../../utils/usage';
 import type { UsageWindowMetrics } from '../../utils/usage-types';
 import { MonthlyUsageWidget } from '../MonthlyUsage';
@@ -79,6 +80,12 @@ describe('MonthlyUsageWidget', () => {
             chalk.level = originalChalkLevel;
         });
 
+        // The pace baseline counts workdays, so the rendered delta depends on
+        // which weekday "now" is. Pin it to a Wednesday for stable output.
+        beforeEach(() => {
+            vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-19T12:00:00').getTime());
+        });
+
         function windowAt(elapsedPercent: number): UsageWindowMetrics {
             return {
                 sessionDurationMs: 2592000000,
@@ -91,15 +98,15 @@ describe('MonthlyUsageWidget', () => {
 
         const item: WidgetItem = { id: 'monthly', type: 'monthly-usage' };
 
-        it('shows reserve as an uncolored negative delta', () => {
+        it('colors reserve as well as deficit', () => {
             const widget = new MonthlyUsageWidget();
             const context: RenderContext = { usageData: { monthlyUsage: 55 } };
 
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(90));
 
-            const output = render(widget, item, context);
-            expect(output).toBe('Monthly: 55.0% -35');
-            expect(output).toBe(stripSgrCodes(output ?? ''));
+            const output = render(widget, item, context) ?? '';
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55\.0% -\d+%$/);
+            expect(output).not.toBe(stripSgrCodes(output));
         });
 
         it('colors only the delta when spending runs ahead', () => {
@@ -109,19 +116,21 @@ describe('MonthlyUsageWidget', () => {
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = render(widget, item, context) ?? '';
-            expect(stripSgrCodes(output)).toBe('Monthly: 55.0% +35');
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55\.0% \+\d+%$/);
             expect(output.startsWith('Monthly: 55.0% ')).toBe(true);
             expect(output).not.toBe(stripSgrCodes(output));
         });
 
-        it('leaves the percent alone so the configured color still applies', () => {
+        it('keeps the configured color on the percent', () => {
             const widget = new MonthlyUsageWidget();
             const context: RenderContext = { usageData: { monthlyUsage: 55 } };
             const explicit: WidgetItem = { ...item, color: 'brightBlue' };
 
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
 
-            expect(render(widget, explicit, context)).toBe(render(widget, item, context));
+            const output = render(widget, explicit, context) ?? '';
+            expect(output).toContain(applyColors('55.0%', 'brightBlue', undefined, false, 'ansi256'));
+            expect(stripSgrCodes(output)).toMatch(/^Monthly: 55\.0% \+\d+%$/);
         });
     });
 

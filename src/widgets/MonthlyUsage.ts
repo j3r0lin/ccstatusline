@@ -30,7 +30,7 @@ import {
     toggleUsageCursor,
     toggleUsageInverted
 } from './shared/usage-display';
-import { getUsagePaceIndicator } from './shared/usage-level-color';
+import { getUsagePaceIndicator } from './shared/usage-pace';
 
 export class MonthlyUsageWidget implements Widget {
     getDefaultColor(): string { return 'brightMagenta'; }
@@ -133,11 +133,17 @@ export class MonthlyUsageWidget implements Widget {
             return formatRawOrLabeledValue(item, 'Monthly: ', percentText);
         }
 
+        // Emitting any SGR here makes the renderer skip the configured
+        // foreground color for the whole widget, so apply it to the percent
+        // ourselves to keep it working alongside the pace color.
         const colorLevel = getColorLevelString(settings.colorLevel);
+        const percentPart = item.color
+            ? applyColors(percentText, item.color, undefined, false, colorLevel)
+            : percentText;
         const paceText = pace.color
             ? applyColors(pace.text, pace.color, undefined, false, colorLevel)
             : pace.text;
-        return formatRawOrLabeledValue(item, 'Monthly: ', `${percentText} ${paceText}`);
+        return formatRawOrLabeledValue(item, 'Monthly: ', `${percentPart} ${paceText}`);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

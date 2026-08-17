@@ -31,7 +31,7 @@ import {
     toggleUsageCursor,
     toggleUsageInverted
 } from './shared/usage-display';
-import { getUsagePaceIndicator } from './shared/usage-level-color';
+import { getUsagePaceIndicator } from './shared/usage-pace';
 
 // When the monthly pool is the tighter cap, the weekly slot renders it with an
 // "M"-flavored prefix so the same position always shows the binding number.
@@ -155,11 +155,17 @@ export class WeeklyUsageWidget implements Widget {
             return formatRawOrLabeledValue(renderItem, label, percentText);
         }
 
+        // Emitting any SGR here makes the renderer skip the configured
+        // foreground color for the whole widget, so apply it to the percent
+        // ourselves to keep it working alongside the pace color.
         const colorLevel = getColorLevelString(settings.colorLevel);
+        const percentPart = item.color
+            ? applyColors(percentText, item.color, undefined, false, colorLevel)
+            : percentText;
         const paceText = pace.color
             ? applyColors(pace.text, pace.color, undefined, false, colorLevel)
             : pace.text;
-        return formatRawOrLabeledValue(renderItem, label, `${percentText} ${paceText}`);
+        return formatRawOrLabeledValue(renderItem, label, `${percentPart} ${paceText}`);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

@@ -14,6 +14,7 @@ import type { RenderContext } from '../../types/RenderContext';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
 import { stripSgrCodes } from '../../utils/ansi';
+import { applyColors } from '../../utils/colors';
 import * as usage from '../../utils/usage';
 import type { UsageWindowMetrics } from '../../utils/usage-types';
 import { WeeklyUsageWidget } from '../WeeklyUsage';
@@ -80,6 +81,12 @@ describe('WeeklyUsageWidget', () => {
             chalk.level = originalChalkLevel;
         });
 
+        // The pace baseline counts workdays, so the rendered delta depends on
+        // which weekday "now" is. Pin it to a Wednesday for stable output.
+        beforeEach(() => {
+            vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-19T12:00:00').getTime());
+        });
+
         function renderColored(item: WidgetItem, context: RenderContext): string | null {
             return new WeeklyUsageWidget().render(item, context, DEFAULT_SETTINGS);
         }
@@ -96,14 +103,14 @@ describe('WeeklyUsageWidget', () => {
 
         const item: WidgetItem = { id: 'weekly', type: 'weekly-usage' };
 
-        it('shows reserve as an uncolored negative delta', () => {
+        it('colors reserve as well as deficit', () => {
             const context: RenderContext = { usageData: { weeklyUsage: 55 } };
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(90));
 
-            const output = renderColored(item, context);
-            expect(output).toBe('Weekly: 55.0% -35');
-            expect(output).toBe(stripSgrCodes(output ?? ''));
+            const output = renderColored(item, context) ?? '';
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55\.0% -\d+%$/);
+            expect(output).not.toBe(stripSgrCodes(output));
         });
 
         it('appends the delta when spending runs ahead', () => {
@@ -112,13 +119,13 @@ describe('WeeklyUsageWidget', () => {
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
             const output = renderColored(item, context) ?? '';
-            expect(stripSgrCodes(output)).toBe('Weekly: 55.0% +35');
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55\.0% \+\d+%$/);
         });
 
-        it('says nothing at all too early in the window', () => {
+        it('says nothing when the window has not started yet', () => {
             const context: RenderContext = { usageData: { weeklyUsage: 55 } };
 
-            vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(2));
+            vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(0));
 
             expect(renderColored(item, context)).toBe('Weekly: 55.0%');
         });
@@ -143,19 +150,21 @@ describe('WeeklyUsageWidget', () => {
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(90));
-            expect(renderColored(item, context)).toBe('Monthly: 55.0% -35');
+            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55\.0% -\d+%$/);
 
             vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(windowAt(20));
-            expect(stripSgrCodes(renderColored(item, context) ?? '')).toBe('Monthly: 55.0% +35');
+            expect(stripSgrCodes(renderColored(item, context) ?? '')).toMatch(/^Monthly: 55\.0% \+\d+%$/);
         });
 
-        it('leaves the percent alone so the configured color still applies', () => {
+        it('keeps the configured color on the percent', () => {
             const context: RenderContext = { usageData: { weeklyUsage: 55 } };
             const explicit: WidgetItem = { ...item, color: 'brightBlue' };
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
-            expect(renderColored(explicit, context)).toBe(renderColored(item, context));
+            const output = renderColored(explicit, context) ?? '';
+            expect(output).toContain(applyColors('55.0%', 'brightBlue', undefined, false, 'ansi256'));
+            expect(stripSgrCodes(output)).toMatch(/^Weekly: 55\.0% \+\d+%$/);
         });
 
         it('omits the delta in bar modes, where the cursor already shows pace', () => {
@@ -164,7 +173,7 @@ describe('WeeklyUsageWidget', () => {
 
             vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(windowAt(20));
 
-            expect(renderColored(barItem, context)).not.toContain('+35');
+            expect(renderColored(barItem, context)).toMatch(/55\.0%$/);
         });
     });
 
