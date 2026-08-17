@@ -51,7 +51,7 @@ describe('WeeklyResetTimerWidget', () => {
             id: 'weekly-reset',
             type: 'weekly-reset-timer',
             metadata: { hours: 'true' }
-        }, { isPreview: true })).toBe('Weekly Reset: 36hr 30m');
+        }, { isPreview: true })).toBe('Weekly Reset: 36hr');
     });
 
     it('renders remaining time in time mode', () => {

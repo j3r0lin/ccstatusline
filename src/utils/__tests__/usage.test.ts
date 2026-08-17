@@ -137,21 +137,25 @@ describe('usage window helpers', () => {
     it('formats duration in block timer style', () => {
         expect(formatUsageDuration(0)).toBe('0m');
         expect(formatUsageDuration(3 * 60 * 60 * 1000)).toBe('3hr');
-        expect(formatUsageDuration(3.5 * 60 * 60 * 1000)).toBe('3hr 30m');
-        expect(formatUsageDuration(4 * 60 * 60 * 1000 + 5 * 60 * 1000)).toBe('4hr 5m');
+        expect(formatUsageDuration(3.5 * 60 * 60 * 1000)).toBe('3hr');
+        expect(formatUsageDuration(4 * 60 * 60 * 1000 + 5 * 60 * 1000)).toBe('4hr');
+        expect(formatUsageDuration(1.5 * 60 * 60 * 1000)).toBe('1hr 30m');
     });
 
     it('formats duration with days when >= 24h', () => {
         expect(formatUsageDuration(25 * 60 * 60 * 1000)).toBe('1d 1hr');
         expect(formatUsageDuration(36.5 * 60 * 60 * 1000)).toBe('1d 12hr');
+        expect(formatUsageDuration(50 * 60 * 60 * 1000)).toBe('2d');
         expect(formatUsageDuration(168 * 60 * 60 * 1000)).toBe('7d');
     });
 
     it('formats duration in compact style', () => {
         expect(formatUsageDuration(0, true)).toBe('0m');
         expect(formatUsageDuration(3 * 60 * 60 * 1000, true)).toBe('3h');
-        expect(formatUsageDuration(3.5 * 60 * 60 * 1000, true)).toBe('3h30m');
-        expect(formatUsageDuration(4 * 60 * 60 * 1000 + 5 * 60 * 1000, true)).toBe('4h5m');
+        expect(formatUsageDuration(3.5 * 60 * 60 * 1000, true)).toBe('3h');
+        expect(formatUsageDuration(4 * 60 * 60 * 1000 + 5 * 60 * 1000, true)).toBe('4h');
+        expect(formatUsageDuration(1.5 * 60 * 60 * 1000, true)).toBe('1h30m');
+        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, true)).toBe('1d12h');
     });
 
     it('formats reset timestamps in UTC date mode', () => {
@@ -262,13 +266,15 @@ describe('usage window helpers', () => {
 
     it('formats duration without days when requested', () => {
         expect(formatUsageDuration(25 * 60 * 60 * 1000, false, false)).toBe('25hr');
-        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, false, false)).toBe('36hr 30m');
+        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, false, false)).toBe('36hr');
+        expect(formatUsageDuration(1.5 * 60 * 60 * 1000, false, false)).toBe('1hr 30m');
         expect(formatUsageDuration(168 * 60 * 60 * 1000, false, false)).toBe('168hr');
     });
 
     it('formats duration without days in compact style when requested', () => {
         expect(formatUsageDuration(25 * 60 * 60 * 1000, true, false)).toBe('25h');
-        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, true, false)).toBe('36h30m');
+        expect(formatUsageDuration(36.5 * 60 * 60 * 1000, true, false)).toBe('36h');
+        expect(formatUsageDuration(1.5 * 60 * 60 * 1000, true, false)).toBe('1h30m');
         expect(formatUsageDuration(168 * 60 * 60 * 1000, true, false)).toBe('168h');
     });
 });

@@ -123,6 +123,8 @@ export function resolveWeeklyOpusUsageWindow(usageData: UsageData, nowMs = Date.
     return getWeeklyUsageWindowFromResetAt(usageData.weeklyOpusResetAt ?? usageData.weeklyResetAt, nowMs);
 }
 
+// The next-smaller unit is only worth its width when the leading unit is 1:
+// at 26 days nobody plans around the trailing hours, but at 1 day they do.
 export function formatUsageDuration(durationMs: number, compact = false, useDays = true): string {
     const clampedMs = Math.max(0, durationMs);
     const totalHours = Math.floor(clampedMs / (1000 * 60 * 60));
@@ -132,9 +134,20 @@ export function formatUsageDuration(durationMs: number, compact = false, useDays
     const sep = compact ? '' : ' ';
     const d = useDays ? Math.floor(totalHours / 24) : 0;
     const h = useDays ? totalHours % 24 : totalHours;
-    const allParts = [d > 0 && `${d}d`, h > 0 && `${h}${hLabel}`, m > 0 && `${m}m`].filter(Boolean);
-    const parts = d > 0 ? allParts.slice(0, 2) : allParts;
-    return parts.length > 0 ? parts.join(sep) : '0m';
+
+    if (d > 1) {
+        return `${d}d`;
+    }
+    if (d === 1) {
+        return h > 0 ? `1d${sep}${h}${hLabel}` : '1d';
+    }
+    if (h > 1) {
+        return `${h}${hLabel}`;
+    }
+    if (h === 1) {
+        return m > 0 ? `1${hLabel}${sep}${m}m` : `1${hLabel}`;
+    }
+    return `${m}m`;
 }
 
 function pad(value: number): string {
