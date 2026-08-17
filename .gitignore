@@ -1,6 +1,9 @@
 # dependencies (bun install)
 node_modules
 
+# bun.lock is the lockfile of record; a stray pnpm run must not add a second one
+pnpm-lock.yaml
+
 # output
 out
 dist
