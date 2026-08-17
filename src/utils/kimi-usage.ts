@@ -116,8 +116,14 @@ export function isKimiUsageContext(
     environment: Record<string, string | undefined> = process.env
 ): boolean {
     const modelIdentifiers = getModelIdentifiers(data?.model);
-    if (modelIdentifiers.length > 0) {
-        return modelIdentifiers.some(identifier => identifier.toLowerCase().includes('kimi'));
+    if (modelIdentifiers.some(identifier => identifier.toLowerCase().includes('kimi'))) {
+        return true;
+    }
+
+    // A clearly Anthropic model id wins over env hints: mixed setups (Kimi env
+    // left over while running Claude) must not be routed to the Kimi usage API.
+    if (modelIdentifiers.some(identifier => identifier.toLowerCase().includes('claude'))) {
+        return false;
     }
 
     const configuredModels = [

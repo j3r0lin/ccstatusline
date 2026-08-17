@@ -27,6 +27,13 @@ describe('Kimi usage context detection', () => {
         )).toBe(true);
     });
 
+    it('detects Kimi from the configured API host when the status model is an opaque alias', () => {
+        expect(isKimiUsageContext(
+            { model: { id: 'k3-256k' } },
+            { ANTHROPIC_BASE_URL: 'https://api.kimi.com/coding/' }
+        )).toBe(true);
+    });
+
     it('does not classify an Anthropic model as Kimi even when env points at Kimi', () => {
         expect(isKimiUsageContext(
             { model: { id: 'claude-sonnet-4-5' } },
