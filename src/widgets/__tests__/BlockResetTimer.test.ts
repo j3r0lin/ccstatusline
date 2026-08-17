@@ -99,6 +99,39 @@ describe('BlockResetTimerWidget', () => {
         expect(render(widget, { id: 'reset', type: 'reset-timer', rawValue: true }, { usageData: {} })).toBe('[Loading]');
     });
 
+    it('counts down the weekly window when the session slot promoted weekly usage', () => {
+        const widget = new BlockResetTimerWidget();
+
+        vi.spyOn(usage, 'isOfficialAnthropicEndpoint').mockReturnValue(false);
+        vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue({
+            sessionDurationMs: 604800000,
+            elapsedMs: 432000000,
+            remainingMs: 172800000,
+            elapsedPercent: 71.4,
+            remainingPercent: 28.6
+        });
+        mockFormatUsageDuration.mockReturnValue('2d');
+
+        const context: RenderContext = {
+            usageData: { weeklyUsage: 30, weeklyResetAt: '2026-03-15T08:30:00.000Z' },
+            hasSessionUsageWidget: true
+        };
+
+        expect(render(widget, { id: 'reset', type: 'reset-timer', rawValue: true }, context)).toBe('2d');
+        expect(render(widget, { id: 'reset', type: 'reset-timer' }, context)).toBe('Weekly Reset: 2d');
+    });
+
+    it('stays hidden when the promoted weekly usage has no reset time', () => {
+        const widget = new BlockResetTimerWidget();
+
+        vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(null);
+
+        expect(render(widget, { id: 'reset', type: 'reset-timer' }, {
+            usageData: { weeklyUsage: 30 },
+            hasSessionUsageWidget: true
+        })).toBeNull();
+    });
+
     it('shows raw value without label in time mode', () => {
         const widget = new BlockResetTimerWidget();
 

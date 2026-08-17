@@ -99,6 +99,15 @@ export function shouldPromoteMonthlyUsage(usageData: UsageData): boolean {
         && usageData.monthlyUsage > usageData.weeklyUsage;
 }
 
+// The session slot promotes weekly when the provider exposes no five-hour
+// window. The reset timers follow the same decision so the timer sitting next
+// to the promoted percent describes the window that percent came from.
+export function shouldPromoteWeeklyIntoSessionSlot(usageData: UsageData, hasSessionUsageWidget?: boolean): boolean {
+    return hasSessionUsageWidget === true
+        && usageData.sessionUsage === undefined
+        && usageData.weeklyUsage !== undefined;
+}
+
 // The monthly pool resets on the subscription cycle, not a fixed calendar
 // window, so the cursor approximates the cycle as 30 days ending at the
 // reported expiry time.

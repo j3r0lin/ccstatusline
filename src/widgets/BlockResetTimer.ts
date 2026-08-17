@@ -14,7 +14,9 @@ import {
     formatUsageResetAt,
     getUsageErrorMessage,
     isOfficialAnthropicEndpoint,
-    resolveUsageWindowWithFallback
+    resolveUsageWindowWithFallback,
+    resolveWeeklyUsageWindow,
+    shouldPromoteWeeklyIntoSessionSlot
 } from '../utils/usage';
 
 import {
@@ -131,19 +133,33 @@ export class BlockResetTimerWidget implements Widget {
             return formatRawOrLabeledValue(item, 'Reset: ', compact ? '4h30m' : '4hr 30m');
         }
 
-        if (!isOfficialAnthropicEndpoint()) {
+        const usageData = context.usageData ?? {};
+        // SessionUsage promotes weekly into the primary bar when the provider
+        // exposes no five-hour window. Follow it here so the timer beside that
+        // percent describes the weekly window instead of rendering empty.
+        const weeklyPromoted = shouldPromoteWeeklyIntoSessionSlot(usageData, context.hasSessionUsageWidget);
+
+        if (!weeklyPromoted && !isOfficialAnthropicEndpoint()) {
             return null;
         }
 
-        const usageData = context.usageData ?? {};
-        const window = resolveUsageWindowWithFallback(usageData, context.blockMetrics);
+        const window = weeklyPromoted
+            ? resolveWeeklyUsageWindow(usageData)
+            : resolveUsageWindowWithFallback(usageData, context.blockMetrics);
+        const label = weeklyPromoted ? 'Weekly Reset' : 'Reset';
+
+        // A promoted weekly window with no reset timestamp has nothing to count
+        // down to, and the weekly slot never showed this timer before.
+        if (!window && weeklyPromoted) {
+            return null;
+        }
 
         if (!window) {
             if (usageData.error) {
                 return getUsageErrorMessage(usageData.error);
             }
 
-            return formatRawOrLabeledValue(item, 'Reset: ', USAGE_TIMER_LOADING_MESSAGE);
+            return formatRawOrLabeledValue(item, `${label}: `, USAGE_TIMER_LOADING_MESSAGE);
         }
 
         if (window.remainingMs <= 0) {
@@ -155,7 +171,7 @@ export class BlockResetTimerWidget implements Widget {
             const percent = inverted ? window.remainingPercent : window.elapsedPercent;
             const progressBar = makeTimerProgressBar(percent, barWidth);
             const percentage = percent.toFixed(1);
-            return formatRawOrLabeledValue(item, 'Reset ', `[${progressBar}] ${percentage}%`);
+            return formatRawOrLabeledValue(item, `${label} `, `[${progressBar}] ${percentage}%`);
         }
 
         if (isUsageSliderMode(displayMode)) {
@@ -164,20 +180,20 @@ export class BlockResetTimerWidget implements Widget {
             const sliderDisplay = displayMode === 'slider'
                 ? `${slider} ${percent.toFixed(1)}%`
                 : slider;
-            return formatRawOrLabeledValue(item, 'Reset ', sliderDisplay);
+            return formatRawOrLabeledValue(item, `${label} `, sliderDisplay);
         }
 
         if (dateMode) {
             const timezone = getUsageTimezone(item);
             const locale = getUsageLocale(item);
-            const resetAt = formatUsageResetAt(usageData.sessionResetAt, compact, timezone, locale, isUsage12HourClock(item));
+            const resetAt = formatUsageResetAt(weeklyPromoted ? usageData.weeklyResetAt : usageData.sessionResetAt, compact, timezone, locale, isUsage12HourClock(item));
             if (resetAt) {
-                return formatRawOrLabeledValue(item, 'Reset: ', resetAt);
+                return formatRawOrLabeledValue(item, `${label}: `, resetAt);
             }
         }
 
         const remainingTime = formatUsageDuration(window.remainingMs, compact);
-        return formatRawOrLabeledValue(item, 'Reset: ', remainingTime);
+        return formatRawOrLabeledValue(item, `${label}: `, remainingTime);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

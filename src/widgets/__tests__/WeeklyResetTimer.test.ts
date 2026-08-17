@@ -70,6 +70,34 @@ describe('WeeklyResetTimerWidget', () => {
         expect(mockFormatUsageDuration).toHaveBeenCalledWith(484800000, false, true);
     });
 
+    it('hides itself when the reset-timer slot promoted the weekly reset', () => {
+        const widget = new WeeklyResetTimerWidget();
+
+        mockResolveWeeklyUsageWindow.mockReturnValue({
+            sessionDurationMs: 604800000,
+            elapsedMs: 432000000,
+            remainingMs: 172800000,
+            elapsedPercent: 71.4,
+            remainingPercent: 28.6
+        });
+        mockFormatUsageDuration.mockReturnValue('2d');
+
+        const usageData = { weeklyUsage: 30, weeklyResetAt: '2026-03-15T08:30:00.000Z' };
+
+        expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, {
+            usageData,
+            hasSessionUsageWidget: true,
+            hasResetTimerWidget: true
+        })).toBeNull();
+
+        // Without a reset-timer slot to promote into, this widget is the only
+        // place the weekly countdown can appear.
+        expect(render(widget, { id: 'weekly-reset', type: 'weekly-reset-timer' }, {
+            usageData,
+            hasSessionUsageWidget: true
+        })).toBe('Weekly Reset: 2d');
+    });
+
     it('renders remaining time in hours-only mode', () => {
         const widget = new WeeklyResetTimerWidget();
 

@@ -15,7 +15,8 @@ import {
     getUsageErrorMessage,
     resolveMonthlyUsageWindow,
     resolveWeeklyUsageWindow,
-    shouldPromoteMonthlyUsage
+    shouldPromoteMonthlyUsage,
+    shouldPromoteWeeklyIntoSessionSlot
 } from '../utils/usage';
 
 import { makeModifierText } from './shared/editor-display';
@@ -217,6 +218,14 @@ export class WeeklyResetTimerWidget implements Widget {
         }
 
         const usageData = context.usageData ?? {};
+
+        // The reset-timer slot promotes the weekly reset whenever the primary
+        // bar promoted the weekly percent. Hide this widget then so the same
+        // countdown is not shown twice.
+        if (context.hasResetTimerWidget && shouldPromoteWeeklyIntoSessionSlot(usageData, context.hasSessionUsageWidget)) {
+            return null;
+        }
+
         // When the monthly pool is the tighter cap, the weekly slot shows the
         // monthly percentage; follow it with the monthly reset here.
         const monthlyPromoted = shouldPromoteMonthlyUsage(usageData);

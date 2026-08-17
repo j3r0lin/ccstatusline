@@ -13,7 +13,8 @@ export {
     resolveWeeklyOpusUsageWindow,
     resolveWeeklySonnetUsageWindow,
     resolveWeeklyUsageWindow,
-    shouldPromoteMonthlyUsage
+    shouldPromoteMonthlyUsage,
+    shouldPromoteWeeklyIntoSessionSlot
 } from './usage-windows';
 export {
     FIVE_HOUR_BLOCK_MS,

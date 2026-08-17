@@ -72,6 +72,12 @@ export interface RenderContext {
      * the monthly pool (the tighter cap) into its place.
      */
     hasWeeklyUsageWidget?: boolean;
+    /**
+     * True when a reset-timer widget is configured on any line.
+     * WeeklyResetTimer uses this to hide itself when that slot has promoted the
+     * weekly reset alongside a promoted weekly percentage.
+     */
+    hasResetTimerWidget?: boolean;
     gitReviewNeedsChecks?: boolean;
     lineIndex?: number;  // Index of the current line being rendered (for theme cycling)
     globalSeparatorIndex?: number;  // Global separator index that continues across lines
