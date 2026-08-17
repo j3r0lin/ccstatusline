@@ -37,26 +37,25 @@ describe('IdleWidget', () => {
         expect(render(widget, baseItem, { lastCompletionMs: null })).toBeNull();
     });
 
-    it('renders the idle icon without elapsed time while a turn is in flight', () => {
+    it('renders nothing while a turn is in flight', () => {
         const widget = new IdleWidget();
-        expect(visible(render(widget, baseItem, {
+        expect(render(widget, baseItem, {
             turnInFlight: true,
             lastCompletionMs: Date.now() - 60_000
-        }))).toBe('Idle: 󰔛');
+        })).toBeNull();
     });
 
-    it('renders the idle icon in raw mode while a turn is in flight', () => {
+    it('renders nothing in raw mode while a turn is in flight', () => {
         const widget = new IdleWidget();
-        expect(visible(render(widget, { ...baseItem, rawValue: true }, { turnInFlight: true }))).toBe('󰔛');
+        expect(render(widget, { ...baseItem, rawValue: true }, { turnInFlight: true })).toBeNull();
     });
 
-    it('prefers the in-flight icon over elapsed time when both are available', () => {
+    it('hides the widget even when a recent completion time is available', () => {
         const widget = new IdleWidget();
-        // Even with a recent lastCompletionMs, in-flight wins.
-        expect(visible(render(widget, baseItem, {
+        expect(render(widget, baseItem, {
             turnInFlight: true,
             lastCompletionMs: Date.now() - 5_000
-        }))).toBe('Idle: 󰔛');
+        })).toBeNull();
     });
 
     it('renders elapsed seconds when under 1 minute', () => {

@@ -50,7 +50,7 @@ function getIdleColor(elapsedMs: number): string {
 export class IdleWidget implements Widget {
     getDefaultColor(): string { return 'brightGreen'; }
     getDescription(): string {
-        return 'Shows time elapsed since last API completion; shows the idle icon while a turn is in flight';
+        return 'Shows time elapsed since last API completion; hidden while a turn is in flight';
     }
 
     getDisplayName(): string { return 'Idle'; }
@@ -69,10 +69,9 @@ export class IdleWidget implements Widget {
         }
 
         // A trailing main-chain user row (prompt or tool result) means the model
-        // is still working — show the icon without an elapsed time.
+        // is still working — there is no idle time to report, so hide the widget.
         if (context.turnInFlight) {
-            const text = applyColors(IDLE_ICON, 'brightGreen', undefined, false, colorLevel);
-            return formatRawOrLabeledValue(item, 'Idle: ', text);
+            return null;
         }
 
         const lastMs = context.lastCompletionMs;
