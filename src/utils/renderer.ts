@@ -748,6 +748,77 @@ function formatSeparator(sep: string): string {
     return sep;
 }
 
+// Decide up front which separators actually emit.
+//
+// A separator belongs to the widget on its left, so a run of separators only
+// emits when the last rendered widget is immediately followed by one — that is
+// what lets a widget merge across a neighbour that rendered empty.
+//
+// Widgets that rendered empty inside such a run collapse away and the run emits
+// a single separator. The survivor is the strongest one in the run (any visible
+// character beats a whitespace-only spacer), so losing a widget that a spacer
+// bound to its neighbour does not downgrade the group boundary next to it: with
+// `usage · spacer · reset-timer · "|" · weekly`, a hidden reset timer still
+// leaves `usage | weekly` rather than gluing the two groups with a space.
+function resolveEmittedSeparators(
+    widgets: WidgetItem[],
+    preRenderedWidgets: PreRenderedWidget[],
+    defaultSeparator: string
+): Set<number> {
+    const emitted = new Set<number>();
+    const isVisible = (index: number): boolean => {
+        const character = widgets[index]?.character ?? defaultSeparator;
+        return /\S/.test(character);
+    };
+
+    let run: number[] = [];
+    let runAnchored = false;
+
+    const flushRun = () => {
+        if (runAnchored && run.length > 0) {
+            const survivor = run.find(isVisible) ?? run[0];
+            if (survivor !== undefined)
+                emitted.add(survivor);
+        }
+        run = [];
+    };
+
+    for (let i = 0; i < widgets.length; i++) {
+        const widget = widgets[i];
+        if (!widget)
+            continue;
+
+        // A flex-separator always emits and splits the run, but it does not
+        // break the anchor: the segments on both sides of it keep emitting.
+        if (widget.type === 'flex-separator') {
+            flushRun();
+            continue;
+        }
+
+        if (widget.type === 'separator') {
+            run.push(i);
+            continue;
+        }
+
+        if (!preRenderedWidgets[i]?.content) {
+            // An empty widget that no separator has reached yet ends the anchor,
+            // keeping the merge-across-empty-neighbour behavior intact.
+            if (run.length === 0)
+                runAnchored = false;
+            continue;
+        }
+
+        flushRun();
+        runAnchored = true;
+    }
+
+    // Trailing separators are stripped later; flushing here keeps the decision
+    // in one place.
+    flushRun();
+
+    return emitted;
+}
+
 export interface RenderResult {
     line: string;
     wasTruncated: boolean;
@@ -1012,6 +1083,7 @@ export function renderStatusLine(
 
     const elements: { content: string; type: string; widget?: WidgetItem }[] = [];
     let hasFlexSeparator = false;
+    const emittedSeparators = resolveEmittedSeparators(widgets, preRenderedWidgets, settings.defaultSeparator ?? '|');
 
     // Build elements based on configured widgets
     for (let i = 0; i < widgets.length; i++) {
@@ -1021,23 +1093,10 @@ export function renderStatusLine(
 
         // Handle separators specially (they're not widgets)
         if (widget.type === 'separator') {
-            // Look backwards to the immediately-prior non-separator widget and
-            // emit this separator only if that widget actually rendered content.
-            // This collapses separators around hide-capable widgets that rendered
-            // empty (e.g., git-changes with no changes, conditional widgets with
-            // hide-when-zero semantics) and also suppresses a leading separator
-            // when no prior widget has rendered.
-            let hasContentBefore = false;
-            for (let j = i - 1; j >= 0; j--) {
-                const prevWidget = widgets[j];
-                if (!prevWidget)
-                    continue;
-                if (prevWidget.type === 'separator' || prevWidget.type === 'flex-separator')
-                    continue;
-                hasContentBefore = Boolean(preRenderedWidgets[j]?.content);
-                break;
-            }
-            if (!hasContentBefore)
+            // Separators around hide-capable widgets that rendered empty (e.g.
+            // git-changes with no changes, conditional widgets with hide-when-zero
+            // semantics) collapse into one; see resolveEmittedSeparators.
+            if (!emittedSeparators.has(i))
                 continue;
 
             const sepChar = widget.character ?? (settings.defaultSeparator ?? '|');

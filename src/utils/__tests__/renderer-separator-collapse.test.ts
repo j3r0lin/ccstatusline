@@ -49,6 +49,10 @@ function render(
 
 const T = (id: string): WidgetItem => ({ id, type: 'custom-text' });
 const SEP: WidgetItem = { id: 'sep', type: 'separator' };
+const SPACE_SEP: WidgetItem = { id: 'space-sep', type: 'separator', character: ' ' };
+
+const ANSI_SGR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+const stripAnsi = (text: string): string => text.replace(ANSI_SGR, '');
 
 describe('renderer separator collapse around empty widgets', () => {
     it('emits exactly one separator between content widgets (regression baseline)', () => {
@@ -94,6 +98,29 @@ describe('renderer separator collapse around empty widgets', () => {
         const out = render(widgets, { 0: 'A', 2: '' });
         expect(out).not.toMatch(/\|/);
         expect(out).toContain('A');
+    });
+
+    it('keeps the group boundary when a spacer-bound widget renders empty', () => {
+        // Layout: [usage, ' ', reset-timer(empty), '|', weekly] — the spacer bound
+        // the reset timer to the usage percent, so the surviving neighbours must
+        // still be separated by the group boundary rather than by the spacer.
+        const widgets = [T('usage'), SPACE_SEP, T('reset'), SEP, T('weekly')];
+        const out = render(widgets, { 0: '2%', 2: '', 4: 'M 12%' });
+        expect(stripAnsi(out)).toContain('2% | M 12%');
+    });
+
+    it('keeps the group boundary when the boundary precedes the empty widget', () => {
+        // Mirror of the case above: [usage, '|', reset-timer(empty), ' ', weekly].
+        const widgets = [T('usage'), SEP, T('reset'), SPACE_SEP, T('weekly')];
+        const out = render(widgets, { 0: '2%', 2: '', 4: 'M 12%' });
+        expect(stripAnsi(out)).toContain('2% | M 12%');
+    });
+
+    it('keeps a spacer when every separator around the empty widget is a spacer', () => {
+        const widgets = [T('a'), SPACE_SEP, T('b'), SPACE_SEP, T('c')];
+        const out = render(widgets, { 0: 'A', 2: '', 4: 'C' });
+        expect(out).not.toMatch(/\|/);
+        expect(stripAnsi(out)).toContain('A C');
     });
 
     it('keeps separators between widgets that all rendered content', () => {
