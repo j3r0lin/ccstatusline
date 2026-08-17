@@ -113,17 +113,36 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
         // transcripts, count finalized entries plus the latest unfinished entry so
         // live updates do not overcount duplicate partial rows. If the transcript
         // format has no stop_reason field at all, fall back to counting all entries.
-        const usageEntries = entries.filter(entry => entry.u);
-        const hasStopReasonField = usageEntries.some(entry => entry.r !== undefined);
+        //
+        // Claude Code also writes a { type:'system', subtype:'compact_boundary' }
+        // record on every compaction. Usage entries before the most recent boundary
+        // describe a context that no longer exists, so they must not drive context
+        // length - otherwise it stays stuck at the pre-compaction size until the
+        // next turn repopulates Claude Code's live status data.
+        let lastCompactBoundaryIndex = -1;
+        let lastCompactBoundaryPostTokens: number | null = null;
+        for (const [index, entry] of entries.entries()) {
+            if (entry.c === 1) {
+                lastCompactBoundaryIndex = index;
+                lastCompactBoundaryPostTokens = entry.p ?? null;
+            }
+        }
+
+        const usageEntries = entries
+            .map((entry, index) => ({ entry, index }))
+            .filter(({ entry }) => entry.u);
+        const hasStopReasonField = usageEntries.some(({ entry }) => entry.r !== undefined);
 
         const entriesToCount = hasStopReasonField
-            ? usageEntries.filter((entry, index) => entry.r === 1 || (entry.r === 0 && index === usageEntries.length - 1))
+            ? usageEntries.filter(({ entry }, index) => entry.r === 1 || (entry.r === 0 && index === usageEntries.length - 1))
             : usageEntries;
 
         let mostRecentMainChainEntry: SlimTranscriptEntry | null = null;
         let mostRecentTimestamp: number | null = null;
+        let mostRecentPostCompactionEntry: SlimTranscriptEntry | null = null;
+        let mostRecentPostCompactionTimestamp: number | null = null;
 
-        for (const entry of entriesToCount) {
+        for (const { entry, index } of entriesToCount) {
             const usage = entry.u;
             if (!usage) {
                 continue;
@@ -141,14 +160,30 @@ export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetr
                     mostRecentTimestamp = entry.t;
                     mostRecentMainChainEntry = entry;
                 }
+                if (index > lastCompactBoundaryIndex
+                    && (mostRecentPostCompactionTimestamp === null || entry.t > mostRecentPostCompactionTimestamp)) {
+                    mostRecentPostCompactionTimestamp = entry.t;
+                    mostRecentPostCompactionEntry = entry;
+                }
             }
         }
 
-        // Calculate context length from the most recent main chain message
-        if (mostRecentMainChainEntry?.u) {
-            const usage = mostRecentMainChainEntry.u;
-            contextLength = usage[0] + usage[2] + usage[3];
-        }
+        // Context length is the live occupancy of the current context window.
+        // Without a compaction it is the most recent main-chain turn. After a
+        // compaction, prefer the first turn following the boundary, then the
+        // boundary's reported post-compaction size, and otherwise 0 - the stale
+        // pre-compaction turn must never leak through.
+        const contextLengthFromEntry = (entry: SlimTranscriptEntry | null): number | null => {
+            const usage = entry?.u;
+            if (!usage) {
+                return null;
+            }
+            return usage[0] + usage[2] + usage[3];
+        };
+
+        contextLength = lastCompactBoundaryIndex >= 0
+            ? (contextLengthFromEntry(mostRecentPostCompactionEntry) ?? lastCompactBoundaryPostTokens ?? 0)
+            : (contextLengthFromEntry(mostRecentMainChainEntry) ?? 0);
 
         const cachedTokens = cacheReadTokens + cacheCreationTokens;
         const totalTokens = inputTokens + outputTokens + cachedTokens;

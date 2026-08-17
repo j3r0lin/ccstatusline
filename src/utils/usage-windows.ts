@@ -123,6 +123,10 @@ export function resolveWeeklyOpusUsageWindow(usageData: UsageData, nowMs = Date.
     return getWeeklyUsageWindowFromResetAt(usageData.weeklyOpusResetAt ?? usageData.weeklyResetAt, nowMs);
 }
 
+export function resolveFableUsageWindow(usageData: UsageData, nowMs = Date.now()): UsageWindowMetrics | null {
+    return getWeeklyUsageWindowFromResetAt(usageData.fableResetAt ?? usageData.weeklyResetAt, nowMs);
+}
+
 // The next-smaller unit is only worth its width when the leading unit is 1:
 // at 26 days nobody plans around the trailing hours, but at 1 day they do.
 export function formatUsageDuration(durationMs: number, compact = false, useDays = true): string {

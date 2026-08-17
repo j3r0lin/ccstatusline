@@ -18,6 +18,8 @@ export interface RenderUsageData {
     weeklyOpusResetAt?: string;
     monthlyUsage?: number;
     monthlyResetAt?: string;
+    fableUsage?: number;
+    fableResetAt?: string;
     extraUsageEnabled?: boolean;
     extraUsageLimit?: number;
     extraUsageUsed?: number;

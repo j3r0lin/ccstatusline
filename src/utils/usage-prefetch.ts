@@ -1,4 +1,7 @@
-import type { StatusJSON } from '../types/StatusJSON';
+import type {
+    RateLimitPeriod,
+    StatusJSON
+} from '../types/StatusJSON';
 import type { WidgetItem } from '../types/Widget';
 
 import {
@@ -18,15 +21,18 @@ import {
     ANTHROPIC_USAGE_FIELDS,
     fetchUsageData
 } from './usage';
+import type { UsageDataField } from './usage-types';
+import {
+    WEEKLY_MODEL_USAGE_BUCKETS,
+    setUsageField
+} from './usage-types';
 
-type UsageDataField = Exclude<keyof UsageData, 'error'>;
-
-const USAGE_WIDGET_TYPES = new Set<string>([
+// Non-model usage widgets/fields. The per-model ones (weekly-sonnet-usage,
+// weekly-opus-usage, ...) are derived below from WEEKLY_MODEL_USAGE_BUCKETS so
+// that adding a model bucket can't desync one of these tables from the others.
+const BASE_USAGE_WIDGET_TYPES = [
     'session-usage',
     'weekly-usage',
-    'monthly-usage',
-    'weekly-sonnet-usage',
-    'weekly-opus-usage',
     'block-timer',
     'monthly-usage',
     'reset-timer',
@@ -35,6 +41,11 @@ const USAGE_WIDGET_TYPES = new Set<string>([
     'extra-usage-remaining',
     'usage-projection',
     'extra-usage-used'
+];
+
+const USAGE_WIDGET_TYPES = new Set<string>([
+    ...BASE_USAGE_WIDGET_TYPES,
+    ...WEEKLY_MODEL_USAGE_BUCKETS.map(bucket => bucket.widgetType)
 ]);
 
 const USAGE_DATA_FIELDS: UsageDataField[] = [
@@ -42,12 +53,7 @@ const USAGE_DATA_FIELDS: UsageDataField[] = [
     'sessionResetAt',
     'weeklyUsage',
     'weeklyResetAt',
-    'weeklySonnetUsage',
-    'weeklySonnetResetAt',
-    'weeklyOpusUsage',
-    'weeklyOpusResetAt',
-    'monthlyUsage',
-    'monthlyResetAt',
+    ...WEEKLY_MODEL_USAGE_BUCKETS.flatMap(bucket => [bucket.usageField, bucket.resetField]),
     'extraUsageEnabled',
     'extraUsageLimit',
     'extraUsageUsed',
@@ -73,8 +79,7 @@ const USAGE_WIDGET_REQUIREMENTS: Record<string, UsageFieldRequirement[]> = {
     // without monthly data filter these fields out in their fetchers.
     'weekly-usage': [{ field: 'weeklyUsage' }, { field: 'monthlyUsage', suppressFetchError: true }],
     'monthly-usage': [{ field: 'monthlyUsage' }],
-    'weekly-sonnet-usage': [{ field: 'weeklySonnetUsage' }],
-    'weekly-opus-usage': [{ field: 'weeklyOpusUsage' }],
+    ...Object.fromEntries(WEEKLY_MODEL_USAGE_BUCKETS.map(bucket => [bucket.widgetType, [{ field: bucket.usageField }]])),
     'block-timer': [{ field: 'sessionResetAt', suppressFetchError: true }],
     'reset-timer': [{ field: 'sessionResetAt', suppressFetchError: true }],
     'weekly-reset-timer': [{ field: 'weeklyResetAt', suppressFetchError: true }, { field: 'monthlyResetAt', suppressFetchError: true }],
@@ -97,8 +102,7 @@ const USAGE_CURSOR_REQUIREMENTS: Record<string, UsageFieldRequirement> = {
     'session-usage': { field: 'sessionResetAt' },
     'weekly-usage': { field: 'weeklyResetAt' },
     'monthly-usage': { field: 'monthlyResetAt' },
-    'weekly-sonnet-usage': { field: 'weeklySonnetResetAt', alternatives: ['weeklyResetAt'] },
-    'weekly-opus-usage': { field: 'weeklyOpusResetAt', alternatives: ['weeklyResetAt'] }
+    ...Object.fromEntries(WEEKLY_MODEL_USAGE_BUCKETS.map(bucket => [bucket.widgetType, { field: bucket.resetField, alternatives: ['weeklyResetAt'] }]))
 };
 
 export function hasUsageDependentWidgets(lines: WidgetItem[][]): boolean {
@@ -165,25 +169,16 @@ function hasAnyUsageDataField(data: UsageData | null | undefined): boolean {
 }
 
 function pickDefinedUsageFields(data: UsageData | null | undefined): Partial<UsageData> {
-    return {
-        ...(data?.sessionUsage !== undefined ? { sessionUsage: data.sessionUsage } : {}),
-        ...(data?.sessionResetAt !== undefined ? { sessionResetAt: data.sessionResetAt } : {}),
-        ...(data?.weeklyUsage !== undefined ? { weeklyUsage: data.weeklyUsage } : {}),
-        ...(data?.weeklyResetAt !== undefined ? { weeklyResetAt: data.weeklyResetAt } : {}),
-        ...(data?.weeklySonnetUsage !== undefined ? { weeklySonnetUsage: data.weeklySonnetUsage } : {}),
-        ...(data?.weeklySonnetResetAt !== undefined ? { weeklySonnetResetAt: data.weeklySonnetResetAt } : {}),
-        ...(data?.weeklyOpusUsage !== undefined ? { weeklyOpusUsage: data.weeklyOpusUsage } : {}),
-        ...(data?.weeklyOpusResetAt !== undefined ? { weeklyOpusResetAt: data.weeklyOpusResetAt } : {}),
-        ...(data?.monthlyUsage !== undefined ? { monthlyUsage: data.monthlyUsage } : {}),
-        ...(data?.monthlyResetAt !== undefined ? { monthlyResetAt: data.monthlyResetAt } : {}),
-        ...(data?.extraUsageEnabled !== undefined ? { extraUsageEnabled: data.extraUsageEnabled } : {}),
-        ...(data?.extraUsageLimit !== undefined ? { extraUsageLimit: data.extraUsageLimit } : {}),
-        ...(data?.extraUsageUsed !== undefined ? { extraUsageUsed: data.extraUsageUsed } : {}),
-        ...(data?.monthlyUsage !== undefined ? { monthlyUsage: data.monthlyUsage } : {}),
-        ...(data?.monthlyResetAt !== undefined ? { monthlyResetAt: data.monthlyResetAt } : {}),
-        ...(data?.extraUsageUtilization !== undefined ? { extraUsageUtilization: data.extraUsageUtilization } : {}),
-        ...(data?.extraUsageCurrency !== undefined ? { extraUsageCurrency: data.extraUsageCurrency } : {})
-    };
+    const picked: Partial<UsageData> = {};
+
+    for (const field of USAGE_DATA_FIELDS) {
+        const value = data?.[field];
+        if (value !== undefined) {
+            setUsageField(picked, field, value);
+        }
+    }
+
+    return picked;
 }
 
 function mergeUsageData(rateLimitsData: UsageData | null, apiData: UsageData): UsageData {
@@ -201,32 +196,43 @@ function epochSecondsToIsoString(epochSeconds: number | null | undefined): strin
     return new Date(epochSeconds * 1000).toISOString();
 }
 
+// A null legacy per-model bucket is ambiguous: migrated accounts can report it
+// alongside an authoritative weekly_scoped API limit. Keep it unset here so
+// prefetching checks the API before parseUsageApiResponse applies its legacy
+// null-bucket fallback.
+function getRateLimitBucketUsage(bucket: RateLimitPeriod | null | undefined): number | undefined {
+    return bucket?.used_percentage ?? undefined;
+}
+
 export function extractUsageDataFromRateLimits(rateLimits: StatusJSON['rate_limits']): UsageData | null {
     if (!rateLimits) {
         return null;
     }
 
-    const sessionUsage = rateLimits.five_hour?.used_percentage ?? undefined;
-    const sessionResetAt = epochSecondsToIsoString(rateLimits.five_hour?.resets_at);
-    const weeklyUsage = rateLimits.seven_day?.used_percentage ?? undefined;
-    const weeklyResetAt = epochSecondsToIsoString(rateLimits.seven_day?.resets_at);
-    const weeklySonnetUsage = rateLimits.seven_day_sonnet === null ? 0 : rateLimits.seven_day_sonnet?.used_percentage ?? undefined;
-    const weeklySonnetResetAt = epochSecondsToIsoString(rateLimits.seven_day_sonnet?.resets_at);
-    const weeklyOpusUsage = rateLimits.seven_day_opus === null ? 0 : rateLimits.seven_day_opus?.used_percentage ?? undefined;
-    const weeklyOpusResetAt = epochSecondsToIsoString(rateLimits.seven_day_opus?.resets_at);
+    // rate_limits is keyed by fixed, schema-declared bucket names (five_hour,
+    // seven_day, seven_day_sonnet, ...); WEEKLY_MODEL_USAGE_BUCKETS.apiBucketKey
+    // values are those same names, kept in sync via the schema-parity test in
+    // usage-fetch.test.ts, so this lookup is safe despite the untyped index.
+    const rateLimitBuckets = rateLimits as unknown as Record<string, RateLimitPeriod | null | undefined>;
 
-    // Note: rate_limits does not include extra_usage data (extraUsageEnabled, etc.).
-    // Those fields are only available via the API fetch path.
     const usageData: UsageData = {
-        sessionUsage,
-        sessionResetAt,
-        weeklyUsage,
-        weeklyResetAt,
-        weeklySonnetUsage,
-        weeklySonnetResetAt,
-        weeklyOpusUsage,
-        weeklyOpusResetAt
+        sessionUsage: rateLimits.five_hour?.used_percentage ?? undefined,
+        sessionResetAt: epochSecondsToIsoString(rateLimits.five_hour?.resets_at),
+        weeklyUsage: rateLimits.seven_day?.used_percentage ?? undefined,
+        weeklyResetAt: epochSecondsToIsoString(rateLimits.seven_day?.resets_at)
+        // Note: rate_limits does not include extra_usage data (extraUsageEnabled, etc.).
+        // Those fields are only available via the API fetch path.
     };
+
+    for (const bucket of WEEKLY_MODEL_USAGE_BUCKETS) {
+        if (!bucket.apiBucketKey) {
+            continue;
+        }
+
+        const rateLimitBucket = rateLimitBuckets[bucket.apiBucketKey];
+        setUsageField(usageData, bucket.usageField, getRateLimitBucketUsage(rateLimitBucket));
+        setUsageField(usageData, bucket.resetField, epochSecondsToIsoString(rateLimitBucket?.resets_at));
+    }
 
     return hasAnyUsageDataField(usageData) ? usageData : null;
 }

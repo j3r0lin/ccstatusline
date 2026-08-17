@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
+import {
+    getCompactBoundaryPostTokens,
+    isCompactBoundary
+} from './compaction';
 import { parseJsonlLine } from './jsonl-lines';
 import type { ResolvedThinkingEffort } from './jsonl-metadata';
 import { extractThinkingEffortMarker } from './jsonl-metadata';
@@ -29,6 +33,10 @@ export interface SlimTranscriptEntry {
     r?: 0 | 1 | 2;
     /** usage: [input, output, cacheRead, cacheCreation] */
     u?: [number, number, number, number];
+    /** 1 when this row is a { type:'system', subtype:'compact_boundary' } record */
+    c?: 1;
+    /** compactMetadata.postTokens of a boundary row, when the record reports it */
+    p?: number;
 }
 
 export interface TranscriptData {
@@ -76,7 +84,7 @@ interface TranscriptCacheFile {
     effort: ResolvedThinkingEffort | null;
 }
 
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 const MAX_CACHED_PROMPT_LENGTH = 500;
 const HEAD_SAMPLE_BYTES = 4096;
 const MAX_CACHE_FILES = 512;
@@ -149,7 +157,8 @@ function slimifyLine(line: string, sink: SlimifySink): SlimTranscriptEntry | nul
     // Cheap pre-filter: only lines mentioning agentId need the deep recursive
     // scan for referenced subagents.
     const needsAgentScan = line.includes('"agentId"');
-    if (!needsAgentScan && !line.includes('"timestamp"') && !line.includes('"usage"')) {
+    const needsBoundaryScan = line.includes('"compact_boundary"');
+    if (!needsAgentScan && !needsBoundaryScan && !line.includes('"timestamp"') && !line.includes('"usage"')) {
         return null;
     }
 
@@ -198,6 +207,14 @@ function slimifyLine(line: string, sink: SlimifySink): SlimTranscriptEntry | nul
         entry.e = 1;
     }
 
+    if (isCompactBoundary(data)) {
+        entry.c = 1;
+        const postTokens = getCompactBoundaryPostTokens(data);
+        if (postTokens !== null) {
+            entry.p = postTokens;
+        }
+    }
+
     const message = data.message;
     if (message && typeof message === 'object') {
         const usage = message.usage;
@@ -216,7 +233,7 @@ function slimifyLine(line: string, sink: SlimifySink): SlimTranscriptEntry | nul
         }
     }
 
-    if (entry.t === undefined && entry.u === undefined && entry.y === undefined) {
+    if (entry.t === undefined && entry.u === undefined && entry.y === undefined && entry.c === undefined) {
         return null;
     }
 
