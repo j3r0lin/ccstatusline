@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
     describe,
     expect,
@@ -11,9 +14,13 @@ import {
     interpretGrokBillingResponse,
     isGrokApiUrl,
     isGrokUsageContext,
+    loadGrokCredentials,
     mapGrokBillingToUsageData,
     parseGrokAuthJson,
-    parseGrokWebBillingResponse
+    parseGrokRefreshResponse,
+    parseGrokWebBillingResponse,
+    persistGrokRefreshedCredentials,
+    selectGrokUsageFallback
 } from '../grok-usage';
 
 function encodeVarint(value: number | bigint): Buffer {
@@ -97,7 +104,7 @@ describe('Grok usage context detection', () => {
 });
 
 describe('Grok auth parsing', () => {
-    it('prefers the SuperGrok OIDC scope entry and rejects expired tokens', () => {
+    it('prefers the SuperGrok OIDC scope entry when it is still valid', () => {
         const valid = parseGrokAuthJson(JSON.stringify({
             'https://accounts.x.ai/sign-in': {
                 key: 'legacy-token',
@@ -117,9 +124,13 @@ describe('Grok auth parsing', () => {
             expiresAt: new Date('2030-01-01T00:00:00Z'),
             principalType: 'User',
             email: 'user@example.com',
-            teamId: 'team-1'
+            teamId: 'team-1',
+            clientId: 'client-id',
+            authScope: 'https://auth.x.ai::client-id'
         });
+    });
 
+    it('rejects expired tokens without a refresh token', () => {
         expect(parseGrokAuthJson(JSON.stringify({
             'https://auth.x.ai::client-id': {
                 key: 'oidc-token',
@@ -128,9 +139,134 @@ describe('Grok auth parsing', () => {
         }), new Date('2026-07-23T00:00:00Z'))).toBeNull();
     });
 
+    it('retains expired tokens that can be refreshed', () => {
+        expect(parseGrokAuthJson(JSON.stringify({
+            'https://auth.x.ai::client-id': {
+                key: 'expired-token',
+                refresh_token: 'refresh-token',
+                expires_at: '2020-01-01T00:00:00Z'
+            }
+        }), new Date('2026-07-23T00:00:00Z'))).toEqual({
+            accessToken: 'expired-token',
+            refreshToken: 'refresh-token',
+            expiresAt: new Date('2020-01-01T00:00:00Z'),
+            clientId: 'client-id',
+            authScope: 'https://auth.x.ai::client-id'
+        });
+    });
+
     it('resolves GROK_HOME and auth path', () => {
         expect(getGrokHomeURL({ GROK_HOME: '/tmp/custom-grok' }, '/Users/me')).toBe('/tmp/custom-grok');
         expect(getGrokAuthFilePath({}, '/Users/me')).toBe('/Users/me/.grok/auth.json');
+    });
+});
+
+describe('Grok usage fallbacks', () => {
+    const futureResetAt = '2030-01-01T00:00:00Z';
+    const expiredResetAt = '2020-01-01T00:00:00Z';
+    const nowMs = new Date('2026-07-23T00:00:00Z').getTime();
+
+    it('never returns cached usage for missing credentials', () => {
+        expect(selectGrokUsageFallback({
+            error: 'no-credentials',
+            cached: { weeklyUsage: 90, weeklyResetAt: futureResetAt },
+            cacheAgeSeconds: 0,
+            nowMs,
+            requiredFields: ['weeklyUsage']
+        })).toEqual({ error: 'no-credentials' });
+    });
+
+    it('returns recent transient-failure cache with an open weekly window', () => {
+        expect(selectGrokUsageFallback({
+            error: 'timeout',
+            cached: { weeklyUsage: 90, weeklyResetAt: futureResetAt },
+            cacheAgeSeconds: 60,
+            nowMs,
+            requiredFields: ['weeklyUsage']
+        })).toEqual({ weeklyUsage: 90, weeklyResetAt: futureResetAt });
+    });
+
+    it.each([
+        ['is older than the stale limit', 901, futureResetAt],
+        ['has crossed its weekly reset', 60, expiredResetAt]
+    ])('rejects a timeout cache that %s', (_reason, cacheAgeSeconds, weeklyResetAt) => {
+        expect(selectGrokUsageFallback({
+            error: 'timeout',
+            cached: { weeklyUsage: 90, weeklyResetAt },
+            cacheAgeSeconds,
+            nowMs,
+            requiredFields: ['weeklyUsage']
+        })).toEqual({ error: 'timeout' });
+    });
+});
+
+describe('Grok token refresh', () => {
+    it('parses a valid refresh response and rejects one without an access token', () => {
+        const now = new Date('2026-07-23T00:00:00Z');
+        expect(parseGrokRefreshResponse(JSON.stringify({
+            access_token: 'fresh-token',
+            refresh_token: 'rotated-refresh-token',
+            expires_in: 3600
+        }), now)).toEqual({
+            accessToken: 'fresh-token',
+            refreshToken: 'rotated-refresh-token',
+            expiresAt: new Date('2026-07-23T01:00:00Z')
+        });
+        expect(parseGrokRefreshResponse(JSON.stringify({ access_token: 'fresh-token' }), now)).toEqual({
+            accessToken: 'fresh-token',
+            expiresAt: new Date('2026-07-23T01:00:00Z')
+        });
+        expect(parseGrokRefreshResponse(JSON.stringify({ expires_in: 3600 }), now)).toBeNull();
+    });
+
+    it('persists only the refreshed OIDC entry and does not persist an environment token', () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-grok-auth-'));
+        const authPath = path.join(directory, 'auth.json');
+        const scope = 'https://auth.x.ai::client-id';
+        const original = {
+            'https://accounts.x.ai/sign-in': { key: 'legacy-token' },
+            [scope]: {
+                key: 'expired-token',
+                refresh_token: 'old-refresh-token',
+                expires_at: '2020-01-01T00:00:00Z',
+                oidc_client_id: 'client-id',
+                preserved: 'value'
+            }
+        };
+        fs.writeFileSync(authPath, JSON.stringify(original));
+
+        try {
+            expect(persistGrokRefreshedCredentials(authPath, {
+                accessToken: 'fresh-token',
+                refreshToken: 'new-refresh-token',
+                expiresAt: new Date('2030-01-01T00:00:00Z'),
+                authScope: scope
+            })).toBe(true);
+            expect(JSON.parse(fs.readFileSync(authPath, 'utf8'))).toEqual({
+                'https://accounts.x.ai/sign-in': { key: 'legacy-token' },
+                [scope]: {
+                    key: 'fresh-token',
+                    refresh_token: 'new-refresh-token',
+                    expires_at: '2030-01-01T00:00:00.000Z',
+                    oidc_client_id: 'client-id',
+                    preserved: 'value'
+                }
+            });
+
+            expect(loadGrokCredentials({ GROK_ACCESS_TOKEN: 'environment-token' }, directory)).toEqual({ accessToken: 'environment-token' });
+            expect(JSON.parse(fs.readFileSync(authPath, 'utf8'))).toEqual({
+                'https://accounts.x.ai/sign-in': { key: 'legacy-token' },
+                [scope]: {
+                    key: 'fresh-token',
+                    refresh_token: 'new-refresh-token',
+                    expires_at: '2030-01-01T00:00:00.000Z',
+                    oidc_client_id: 'client-id',
+                    preserved: 'value'
+                }
+            });
+        } finally {
+            fs.rmSync(directory, { recursive: true, force: true });
+        }
     });
 });
 

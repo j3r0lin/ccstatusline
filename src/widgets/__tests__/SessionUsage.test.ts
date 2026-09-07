@@ -83,6 +83,29 @@ describe('SessionUsageWidget', () => {
             .toBe(`Weekly: ▓▓▓░░│░░░░ 30% ${applyColors('▾20', 'green', undefined, false, 'ansi256')}`);
     });
 
+    it('does not render promoted weekly usage after its window closes', () => {
+        const widget = new SessionUsageWidget();
+        vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue({
+            ...halfElapsedWindow,
+            remainingMs: 0
+        });
+
+        expect(render(widget, {
+            id: 'session',
+            type: 'session-usage'
+        }, { usageData: { weeklyUsage: 90, weeklyResetAt: '2020-01-01T00:00:00Z' } })).toBeNull();
+    });
+
+    it('renders promoted weekly usage while its window remains open', () => {
+        const widget = new SessionUsageWidget();
+        vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(halfElapsedWindow);
+
+        expect(render(widget, {
+            id: 'session',
+            type: 'session-usage'
+        }, { usageData: { weeklyUsage: 90, weeklyResetAt: '2030-01-01T00:00:00Z' } })).toBe('Weekly: 90% ▴40');
+    });
+
     it('prefers session usage over weekly usage when both are present', () => {
         const widget = new SessionUsageWidget();
 

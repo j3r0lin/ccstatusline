@@ -135,14 +135,18 @@ export class SessionUsageWidget implements Widget {
             return null;
         }
 
-        const percent = Math.max(0, Math.min(100, source.percent));
-        const renderedPercent = inverted ? 100 - percent : percent;
-        const label = getSessionUsageLabel(source.promoted);
         // Follows the promoted source, so a weekly percent is paced against the
         // weekly window rather than the five-hour one.
         const window = source.promoted
             ? resolveWeeklyUsageWindow(data)
             : resolveUsageWindowWithFallback(data, context.blockMetrics);
+        if (source.promoted && (!window || window.remainingMs <= 0)) {
+            return data.error ? getUsageErrorMessage(data.error) : null;
+        }
+
+        const percent = Math.max(0, Math.min(100, source.percent));
+        const renderedPercent = inverted ? 100 - percent : percent;
+        const label = getSessionUsageLabel(source.promoted);
         const getCursorOptions = (): { cursorPercent: number } | undefined => {
             if (!showCursor) {
                 return undefined;
@@ -192,6 +196,12 @@ export class SessionUsageWidget implements Widget {
         const source = resolveSessionUsageDisplaySource(data);
         if (!source)
             return null;
+        if (source.promoted) {
+            const window = resolveWeeklyUsageWindow(data);
+            if (!window || window.remainingMs <= 0) {
+                return null;
+            }
+        }
 
         const percent = Math.max(0, Math.min(100, source.percent));
         const renderedPercent = isUsageInverted(item) ? 100 - percent : percent;

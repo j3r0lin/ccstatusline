@@ -224,6 +224,29 @@ describe('WeeklyUsageWidget', () => {
         })).toBe('Weekly: 30%');
     });
 
+    it('does not render weekly usage after the weekly window closes', () => {
+        const widget = new WeeklyUsageWidget();
+        vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue({
+            ...halfElapsedWindow,
+            remainingMs: 0
+        });
+
+        expect(render(widget, {
+            id: 'weekly',
+            type: 'weekly-usage'
+        }, { usageData: { weeklyUsage: 90, weeklyResetAt: '2020-01-01T00:00:00Z' } })).toBeNull();
+    });
+
+    it('renders weekly usage while the weekly window remains open', () => {
+        const widget = new WeeklyUsageWidget();
+        vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(halfElapsedWindow);
+
+        expect(render(widget, {
+            id: 'weekly',
+            type: 'weekly-usage'
+        }, { usageData: { weeklyUsage: 90, weeklyResetAt: '2030-01-01T00:00:00Z' } }) ?? '').toContain('90%');
+    });
+
     describe('monthly promotion', () => {
         const promotedContext: RenderContext = {
             usageData: {

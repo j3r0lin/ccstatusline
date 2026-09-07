@@ -13,9 +13,13 @@ import type {
 } from './usage-types';
 
 const CACHE_MAX_AGE_SECONDS = 180;
+// A stale quota can mislead users after their billing window has changed.
+const STALE_MAX_AGE_SECONDS = 900;
 const LOCK_MAX_AGE_SECONDS = 30;
 const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 300;
 const REQUEST_TIMEOUT_MS = 5000;
+const REFRESH_BEFORE_EXPIRY_MS = 60_000;
+const DEFAULT_REFRESH_EXPIRY_SECONDS = 3600;
 const DEFAULT_BILLING_ENDPOINT = 'https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig';
 const OIDC_SCOPE_PREFIX = 'https://auth.x.ai::';
 const LEGACY_SESSION_SCOPE = 'https://accounts.x.ai/sign-in';
@@ -31,6 +35,11 @@ export interface FetchGrokUsageDataOptions { requiredFields?: readonly UsageData
 export interface GrokCredentials {
     accessToken: string;
     expiresAt?: Date;
+    refreshToken?: string;
+    clientId?: string;
+    issuer?: string;
+    authScope?: string;
+    authFilePath?: string;
     principalType?: string;
     email?: string;
     teamId?: string;
@@ -58,10 +67,19 @@ const GrokUsageLockSchema = z.object({
 
 const GrokAuthEntrySchema = z.looseObject({
     key: z.string().min(1),
+    refresh_token: z.string().nullable().optional(),
     expires_at: z.string().nullable().optional(),
+    oidc_client_id: z.string().nullable().optional(),
+    oidc_issuer: z.string().nullable().optional(),
     principal_type: z.string().nullable().optional(),
     email: z.string().nullable().optional(),
     team_id: z.string().nullable().optional()
+});
+
+const GrokRefreshResponseSchema = z.object({
+    access_token: z.string().trim().min(1),
+    refresh_token: z.string().trim().min(1).optional(),
+    expires_in: z.number().nonnegative().optional()
 });
 
 type GrokUsageLock = z.infer<typeof GrokUsageLockSchema>;
@@ -148,15 +166,19 @@ export function getGrokAuthFilePath(
     return path.join(getGrokHomeURL(environment, homeDir), 'auth.json');
 }
 
-function selectPreferredAuthEntry(root: Record<string, unknown>): unknown {
-    const oidcEntries = Object.entries(root)
-        .filter(([scope, value]) => scope.startsWith(OIDC_SCOPE_PREFIX) && value && typeof value === 'object')
-        .map(([, value]) => value);
-    if (oidcEntries[0]) {
-        return oidcEntries[0];
+function selectPreferredAuthEntry(root: Record<string, unknown>): [string, unknown] | undefined {
+    const oidcEntry = Object.entries(root)
+        .find(([scope, value]) => scope.startsWith(OIDC_SCOPE_PREFIX) && value && typeof value === 'object');
+    if (oidcEntry) {
+        return oidcEntry;
     }
 
-    return root[LEGACY_SESSION_SCOPE];
+    const legacyEntry = root[LEGACY_SESSION_SCOPE];
+    return legacyEntry === undefined ? undefined : [LEGACY_SESSION_SCOPE, legacyEntry];
+}
+
+function clientIdFromScope(scope: string): string | undefined {
+    return scope.startsWith(OIDC_SCOPE_PREFIX) ? nonEmpty(scope.slice(OIDC_SCOPE_PREFIX.length)) : undefined;
 }
 
 export function parseGrokAuthJson(rawJson: string, now: Date = new Date()): GrokCredentials | null {
@@ -166,7 +188,11 @@ export function parseGrokAuthJson(rawJson: string, now: Date = new Date()): Grok
             return null;
         }
 
-        const entry = selectPreferredAuthEntry(parsed as Record<string, unknown>);
+        const selected = selectPreferredAuthEntry(parsed as Record<string, unknown>);
+        if (!selected) {
+            return null;
+        }
+        const [scope, entry] = selected;
         const auth = GrokAuthEntrySchema.safeParse(entry);
         if (!auth.success) {
             return null;
@@ -177,16 +203,27 @@ export function parseGrokAuthJson(rawJson: string, now: Date = new Date()): Grok
         if (expiresAt && Number.isNaN(expiresAt.getTime())) {
             return null;
         }
-        if (expiresAt && now >= expiresAt) {
+        const refreshToken = nonEmpty(auth.data.refresh_token);
+        // Keep expired credentials only when a refresh token can replace them.
+        if (expiresAt && now >= expiresAt && !refreshToken) {
             return null;
         }
 
+        const isOidcEntry = scope.startsWith(OIDC_SCOPE_PREFIX);
+        const clientId = nonEmpty(auth.data.oidc_client_id) ?? clientIdFromScope(scope);
+        const issuer = nonEmpty(auth.data.oidc_issuer);
         return {
             accessToken: auth.data.key,
             expiresAt,
             principalType: nonEmpty(auth.data.principal_type),
             email: nonEmpty(auth.data.email),
-            teamId: nonEmpty(auth.data.team_id)
+            teamId: nonEmpty(auth.data.team_id),
+            ...(refreshToken ? { refreshToken } : {}),
+            ...(isOidcEntry ? {
+                ...(clientId ? { clientId } : {}),
+                ...(issuer ? { issuer } : {}),
+                authScope: scope
+            } : {})
         };
     } catch {
         return null;
@@ -204,8 +241,10 @@ export function loadGrokCredentials(
     }
 
     try {
-        const raw = fs.readFileSync(getGrokAuthFilePath(environment, homeDir), 'utf8');
-        return parseGrokAuthJson(raw, now);
+        const authFilePath = getGrokAuthFilePath(environment, homeDir);
+        const raw = fs.readFileSync(authFilePath, 'utf8');
+        const credentials = parseGrokAuthJson(raw, now);
+        return credentials ? { ...credentials, authFilePath } : null;
     } catch {
         return null;
     }
@@ -221,6 +260,78 @@ export function getGrokBillingEndpoint(
             return null;
         }
         return url;
+    } catch {
+        return null;
+    }
+}
+
+export function parseGrokRefreshResponse(rawJson: string, now: Date = new Date()): Pick<GrokCredentials, 'accessToken' | 'refreshToken' | 'expiresAt'> | null {
+    try {
+        const response = GrokRefreshResponseSchema.safeParse(JSON.parse(rawJson));
+        if (!response.success) {
+            return null;
+        }
+
+        // xAI may omit expires_in; never write the old expired time back or every
+        // statusline frame will refresh again.
+        const expiresInSeconds = response.data.expires_in ?? DEFAULT_REFRESH_EXPIRY_SECONDS;
+        return {
+            accessToken: response.data.access_token,
+            ...(response.data.refresh_token ? { refreshToken: response.data.refresh_token } : {}),
+            expiresAt: new Date(now.getTime() + expiresInSeconds * 1000)
+        };
+    } catch {
+        return null;
+    }
+}
+
+export function persistGrokRefreshedCredentials(authFilePath: string, credentials: GrokCredentials): boolean {
+    if (!credentials.authScope) {
+        return false;
+    }
+
+    try {
+        const parsed = JSON.parse(fs.readFileSync(authFilePath, 'utf8')) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return false;
+        }
+        const root = parsed as Record<string, unknown>;
+        const entry = root[credentials.authScope];
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+            return false;
+        }
+
+        root[credentials.authScope] = {
+            ...(entry as Record<string, unknown>),
+            key: credentials.accessToken,
+            ...(credentials.refreshToken ? { refresh_token: credentials.refreshToken } : {}),
+            ...(credentials.expiresAt ? { expires_at: credentials.expiresAt.toISOString() } : {})
+        };
+        fs.writeFileSync(authFilePath, JSON.stringify(root, null, 2) + '\n');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function getGrokTokenEndpoint(credentials: GrokCredentials): URL | null {
+    if (!credentials.refreshToken || !credentials.clientId) {
+        return null;
+    }
+
+    if (!credentials.issuer) {
+        return new URL('https://auth.x.ai/oauth2/token');
+    }
+
+    try {
+        const issuer = new URL(credentials.issuer);
+        if (issuer.protocol !== 'https:' || issuer.username || issuer.password) {
+            return null;
+        }
+        issuer.pathname = `${issuer.pathname.replace(/\/$/, '')}/oauth2/token`;
+        issuer.search = '';
+        issuer.hash = '';
+        return issuer;
     } catch {
         return null;
     }
@@ -617,15 +728,31 @@ function ensureCacheDirExists(): void {
     }
 }
 
+function weeklyResetHasPassed(data: UsageData, nowMs: number): boolean {
+    if (!data.weeklyResetAt) {
+        return false;
+    }
+
+    const resetAtMs = Date.parse(data.weeklyResetAt);
+    return !Number.isNaN(resetAtMs) && resetAtMs <= nowMs;
+}
+
 function readCachedUsage(maxAgeSeconds?: number): UsageData | null {
     try {
-        if (maxAgeSeconds !== undefined) {
-            const ageSeconds = Math.floor(Date.now() / 1000) - Math.floor(fs.statSync(CACHE_FILE).mtimeMs / 1000);
-            if (ageSeconds >= maxAgeSeconds) {
-                return null;
-            }
+        const ageSeconds = (Date.now() - fs.statSync(CACHE_FILE).mtimeMs) / 1000;
+        if (maxAgeSeconds !== undefined && ageSeconds >= maxAgeSeconds) {
+            return null;
         }
-        return parseCachedUsage(fs.readFileSync(CACHE_FILE, 'utf8'));
+        const cached = parseCachedUsage(fs.readFileSync(CACHE_FILE, 'utf8'));
+        return cached && !weeklyResetHasPassed(cached, Date.now()) ? cached : null;
+    } catch {
+        return null;
+    }
+}
+
+function getCachedUsageAgeSeconds(): number | null {
+    try {
+        return (Date.now() - fs.statSync(CACHE_FILE).mtimeMs) / 1000;
     } catch {
         return null;
     }
@@ -635,9 +762,34 @@ function hasRequiredFields(data: UsageData, requiredFields: readonly UsageDataFi
     return requiredFields.every(field => data[field] !== undefined);
 }
 
+export function selectGrokUsageFallback(options: {
+    error: UsageError;
+    cached: UsageData | null;
+    cacheAgeSeconds: number | null;
+    nowMs: number;
+    requiredFields: readonly UsageDataField[];
+}): UsageData {
+    // A cache cannot prove the current user is still authorized to view its quota.
+    if (options.error === 'no-credentials'
+        || !options.cached
+        || options.cacheAgeSeconds === null
+        || options.cacheAgeSeconds >= STALE_MAX_AGE_SECONDS
+        || weeklyResetHasPassed(options.cached, options.nowMs)
+        || !hasRequiredFields(options.cached, options.requiredFields)) {
+        return { error: options.error };
+    }
+
+    return options.cached;
+}
+
 function staleUsageOrError(error: UsageError, requiredFields: readonly UsageDataField[]): UsageData {
-    const stale = readCachedUsage();
-    return stale && hasRequiredFields(stale, requiredFields) ? stale : { error };
+    return selectGrokUsageFallback({
+        error,
+        cached: readCachedUsage(),
+        cacheAgeSeconds: getCachedUsageAgeSeconds(),
+        nowMs: Date.now(),
+        requiredFields
+    });
 }
 
 function readActiveLock(now: number): GrokUsageLock | null {
@@ -656,6 +808,85 @@ function writeLock(blockedUntil: number, error: GrokUsageLock['error']): void {
     } catch {
         // Cache coordination is best-effort.
     }
+}
+
+function fetchGrokRefreshResponse(endpoint: URL, refreshToken: string, clientId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (result: string | null) => {
+            if (!settled) {
+                settled = true;
+                resolve(result);
+            }
+        };
+
+        let agent: HttpsProxyAgent<string> | undefined;
+        const proxyUrl = process.env.HTTPS_PROXY?.trim();
+        try {
+            agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+        } catch {
+            finish(null);
+            return;
+        }
+
+        const body = new URLSearchParams({
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            client_id: clientId
+        }).toString();
+        const request = https.request(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': String(Buffer.byteLength(body)),
+                'User-Agent': 'ccstatusline'
+            },
+            timeout: REQUEST_TIMEOUT_MS,
+            ...(agent ? { agent } : {})
+        }, (response) => {
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer | string) => {
+                chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            });
+            response.on('end', () => {
+                finish(response.statusCode === 200 ? Buffer.concat(chunks).toString('utf8') : null);
+            });
+        });
+
+        request.on('error', () => {
+            finish(null);
+        });
+        request.on('timeout', () => {
+            request.destroy();
+            finish(null);
+        });
+        request.write(body);
+        request.end();
+    });
+}
+
+async function refreshGrokCredentials(credentials: GrokCredentials): Promise<GrokCredentials | null> {
+    const endpoint = getGrokTokenEndpoint(credentials);
+    if (!endpoint || !credentials.refreshToken || !credentials.clientId) {
+        return null;
+    }
+
+    const rawResponse = await fetchGrokRefreshResponse(endpoint, credentials.refreshToken, credentials.clientId);
+    const refreshed = rawResponse ? parseGrokRefreshResponse(rawResponse) : null;
+    if (!refreshed) {
+        return null;
+    }
+
+    const updated = {
+        ...credentials,
+        ...refreshed,
+        refreshToken: refreshed.refreshToken ?? credentials.refreshToken,
+        expiresAt: refreshed.expiresAt
+    };
+    if (credentials.authFilePath) {
+        persistGrokRefreshedCredentials(credentials.authFilePath, updated);
+    }
+    return updated;
 }
 
 function fetchFromGrokBilling(accessToken: string, endpoint: URL): Promise<GrokFetchResult> {
@@ -733,14 +964,22 @@ export async function fetchGrokUsageData(options: FetchGrokUsageDataOptions = {}
         return {};
     }
 
-    const freshCache = readCachedUsage(CACHE_MAX_AGE_SECONDS);
-    if (freshCache && hasRequiredFields(freshCache, requiredFields)) {
-        return freshCache;
-    }
-
-    const credentials = loadGrokCredentials();
+    let credentials = loadGrokCredentials();
     if (!credentials) {
         return staleUsageOrError('no-credentials', requiredFields);
+    }
+
+    if (credentials.expiresAt && credentials.expiresAt.getTime() - Date.now() <= REFRESH_BEFORE_EXPIRY_MS) {
+        const refreshed = await refreshGrokCredentials(credentials);
+        if (!refreshed) {
+            return staleUsageOrError('no-credentials', requiredFields);
+        }
+        credentials = refreshed;
+    } else {
+        const freshCache = readCachedUsage(CACHE_MAX_AGE_SECONDS);
+        if (freshCache && hasRequiredFields(freshCache, requiredFields)) {
+            return freshCache;
+        }
     }
 
     const endpoint = getGrokBillingEndpoint();
@@ -755,39 +994,59 @@ export async function fetchGrokUsageData(options: FetchGrokUsageDataOptions = {}
     }
     writeLock(now + LOCK_MAX_AGE_SECONDS, 'timeout');
 
-    const response = await fetchFromGrokBilling(credentials.accessToken, endpoint);
-    if (response.kind === 'auth-error') {
-        return staleUsageOrError('no-credentials', requiredFields);
-    }
-    if (response.kind === 'rate-limited') {
-        writeLock(now + response.retryAfterSeconds, 'rate-limited');
-        return staleUsageOrError('rate-limited', requiredFields);
-    }
-    if (response.kind === 'timeout') {
-        return staleUsageOrError('timeout', requiredFields);
-    }
-    if (response.kind === 'error') {
-        return staleUsageOrError('api-error', requiredFields);
+    for (let authRefreshAttempts = 0; authRefreshAttempts < 2; authRefreshAttempts += 1) {
+        const response = await fetchFromGrokBilling(credentials.accessToken, endpoint);
+        if (response.kind === 'auth-error') {
+            if (authRefreshAttempts === 1) {
+                return staleUsageOrError('no-credentials', requiredFields);
+            }
+            const refreshed = await refreshGrokCredentials(credentials);
+            if (!refreshed) {
+                return staleUsageOrError('no-credentials', requiredFields);
+            }
+            credentials = refreshed;
+            continue;
+        }
+        if (response.kind === 'rate-limited') {
+            writeLock(now + response.retryAfterSeconds, 'rate-limited');
+            return staleUsageOrError('rate-limited', requiredFields);
+        }
+        if (response.kind === 'timeout') {
+            return staleUsageOrError('timeout', requiredFields);
+        }
+        if (response.kind === 'error') {
+            return staleUsageOrError('api-error', requiredFields);
+        }
+
+        const interpreted = interpretGrokBillingResponse(response.body, response.headers, credentials);
+        if (interpreted.kind === 'auth-error') {
+            if (authRefreshAttempts === 1) {
+                return staleUsageOrError('no-credentials', requiredFields);
+            }
+            const refreshed = await refreshGrokCredentials(credentials);
+            if (!refreshed) {
+                return staleUsageOrError('no-credentials', requiredFields);
+            }
+            credentials = refreshed;
+            continue;
+        }
+        if (interpreted.kind === 'team-unsupported' || interpreted.kind === 'api-error') {
+            return staleUsageOrError('api-error', requiredFields);
+        }
+        if (interpreted.kind === 'parse-error') {
+            writeLock(now + LOCK_MAX_AGE_SECONDS, 'parse-error');
+            return staleUsageOrError('parse-error', requiredFields);
+        }
+
+        const usageData = interpreted.data;
+        try {
+            ensureCacheDirExists();
+            fs.writeFileSync(CACHE_FILE, JSON.stringify(usageData));
+        } catch {
+            // Cache writes are best-effort.
+        }
+        return usageData;
     }
 
-    const interpreted = interpretGrokBillingResponse(response.body, response.headers, credentials);
-    if (interpreted.kind === 'auth-error') {
-        return staleUsageOrError('no-credentials', requiredFields);
-    }
-    if (interpreted.kind === 'team-unsupported' || interpreted.kind === 'api-error') {
-        return staleUsageOrError('api-error', requiredFields);
-    }
-    if (interpreted.kind === 'parse-error') {
-        writeLock(now + LOCK_MAX_AGE_SECONDS, 'parse-error');
-        return staleUsageOrError('parse-error', requiredFields);
-    }
-
-    const usageData = interpreted.data;
-    try {
-        ensureCacheDirExists();
-        fs.writeFileSync(CACHE_FILE, JSON.stringify(usageData));
-    } catch {
-        // Cache writes are best-effort.
-    }
-    return usageData;
+    return staleUsageOrError('no-credentials', requiredFields);
 }

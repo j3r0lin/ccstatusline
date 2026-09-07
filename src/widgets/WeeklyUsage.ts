@@ -125,9 +125,13 @@ export class WeeklyUsageWidget implements Widget {
         const label = monthlyPromoted ? 'Monthly: ' : 'Weekly: ';
         const renderItem = monthlyPromoted ? withMonthlyPrefix(item) : item;
 
+        const window = monthlyPromoted ? resolveMonthlyUsageWindow(data) : resolveWeeklyUsageWindow(data);
+        if (!monthlyPromoted && window && window.remainingMs <= 0) {
+            return data.error ? getUsageErrorMessage(data.error) : null;
+        }
+
         const percent = Math.max(0, Math.min(100, monthlyPromoted ? monthlyValue : data.weeklyUsage));
         const renderedPercent = inverted ? 100 - percent : percent;
-        const window = monthlyPromoted ? resolveMonthlyUsageWindow(data) : resolveWeeklyUsageWindow(data);
         const getCursorOptions = (): { cursorPercent: number } | undefined => {
             if (!showCursor) {
                 return undefined;
