@@ -82,7 +82,10 @@ describe('global command resolution', () => {
         expect(execFileSyncSpy).toHaveBeenCalled();
         for (const call of execFileSyncSpy.mock.calls) {
             const options = call[2] as { stdio?: string[] };
-            expect(options.stdio).toEqual(['ignore', 'pipe', 'ignore']);
+            // Bun 1.4+ may coerce stdin to 'pipe'; the probe only needs stdout
+            // captured and stderr silenced so the TUI terminal stays clean.
+            expect(options.stdio?.[1]).toBe('pipe');
+            expect(options.stdio?.[2]).toBe('ignore');
         }
     });
 
