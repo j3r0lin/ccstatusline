@@ -57,6 +57,7 @@ function render(options: {
     statusData?: Partial<StatusJSON>;
     settingsValue?: unknown;
     metadata?: Record<string, string>;
+    transcriptThinkingEffort?: RenderContext['transcriptThinkingEffort'];
 } = {}): string | null {
     const {
         transcriptPath = options.fileContent !== undefined ? path.join(tempDir, 'session.jsonl') : undefined,
@@ -65,7 +66,8 @@ function render(options: {
         isPreview = false,
         statusData = {},
         settingsValue = {},
-        metadata
+        metadata,
+        transcriptThinkingEffort
     } = options;
 
     const widget = new ThinkingEffortWidget();
@@ -75,7 +77,8 @@ function render(options: {
     };
     const context: RenderContext = {
         data: Object.keys(data).length > 0 ? data : undefined,
-        isPreview
+        isPreview,
+        transcriptThinkingEffort
     };
     const item: WidgetItem = {
         id: 'thinking-effort',
@@ -276,6 +279,16 @@ describe('ThinkingEffortWidget', () => {
         it('lowercases and marks mixed-case unknown effort', () => {
             const result = render({ fileContent: makeTranscriptEntry(MODEL_WITH_SUPER_MAX_MIXED_CASE_EFFORT) });
             expect(result).toBe('Thinking: super-max?');
+        });
+
+        it('uses effort precomputed by the shared transcript analysis', () => {
+            const result = render({
+                transcriptPath: path.join(tempDir, 'missing.jsonl'),
+                transcriptThinkingEffort: { value: 'high', known: true },
+                settingsValue: { effortLevel: 'low' }
+            });
+
+            expect(result).toBe('Thinking: high');
         });
 
         it('does not keep stale transcript effort when a newer /model output has no effort', () => {

@@ -3,29 +3,65 @@ import path from 'node:path';
 
 import type {
     SpeedMetrics,
-    TokenMetrics
+    TokenMetrics,
+    TranscriptLine
 } from '../types';
+import type { CompactionData } from '../types/RenderContext';
 
-import type { SlimTranscriptEntry } from './transcript-cache';
 import {
-    readAuxCache,
-    readTranscriptData,
-    writeAuxCache
-} from './transcript-cache';
-
-export interface SpeedMetricsOptions {
-    includeSubagents?: boolean;
-    windowSeconds?: number;
-}
-
-interface SpeedMetricsCollectionOptions {
-    includeSubagents?: boolean;
-    windowSeconds?: number[];
-}
+    accumulateCompactionStats,
+    createCompactionStats,
+    getCompactBoundaryPostTokens,
+    isCompactBoundary
+} from './compaction';
+import {
+    contextLengthFromUsageTokens,
+    parseUsageTokens,
+    type UsageTokens
+} from './context-window';
+import {
+    iterateJsonlLines,
+    parseJsonlLine
+} from './jsonl-lines';
+import {
+    getThinkingEffortUpdate,
+    type ResolvedThinkingEffort
+} from './jsonl-metadata';
+import { getSessionNameFromRecord } from './jsonl-session';
 
 export interface SpeedMetricsCollection {
     sessionAverage: SpeedMetrics;
     windowed: Record<string, SpeedMetrics>;
+}
+
+export interface TranscriptAnalysisOptions {
+    includeSessionDuration?: boolean;
+    includeSpeedMetrics?: boolean;
+    includeSubagents?: boolean;
+    speedWindowSeconds?: number[];
+    includeCompactionStats?: boolean;
+    includeThinkingEffort?: boolean;
+    includeSessionName?: boolean;
+}
+
+export interface TranscriptAnalysis {
+    tokenMetrics: TokenMetrics;
+    sessionDuration: string | null;
+    speedMetricsCollection: SpeedMetricsCollection | null;
+    compactionData: CompactionData | null;
+    thinkingEffort: ResolvedThinkingEffort | undefined;
+    sessionName: string | null;
+}
+
+interface TranscriptScanOptions extends TranscriptAnalysisOptions { includeTokenMetrics?: boolean }
+
+interface TranscriptScanResult {
+    tokenMetrics: TokenMetrics | null;
+    sessionDuration: string | null;
+    speedMetricsCollection: SpeedMetricsCollection | null;
+    compactionData: CompactionData | null;
+    thinkingEffort: ResolvedThinkingEffort | undefined;
+    sessionName: string | null;
 }
 
 interface SpeedInterval {
@@ -45,153 +81,188 @@ interface CollectedSpeedMetrics {
     latestTimestampMs: number | null;
 }
 
-export async function getSessionDuration(transcriptPath: string): Promise<string | null> {
-    try {
-        if (!fs.existsSync(transcriptPath)) {
-            return null;
-        }
+interface TokenMetricEntry {
+    usage: UsageTokens;
+    stopReason: string | null | undefined;
+    timestampMs: number | null;
+    isMainChain: boolean;
+}
 
-        const { entries } = await readTranscriptData(transcriptPath);
+interface TokenMetricAccumulator {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    mostRecentMainChainUsage: UsageTokens | null;
+    mostRecentTimestampMs: number | null;
+    mostRecentPostCompactionUsage: UsageTokens | null;
+    mostRecentPostCompactionTimestampMs: number | null;
+}
 
-        let firstTimestamp: number | null = null;
-        let lastTimestamp: number | null = null;
+interface TokenMetricState {
+    metrics: TokenMetricAccumulator;
+    hasStopReasonField: boolean;
+    lastUsageEntry: TokenMetricEntry | null;
+    sawCompactBoundary: boolean;
+    boundaryAfterLastUsage: boolean;
+    lastCompactBoundaryPostTokens: number | null;
+}
 
-        for (const entry of entries) {
-            if (entry.t === undefined) {
-                continue;
-            }
-            firstTimestamp ??= entry.t;
-            lastTimestamp = entry.t;
-        }
+function createEmptyTokenMetrics(): TokenMetrics {
+    return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        totalTokens: 0,
+        contextLength: 0,
+        lastCompletionMs: null
+    };
+}
 
-        if (firstTimestamp === null || lastTimestamp === null) {
-            return null;
-        }
+function createTokenMetricAccumulator(): TokenMetricAccumulator {
+    return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        mostRecentMainChainUsage: null,
+        mostRecentTimestampMs: null,
+        mostRecentPostCompactionUsage: null,
+        mostRecentPostCompactionTimestampMs: null
+    };
+}
 
-        // Calculate duration in milliseconds
-        const durationMs = lastTimestamp - firstTimestamp;
+function resetPostCompactionUsage(accumulator: TokenMetricAccumulator): void {
+    accumulator.mostRecentPostCompactionUsage = null;
+    accumulator.mostRecentPostCompactionTimestampMs = null;
+}
 
-        // Convert to minutes
-        const totalMinutes = Math.floor(durationMs / (1000 * 60));
+function accumulateTokenMetricEntry(
+    accumulator: TokenMetricAccumulator,
+    entry: TokenMetricEntry,
+    includePostCompactionUsage: boolean
+): void {
+    const { usage } = entry;
+    accumulator.inputTokens += usage.input;
+    accumulator.outputTokens += usage.output;
+    accumulator.cacheReadTokens += usage.read;
+    accumulator.cacheCreationTokens += usage.creation;
 
-        if (totalMinutes < 1) {
-            return '<1m';
-        }
+    if (!entry.isMainChain || entry.timestampMs === null) {
+        return;
+    }
 
-        const hours = Math.floor(totalMinutes / 60);
-        const minutes = totalMinutes % 60;
-
-        if (hours === 0) {
-            return `${minutes}m`;
-        } else if (minutes === 0) {
-            return `${hours}hr`;
-        } else {
-            return `${hours}hr ${minutes}m`;
-        }
-    } catch {
-        return null;
+    if (accumulator.mostRecentTimestampMs === null || entry.timestampMs > accumulator.mostRecentTimestampMs) {
+        accumulator.mostRecentTimestampMs = entry.timestampMs;
+        accumulator.mostRecentMainChainUsage = usage;
+    }
+    if (includePostCompactionUsage
+        && (accumulator.mostRecentPostCompactionTimestampMs === null
+            || entry.timestampMs > accumulator.mostRecentPostCompactionTimestampMs)) {
+        accumulator.mostRecentPostCompactionTimestampMs = entry.timestampMs;
+        accumulator.mostRecentPostCompactionUsage = usage;
     }
 }
 
-export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetrics> {
-    try {
-        if (!fs.existsSync(transcriptPath)) {
-            return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
-        }
+function createTokenMetricState(): TokenMetricState {
+    return {
+        metrics: createTokenMetricAccumulator(),
+        hasStopReasonField: false,
+        lastUsageEntry: null,
+        sawCompactBoundary: false,
+        boundaryAfterLastUsage: false,
+        lastCompactBoundaryPostTokens: null
+    };
+}
 
-        const { entries } = await readTranscriptData(transcriptPath);
+function collectTokenMetricRecord(state: TokenMetricState, data: TranscriptLine | null, timestampMs: number | null): void {
+    const compactBoundary = isCompactBoundary(data);
+    if (compactBoundary) {
+        state.sawCompactBoundary = true;
+        state.boundaryAfterLastUsage = true;
+        state.lastCompactBoundaryPostTokens = getCompactBoundaryPostTokens(data);
+        resetPostCompactionUsage(state.metrics);
+    }
 
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let cacheReadTokens = 0;
-        let cacheCreationTokens = 0;
-        let contextLength = 0;
-
-        // Claude Code writes multiple JSONL entries per API call during streaming:
-        // intermediate entries have stop_reason: null, and the final entry has a
-        // string value like "end_turn" or "tool_use". For streaming-aware
-        // transcripts, count finalized entries plus the latest unfinished entry so
-        // live updates do not overcount duplicate partial rows. If the transcript
-        // format has no stop_reason field at all, fall back to counting all entries.
-        //
-        // Claude Code also writes a { type:'system', subtype:'compact_boundary' }
-        // record on every compaction. Usage entries before the most recent boundary
-        // describe a context that no longer exists, so they must not drive context
-        // length - otherwise it stays stuck at the pre-compaction size until the
-        // next turn repopulates Claude Code's live status data.
-        let lastCompactBoundaryIndex = -1;
-        let lastCompactBoundaryPostTokens: number | null = null;
-        for (const [index, entry] of entries.entries()) {
-            if (entry.c === 1) {
-                lastCompactBoundaryIndex = index;
-                lastCompactBoundaryPostTokens = entry.p ?? null;
-            }
-        }
-
-        const usageEntries = entries
-            .map((entry, index) => ({ entry, index }))
-            .filter(({ entry }) => entry.u);
-        const hasStopReasonField = usageEntries.some(({ entry }) => entry.r !== undefined);
-
-        const entriesToCount = hasStopReasonField
-            ? usageEntries.filter(({ entry }, index) => entry.r === 1 || (entry.r === 0 && index === usageEntries.length - 1))
-            : usageEntries;
-
-        let mostRecentMainChainEntry: SlimTranscriptEntry | null = null;
-        let mostRecentTimestamp: number | null = null;
-        let mostRecentPostCompactionEntry: SlimTranscriptEntry | null = null;
-        let mostRecentPostCompactionTimestamp: number | null = null;
-
-        for (const { entry, index } of entriesToCount) {
-            const usage = entry.u;
-            if (!usage) {
-                continue;
-            }
-
-            inputTokens += usage[0];
-            outputTokens += usage[1];
-            cacheReadTokens += usage[2];
-            cacheCreationTokens += usage[3];
-
-            // Track the most recent main-chain entry, skipping API error messages
-            // (synthetic messages with 0 tokens)
-            if (entry.s !== 1 && entry.t !== undefined && entry.e !== 1) {
-                if (mostRecentTimestamp === null || entry.t > mostRecentTimestamp) {
-                    mostRecentTimestamp = entry.t;
-                    mostRecentMainChainEntry = entry;
-                }
-                if (index > lastCompactBoundaryIndex
-                    && (mostRecentPostCompactionTimestamp === null || entry.t > mostRecentPostCompactionTimestamp)) {
-                    mostRecentPostCompactionTimestamp = entry.t;
-                    mostRecentPostCompactionEntry = entry;
-                }
-            }
-        }
-
-        // Context length is the live occupancy of the current context window.
-        // Without a compaction it is the most recent main-chain turn. After a
-        // compaction, prefer the first turn following the boundary, then the
-        // boundary's reported post-compaction size, and otherwise 0 - the stale
-        // pre-compaction turn must never leak through.
-        const contextLengthFromEntry = (entry: SlimTranscriptEntry | null): number | null => {
-            const usage = entry?.u;
-            if (!usage) {
-                return null;
-            }
-            return usage[0] + usage[2] + usage[3];
+    const message = data?.message;
+    const usage = message?.usage;
+    if (usage) {
+        const entry: TokenMetricEntry = {
+            usage: parseUsageTokens(usage),
+            stopReason: message.stop_reason,
+            timestampMs,
+            isMainChain: data?.isSidechain !== true && !data?.isApiErrorMessage
         };
 
-        contextLength = lastCompactBoundaryIndex >= 0
-            ? (contextLengthFromEntry(mostRecentPostCompactionEntry) ?? lastCompactBoundaryPostTokens ?? 0)
-            : (contextLengthFromEntry(mostRecentMainChainEntry) ?? 0);
-
-        const cachedTokens = cacheReadTokens + cacheCreationTokens;
-        const totalTokens = inputTokens + outputTokens + cachedTokens;
-
-        return { inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens, totalTokens, contextLength, lastCompletionMs: mostRecentTimestamp };
-    } catch {
-        return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, totalTokens: 0, contextLength: 0, lastCompletionMs: null };
+        const hasStopReason = Object.prototype.hasOwnProperty.call(message, 'stop_reason');
+        if (hasStopReason && !state.hasStopReasonField) {
+            state.hasStopReasonField = true;
+            state.metrics = createTokenMetricAccumulator();
+        }
+        if (!state.hasStopReasonField || entry.stopReason) {
+            accumulateTokenMetricEntry(state.metrics, entry, !compactBoundary);
+        }
+        state.lastUsageEntry = entry;
+        state.boundaryAfterLastUsage = compactBoundary;
     }
+}
+
+function finishTokenMetrics(state: TokenMetricState): TokenMetrics {
+    if (state.hasStopReasonField && state.lastUsageEntry?.stopReason === null) {
+        accumulateTokenMetricEntry(state.metrics, state.lastUsageEntry, !state.boundaryAfterLastUsage);
+    }
+
+    const contextLengthFromUsage = (usage: UsageTokens | null): number | null => usage
+        ? contextLengthFromUsageTokens(usage)
+        : null;
+    const contextLength = state.sawCompactBoundary
+        ? (contextLengthFromUsage(state.metrics.mostRecentPostCompactionUsage) ?? state.lastCompactBoundaryPostTokens ?? 0)
+        : (contextLengthFromUsage(state.metrics.mostRecentMainChainUsage) ?? 0);
+    const cachedTokens = state.metrics.cacheReadTokens + state.metrics.cacheCreationTokens;
+
+    return {
+        inputTokens: state.metrics.inputTokens,
+        outputTokens: state.metrics.outputTokens,
+        cachedTokens,
+        cacheReadTokens: state.metrics.cacheReadTokens,
+        cacheCreationTokens: state.metrics.cacheCreationTokens,
+        totalTokens: state.metrics.inputTokens + state.metrics.outputTokens + cachedTokens,
+        contextLength,
+        lastCompletionMs: state.metrics.mostRecentTimestampMs
+    };
+}
+
+function collectAgentIds(value: unknown, agentIds: Set<string>) {
+    if (!value || typeof value !== 'object') {
+        return;
+    }
+
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            collectAgentIds(item, agentIds);
+        }
+        return;
+    }
+
+    for (const [key, nestedValue] of Object.entries(value)) {
+        if (key === 'agentId' && typeof nestedValue === 'string' && nestedValue.trim() !== '') {
+            agentIds.add(nestedValue);
+            continue;
+        }
+
+        collectAgentIds(nestedValue, agentIds);
+    }
+}
+
+function parseTimestampMs(value: string | undefined): number | null {
+    if (!value) {
+        return null;
+    }
+
+    const timestampMs = Date.parse(value);
+    return Number.isNaN(timestampMs) ? null : timestampMs;
 }
 
 function mergeIntervals(intervals: SpeedInterval[]): SpeedInterval[] {
@@ -248,49 +319,61 @@ function normalizeWindowSeconds(value: number | undefined): number | null {
     return normalized > 0 ? normalized : null;
 }
 
-function collectSpeedMetricsFromEntries(entries: SlimTranscriptEntry[], ignoreSidechain: boolean): CollectedSpeedMetrics {
-    const requests: SpeedRequest[] = [];
+interface SpeedMetricCollectorState extends CollectedSpeedMetrics { lastUserTimestampMs: number | null }
 
-    let lastUserTimestamp: number | null = null;
-    let latestTimestampMs: number | null = null;
+function createSpeedMetricCollector(): SpeedMetricCollectorState {
+    return {
+        requests: [],
+        latestTimestampMs: null,
+        lastUserTimestampMs: null
+    };
+}
 
-    for (const entry of entries) {
-        if (entry.e === 1) {
-            continue;
-        }
-
-        if (ignoreSidechain && entry.s === 1) {
-            continue;
-        }
-
-        if (entry.t !== undefined && (latestTimestampMs === null || entry.t > latestTimestampMs)) {
-            latestTimestampMs = entry.t;
-        }
-
-        if (entry.y === 'user' && entry.t !== undefined) {
-            lastUserTimestamp = entry.t;
-            continue;
-        }
-
-        if (entry.y === 'assistant' && entry.u) {
-            let interval: SpeedInterval | null = null;
-            if (entry.t !== undefined && lastUserTimestamp !== null && entry.t > lastUserTimestamp) {
-                interval = { startMs: lastUserTimestamp, endMs: entry.t };
-            }
-
-            requests.push({
-                inputTokens: entry.u[0],
-                outputTokens: entry.u[1],
-                assistantTimestampMs: entry.t ?? null,
-                interval
-            });
-        }
+function collectSpeedMetricRecord(
+    state: SpeedMetricCollectorState,
+    data: TranscriptLine | null,
+    timestampMs: number | null,
+    ignoreSidechain: boolean
+): void {
+    if (!data || data.isApiErrorMessage || (ignoreSidechain && data.isSidechain === true)) {
+        return;
     }
 
-    return {
-        requests,
-        latestTimestampMs
-    };
+    if (timestampMs !== null && (state.latestTimestampMs === null || timestampMs > state.latestTimestampMs)) {
+        state.latestTimestampMs = timestampMs;
+    }
+
+    if (data.type === 'user' && timestampMs !== null) {
+        state.lastUserTimestampMs = timestampMs;
+        return;
+    }
+
+    if (data.type !== 'assistant' || !data.message?.usage) {
+        return;
+    }
+
+    let interval: SpeedInterval | null = null;
+    if (timestampMs !== null && state.lastUserTimestampMs !== null && timestampMs > state.lastUserTimestampMs) {
+        interval = { startMs: state.lastUserTimestampMs, endMs: timestampMs };
+    }
+
+    const usage = parseUsageTokens(data.message.usage);
+    state.requests.push({
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        assistantTimestampMs: timestampMs,
+        interval
+    });
+}
+
+async function collectSpeedMetricsFromFile(filePath: string, ignoreSidechain: boolean): Promise<CollectedSpeedMetrics> {
+    const state = createSpeedMetricCollector();
+    for await (const line of iterateJsonlLines(filePath)) {
+        const data = parseJsonlLine(line) as TranscriptLine | null;
+        collectSpeedMetricRecord(state, data, parseTimestampMs(data?.timestamp), ignoreSidechain);
+    }
+
+    return state;
 }
 
 function mergeCollectedSpeedMetrics(parts: CollectedSpeedMetrics[]): CollectedSpeedMetrics {
@@ -381,6 +464,155 @@ function buildEmptyWindowedMetrics(windowSeconds: number[]): Record<string, Spee
     return windowed;
 }
 
+function buildSpeedMetricsCollection(collected: CollectedSpeedMetrics[], windowSeconds: number[]): SpeedMetricsCollection {
+    const combined = mergeCollectedSpeedMetrics(collected);
+    const windowed: Record<string, SpeedMetrics> = {};
+    for (const window of windowSeconds) {
+        windowed[window.toString()] = buildSpeedMetrics(combined, window);
+    }
+
+    return {
+        sessionAverage: buildSpeedMetrics(combined),
+        windowed
+    };
+}
+
+function formatSessionDuration(firstTimestampMs: number | null, lastTimestampMs: number | null): string | null {
+    if (firstTimestampMs === null || lastTimestampMs === null) {
+        return null;
+    }
+
+    const totalMinutes = Math.floor((lastTimestampMs - firstTimestampMs) / (1000 * 60));
+    if (totalMinutes < 1) {
+        return '<1m';
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) {
+        return `${minutes}m`;
+    }
+    if (minutes === 0) {
+        return `${hours}hr`;
+    }
+    return `${hours}hr ${minutes}m`;
+}
+
+function normalizeSpeedWindows(windowSeconds: number[] | undefined): number[] {
+    return Array.from(
+        new Set(
+            (windowSeconds ?? [])
+                .map(window => normalizeWindowSeconds(window))
+                .filter((window): window is number => window !== null)
+        )
+    );
+}
+
+function createEmptyScanResult(options: TranscriptScanOptions, speedWindows: number[]): TranscriptScanResult {
+    return {
+        tokenMetrics: options.includeTokenMetrics ? createEmptyTokenMetrics() : null,
+        sessionDuration: null,
+        speedMetricsCollection: options.includeSpeedMetrics
+            ? {
+                sessionAverage: createEmptySpeedMetrics(),
+                windowed: buildEmptyWindowedMetrics(speedWindows)
+            }
+            : null,
+        compactionData: options.includeCompactionStats ? createCompactionStats() : null,
+        thinkingEffort: undefined,
+        sessionName: null
+    };
+}
+
+async function scanTranscript(transcriptPath: string, options: TranscriptScanOptions): Promise<TranscriptScanResult> {
+    const speedWindows = normalizeSpeedWindows(options.speedWindowSeconds);
+    const emptyResult = createEmptyScanResult(options, speedWindows);
+    if (!fs.existsSync(transcriptPath)) {
+        return emptyResult;
+    }
+
+    const tokenState = options.includeTokenMetrics ? createTokenMetricState() : null;
+    const speedState = options.includeSpeedMetrics ? createSpeedMetricCollector() : null;
+    const compactionData = options.includeCompactionStats ? createCompactionStats() : null;
+    const referencedAgentIds = options.includeSpeedMetrics && options.includeSubagents
+        ? new Set<string>()
+        : null;
+    let firstTimestampMs: number | null = null;
+    let lastTimestampMs: number | null = null;
+    let thinkingEffort: ResolvedThinkingEffort | undefined;
+    let sessionName: string | null = null;
+
+    try {
+        for await (const line of iterateJsonlLines(transcriptPath)) {
+            const data = parseJsonlLine(line) as TranscriptLine | null;
+            const needsTimestamp = options.includeSessionDuration === true
+                || speedState !== null
+                || Boolean(data?.message?.usage);
+            const timestampMs = needsTimestamp ? parseTimestampMs(data?.timestamp) : null;
+
+            if (tokenState) {
+                collectTokenMetricRecord(tokenState, data, timestampMs);
+            }
+            if (options.includeSessionDuration && timestampMs !== null) {
+                firstTimestampMs ??= timestampMs;
+                lastTimestampMs = timestampMs;
+            }
+            if (speedState) {
+                collectSpeedMetricRecord(speedState, data, timestampMs, true);
+            }
+            if (referencedAgentIds) {
+                collectAgentIds(data, referencedAgentIds);
+            }
+            if (compactionData) {
+                accumulateCompactionStats(compactionData, data);
+            }
+            if (options.includeThinkingEffort) {
+                const update = getThinkingEffortUpdate(data);
+                if (update) {
+                    thinkingEffort = update.effort;
+                }
+            }
+            if (options.includeSessionName) {
+                sessionName = getSessionNameFromRecord(data) ?? sessionName;
+            }
+        }
+
+        let speedMetricsCollection: SpeedMetricsCollection | null = null;
+        if (speedState) {
+            const collected: CollectedSpeedMetrics[] = [speedState];
+            if (referencedAgentIds) {
+                const subagentPaths = getSubagentTranscriptPaths(transcriptPath, referencedAgentIds);
+                const subagentMetrics = await Promise.all(subagentPaths.map(async (subagentPath) => {
+                    try {
+                        return await collectSpeedMetricsFromFile(subagentPath, false);
+                    } catch {
+                        return null;
+                    }
+                }));
+                for (const metrics of subagentMetrics) {
+                    if (metrics) {
+                        collected.push(metrics);
+                    }
+                }
+            }
+            speedMetricsCollection = buildSpeedMetricsCollection(collected, speedWindows);
+        }
+
+        return {
+            tokenMetrics: tokenState ? finishTokenMetrics(tokenState) : null,
+            sessionDuration: options.includeSessionDuration
+                ? formatSessionDuration(firstTimestampMs, lastTimestampMs)
+                : null,
+            speedMetricsCollection,
+            compactionData,
+            thinkingEffort,
+            sessionName
+        };
+    } catch {
+        return emptyResult;
+    }
+}
+
 function getSubagentTranscriptPaths(transcriptPath: string, referencedAgentIds: Set<string>): string[] {
     if (referencedAgentIds.size === 0) {
         return [];
@@ -432,123 +664,72 @@ function getSubagentTranscriptPaths(transcriptPath: string, referencedAgentIds: 
     return matchedPaths;
 }
 
-interface SubagentSpeedCacheEntry {
-    size: number;
-    mtimeMs: number;
-    collected: CollectedSpeedMetrics;
+export async function getTranscriptAnalysis(
+    transcriptPath: string,
+    options: TranscriptAnalysisOptions = {}
+): Promise<TranscriptAnalysis> {
+    const result = await scanTranscript(transcriptPath, {
+        ...options,
+        includeTokenMetrics: true
+    });
+
+    return {
+        tokenMetrics: result.tokenMetrics ?? createEmptyTokenMetrics(),
+        sessionDuration: result.sessionDuration,
+        speedMetricsCollection: result.speedMetricsCollection,
+        compactionData: result.compactionData,
+        thinkingEffort: result.thinkingEffort,
+        sessionName: result.sessionName
+    };
 }
 
-type SubagentSpeedCache = Record<string, SubagentSpeedCacheEntry>;
+// Compatibility helpers keep standalone metric consumers on the shared,
+// streaming scan rather than restoring whole-file transcript reads.
+export async function getSessionDuration(transcriptPath: string): Promise<string | null> {
+    const analysis = await getTranscriptAnalysis(transcriptPath, { includeSessionDuration: true });
+    return analysis.sessionDuration;
+}
 
-/**
- * Collects speed metrics for subagent transcripts with an aggregate cache
- * keyed by the main transcript. Finished subagents (unchanged size/mtime)
- * reuse their pre-aggregated result without touching the transcript.
- */
-async function collectSubagentSpeedMetrics(
-    mainTranscriptPath: string,
-    subagentPaths: string[]
-): Promise<CollectedSpeedMetrics[]> {
-    const cache = (readAuxCache('subagent-speed', mainTranscriptPath) ?? {}) as SubagentSpeedCache;
-    const next: SubagentSpeedCache = {};
-    const results: CollectedSpeedMetrics[] = [];
-    let dirty = false;
+export async function getTokenMetrics(transcriptPath: string): Promise<TokenMetrics> {
+    const analysis = await getTranscriptAnalysis(transcriptPath);
+    return analysis.tokenMetrics;
+}
 
-    for (const subagentPath of subagentPaths) {
-        try {
-            const stat = fs.statSync(subagentPath);
-            const hit = cache[subagentPath];
-            if (
-                hit?.size === stat.size
-                && hit.mtimeMs === stat.mtimeMs
-                && Array.isArray(hit.collected.requests)
-            ) {
-                next[subagentPath] = hit;
-                results.push(hit.collected);
-                continue;
-            }
+export interface SpeedMetricsOptions {
+    includeSubagents?: boolean;
+    windowSeconds?: number;
+}
 
-            const subagentData = await readTranscriptData(subagentPath);
-            const collected = collectSpeedMetricsFromEntries(subagentData.entries, false);
-            next[subagentPath] = { size: stat.size, mtimeMs: stat.mtimeMs, collected };
-            results.push(collected);
-            dirty = true;
-        } catch {
-            continue;
-        }
-    }
-
-    if (dirty) {
-        writeAuxCache('subagent-speed', mainTranscriptPath, next);
-    }
-
-    return results;
+export interface SpeedMetricsCollectionOptions {
+    includeSubagents?: boolean;
+    windowSeconds?: number[];
 }
 
 export async function getSpeedMetricsCollection(
     transcriptPath: string,
     options: SpeedMetricsCollectionOptions = {}
 ): Promise<SpeedMetricsCollection> {
-    const normalizedWindows = Array.from(
-        new Set(
-            (options.windowSeconds ?? [])
-                .map(window => normalizeWindowSeconds(window))
-                .filter((window): window is number => window !== null)
-        )
-    );
-    const emptyWindowedMetrics = buildEmptyWindowedMetrics(normalizedWindows);
-
-    try {
-        if (!fs.existsSync(transcriptPath)) {
-            return {
-                sessionAverage: createEmptySpeedMetrics(),
-                windowed: emptyWindowedMetrics
-            };
-        }
-
-        const mainData = await readTranscriptData(transcriptPath);
-        const allCollected: CollectedSpeedMetrics[] = [
-            collectSpeedMetricsFromEntries(mainData.entries, true)
-        ];
-
-        if (options.includeSubagents === true) {
-            const subagentPaths = getSubagentTranscriptPaths(transcriptPath, mainData.agentIds);
-            if (subagentPaths.length > 0) {
-                allCollected.push(...await collectSubagentSpeedMetrics(transcriptPath, subagentPaths));
-            }
-        }
-
-        const combined = mergeCollectedSpeedMetrics(allCollected);
-        const windowed: Record<string, SpeedMetrics> = {};
-        for (const window of normalizedWindows) {
-            windowed[window.toString()] = buildSpeedMetrics(combined, window);
-        }
-
-        return {
-            sessionAverage: buildSpeedMetrics(combined),
-            windowed
-        };
-    } catch {
-        return {
-            sessionAverage: createEmptySpeedMetrics(),
-            windowed: emptyWindowedMetrics
-        };
-    }
+    const analysis = await getTranscriptAnalysis(transcriptPath, {
+        includeSpeedMetrics: true,
+        includeSubagents: options.includeSubagents,
+        speedWindowSeconds: options.windowSeconds
+    });
+    return analysis.speedMetricsCollection ?? {
+        sessionAverage: createEmptySpeedMetrics(),
+        windowed: buildEmptyWindowedMetrics(normalizeSpeedWindows(options.windowSeconds))
+    };
 }
 
 export async function getSpeedMetrics(
     transcriptPath: string,
     options: SpeedMetricsOptions = {}
 ): Promise<SpeedMetrics> {
-    const requestedWindow = normalizeWindowSeconds(options.windowSeconds);
-    const metricsCollection = await getSpeedMetricsCollection(transcriptPath, {
+    const windowSeconds = normalizeWindowSeconds(options.windowSeconds);
+    const metrics = await getSpeedMetricsCollection(transcriptPath, {
         includeSubagents: options.includeSubagents,
-        windowSeconds: requestedWindow ? [requestedWindow] : []
+        windowSeconds: windowSeconds === null ? [] : [windowSeconds]
     });
-
-    if (requestedWindow === null) {
-        return metricsCollection.sessionAverage;
-    }
-
-    return metricsCollection.windowed[requestedWindow.toString()] ?? createEmptySpeedMetrics();
+    return windowSeconds === null
+        ? metrics.sessionAverage
+        : metrics.windowed[windowSeconds.toString()] ?? metrics.sessionAverage;
 }

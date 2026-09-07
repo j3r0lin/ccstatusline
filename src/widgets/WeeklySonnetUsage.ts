@@ -2,20 +2,26 @@ import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
     CustomKeybind,
+    HideableState,
     Widget,
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
 import {
+    formatPercent,
+    resolveNumberFormat
+} from '../utils/number-format';
+import {
     getUsageErrorMessage,
     resolveWeeklySonnetUsageWindow
 } from '../utils/usage';
 
+import { isHidden } from './shared/hideable';
 import { makeTimerProgressBar } from './shared/progress-bar';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
+    USAGE_NO_DATA_HIDEABLE_STATE,
     cycleUsageDisplayMode,
-    formatUsagePercent,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
     getUsagePercentCustomKeybinds,
@@ -28,6 +34,13 @@ import {
     toggleUsageCursor,
     toggleUsageInverted
 } from './shared/usage-display';
+
+function formatConfiguredUsagePercent(value: number, format: ReturnType<typeof resolveNumberFormat>): string {
+    const rendered = formatPercent(value, format);
+    return format.style === undefined && format.decimals === undefined
+        ? rendered.replace(/\.0%$/, '%')
+        : rendered;
+}
 
 const LABEL = 'Weekly Sonnet: ';
 
@@ -42,6 +55,10 @@ export class WeeklySonnetUsageWidget implements Widget {
             displayText: this.getDisplayName(),
             modifierText: getUsageDisplayModifierText(item, { showUsageDirection: true })
         };
+    }
+
+    getHideableStates(): HideableState[] {
+        return [USAGE_NO_DATA_HIDEABLE_STATE];
     }
 
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
@@ -64,6 +81,7 @@ export class WeeklySonnetUsageWidget implements Widget {
         const displayMode = getUsageDisplayMode(item);
         const inverted = isUsageInverted(item);
         const showCursor = isUsageCursorEnabled(item);
+        const format = resolveNumberFormat('percent', item, settings);
 
         if (context.isPreview) {
             const previewPercent = 8;
@@ -72,23 +90,26 @@ export class WeeklySonnetUsageWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
-                const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+                const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
                 return formatRawOrLabeledValue(item, LABEL, progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
                 return formatRawOrLabeledValue(item, LABEL, sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, LABEL, formatUsagePercent(renderedPercent));
+            return formatRawOrLabeledValue(item, LABEL, formatConfiguredUsagePercent(renderedPercent, format));
         }
 
         const data = context.usageData ?? {};
         if (data.weeklySonnetUsage === undefined) {
-            if (data.error)
-                return getUsageErrorMessage(data.error);
+            if (data.error) {
+                return isHidden(item, USAGE_NO_DATA_HIDEABLE_STATE.key)
+                    ? null
+                    : getUsageErrorMessage(data.error);
+            }
             return null;
         }
 
@@ -107,17 +128,17 @@ export class WeeklySonnetUsageWidget implements Widget {
             const width = getUsageProgressBarWidth(displayMode);
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
-            const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+            const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(item, LABEL, progressDisplay);
         }
 
         if (isUsageSliderMode(displayMode)) {
             const slider = makeSliderBar(renderedPercent, undefined, getCursorOptions());
-            const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
+            const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
             return formatRawOrLabeledValue(item, LABEL, sliderDisplay);
         }
 
-        return formatRawOrLabeledValue(item, LABEL, formatUsagePercent(renderedPercent));
+        return formatRawOrLabeledValue(item, LABEL, formatConfiguredUsagePercent(renderedPercent, format));
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
@@ -126,4 +147,5 @@ export class WeeklySonnetUsageWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
 }

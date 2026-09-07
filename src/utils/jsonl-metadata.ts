@@ -1,7 +1,8 @@
-import * as fs from 'fs';
-
 import { getVisibleText } from './ansi';
-import { parseJsonlLine } from './jsonl-lines';
+import {
+    iterateJsonlLinesReverseSync,
+    parseJsonlLine
+} from './jsonl-lines';
 
 const KNOWN_THINKING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 const KNOWN_THINKING_EFFORTS_SET: ReadonlySet<string> = new Set(KNOWN_THINKING_EFFORTS);
@@ -20,25 +21,15 @@ const UNKNOWN_EFFORT_PATTERN = /^(?=.*[a-z0-9])[a-z0-9-]{2,20}$/;
 
 interface TranscriptEntry { message?: { content?: string } }
 
+export interface ThinkingEffortUpdate { effort: ResolvedThinkingEffort | undefined }
+
 /**
- * Detects a `/model` or `/effort` local-command-stdout marker in a message
- * content string. Returns null when the line is not a marker; otherwise the
- * (possibly undefined) effort it sets.
+ * Legacy marker parser retained for callers that inspect a transcript message
+ * directly. Shared JSONL scans use getThinkingEffortUpdate below.
  */
 export function extractThinkingEffortMarker(content: string): { level: ResolvedThinkingEffort | undefined } | null {
-    const visibleContent = getVisibleText(content).trim();
-
-    if (visibleContent.startsWith(EFFORT_STDOUT_PREFIX)) {
-        const effortMatch = EFFORT_STDOUT_REGEX.exec(visibleContent);
-        return effortMatch ? { level: normalizeThinkingEffort(effortMatch[1]) } : null;
-    }
-
-    if (!visibleContent.startsWith(MODEL_STDOUT_PREFIX)) {
-        return null;
-    }
-
-    const match = MODEL_STDOUT_EFFORT_REGEX.exec(visibleContent);
-    return { level: normalizeThinkingEffort(match?.[1]) };
+    const update = getThinkingEffortUpdate({ message: { content } });
+    return update ? { level: update.effort } : null;
 }
 
 export function normalizeThinkingEffort(value: string | undefined): ResolvedThinkingEffort | undefined {
@@ -58,22 +49,34 @@ export function normalizeThinkingEffort(value: string | undefined): ResolvedThin
     return undefined;
 }
 
-const REVERSE_CHUNK_SIZE = 64 * 1024;
-const MARKER_LINE_HINT = 'local-command-stdout';
-
-function extractMarkerFromLine(line: string): { level: ResolvedThinkingEffort | undefined } | null {
-    // Cheap pre-filter: marker lines always contain the stdout tag verbatim,
-    // so skip JSON parsing for everything else.
-    if (!line.includes(MARKER_LINE_HINT)) {
-        return null;
-    }
-
-    const entry = parseJsonlLine(line) as TranscriptEntry | null;
+/**
+ * Returns an update when a transcript record authoritatively changes the
+ * effort level. A /model result without an effort clears an older transcript
+ * value, matching the reverse-search behavior used by the widget fallback.
+ */
+export function getThinkingEffortUpdate(record: unknown): ThinkingEffortUpdate | null {
+    const entry = record as TranscriptEntry | null;
     if (typeof entry?.message?.content !== 'string') {
         return null;
     }
 
-    return extractThinkingEffortMarker(entry.message.content);
+    const content = entry.message.content;
+    if (!content.includes(EFFORT_STDOUT_PREFIX) && !content.includes(MODEL_STDOUT_PREFIX)) {
+        return null;
+    }
+
+    const visibleContent = getVisibleText(content).trim();
+    if (visibleContent.startsWith(EFFORT_STDOUT_PREFIX)) {
+        const effortMatch = EFFORT_STDOUT_REGEX.exec(visibleContent);
+        return effortMatch ? { effort: normalizeThinkingEffort(effortMatch[1]) } : null;
+    }
+
+    if (!visibleContent.startsWith(MODEL_STDOUT_PREFIX)) {
+        return null;
+    }
+
+    const match = MODEL_STDOUT_EFFORT_REGEX.exec(visibleContent);
+    return { effort: normalizeThinkingEffort(match?.[1]) };
 }
 
 export function getTranscriptThinkingEffort(transcriptPath: string | undefined): ResolvedThinkingEffort | undefined {
@@ -81,59 +84,15 @@ export function getTranscriptThinkingEffort(transcriptPath: string | undefined):
         return undefined;
     }
 
-    // Scans the transcript backwards in fixed-size chunks so only the tail of
-    // the file (up to the latest marker) is read, instead of loading the whole
-    // file into memory.
-    let fd: number | undefined;
     try {
-        fd = fs.openSync(transcriptPath, 'r');
-        const fileSize = fs.fstatSync(fd).size;
-
-        // Bytes preceding the earliest fully-seen line; lines are only decoded
-        // once complete so multi-byte characters never split across chunks.
-        let carry: Buffer = Buffer.alloc(0);
-        let position = fileSize;
-
-        while (position > 0) {
-            const chunkSize = Math.min(REVERSE_CHUNK_SIZE, position);
-            position -= chunkSize;
-            const chunk = Buffer.alloc(chunkSize);
-            fs.readSync(fd, chunk, 0, chunkSize, position);
-
-            const buffer = carry.length > 0 ? Buffer.concat([chunk, carry]) : chunk;
-            const firstNewline = buffer.indexOf(0x0A);
-            if (firstNewline === -1) {
-                carry = buffer;
-                continue;
-            }
-
-            const lines = buffer.toString('utf-8', firstNewline + 1).split('\n');
-            for (let i = lines.length - 1; i >= 0; i--) {
-                const line = lines[i];
-                if (!line) {
-                    continue;
-                }
-                const marker = extractMarkerFromLine(line);
-                if (marker) {
-                    return marker.level;
-                }
-            }
-
-            carry = Buffer.from(buffer.subarray(0, firstNewline));
-        }
-
-        if (carry.length > 0) {
-            const marker = extractMarkerFromLine(carry.toString('utf-8'));
-            if (marker) {
-                return marker.level;
+        for (const line of iterateJsonlLinesReverseSync(transcriptPath)) {
+            const update = getThinkingEffortUpdate(parseJsonlLine(line));
+            if (update) {
+                return update.effort;
             }
         }
     } catch {
         return undefined;
-    } finally {
-        if (fd !== undefined) {
-            fs.closeSync(fd);
-        }
     }
 
     return undefined;

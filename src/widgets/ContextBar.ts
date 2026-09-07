@@ -14,6 +14,10 @@ import {
     getContextConfig,
     getModelContextIdentifier
 } from '../utils/model-context';
+import {
+    formatPercent,
+    resolveNumberFormat
+} from '../utils/number-format';
 import { formatTokens } from '../utils/renderer';
 import { makeUsageProgressBar } from '../utils/usage';
 
@@ -99,15 +103,20 @@ export class ContextBarWidget implements Widget {
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         const displayMode = getDisplayMode(item);
+        const tokenFormat = resolveNumberFormat('token', item, settings);
+        const percentFormat = resolveNumberFormat('percent', item, settings);
 
         if (context.isPreview) {
             if (isBarSliderMode(displayMode)) {
+                const usedDisplay = formatTokens(50000, tokenFormat, 0);
+                const totalDisplay = formatTokens(200000, tokenFormat, 0);
+                const percentDisplay = formatPercent(25, percentFormat, 0);
                 const slider = makeSliderBar(25);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} 50k/200k (25%)` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${usedDisplay}/${totalDisplay} (${percentDisplay})` : slider;
                 return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
             }
             const barWidth = displayMode === 'progress' ? 32 : 16;
-            const previewDisplay = `${makeUsageProgressBar(25, barWidth)} 50k/200k (25%)`;
+            const previewDisplay = `${makeUsageProgressBar(25, barWidth)} ${formatTokens(50000, tokenFormat, 0)}/${formatTokens(200000, tokenFormat, 0)} (${formatPercent(25, percentFormat, 0)})`;
             return item.rawValue ? previewDisplay : `Context: ${previewDisplay}`;
         }
 
@@ -119,8 +128,8 @@ export class ContextBarWidget implements Widget {
         const { used, total } = metrics;
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
-        const usedDisplay = formatTokens(used, 0);
-        const totalDisplay = formatTokens(total, 0);
+        const usedDisplay = formatTokens(used, tokenFormat, 0);
+        const totalDisplay = formatTokens(total, tokenFormat, 0);
 
         if (isBarSliderMode(displayMode)) {
             const slider = makeSliderBar(clampedPercent);
@@ -129,13 +138,13 @@ export class ContextBarWidget implements Widget {
             if (displayMode === 'slider-only') {
                 sliderDisplay = hidePercent ? `${slider} ${usedDisplay}/${totalDisplay}` : slider;
             } else {
-                sliderDisplay = `${slider} ${usedDisplay}/${totalDisplay} (${Math.round(clampedPercent)}%)`;
+                sliderDisplay = `${slider} ${usedDisplay}/${totalDisplay} (${formatPercent(clampedPercent, percentFormat, 0)})`;
             }
             return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
         }
 
         const barWidth = displayMode === 'progress' ? 32 : 16;
-        const display = `${makeUsageProgressBar(clampedPercent, barWidth)} ${usedDisplay}/${totalDisplay} (${Math.round(clampedPercent)}%)`;
+        const display = `${makeUsageProgressBar(clampedPercent, barWidth)} ${usedDisplay}/${totalDisplay} (${formatPercent(clampedPercent, percentFormat, 0)})`;
 
         return item.rawValue ? display : `Context: ${display}`;
     }
@@ -155,8 +164,8 @@ export class ContextBarWidget implements Widget {
         const { used, total } = metrics;
         const percent = (used / total) * 100;
         const clampedPercent = Math.max(0, Math.min(100, percent));
-        const usedDisplay = formatTokens(used, 0);
-        const totalDisplay = formatTokens(total, 0);
+        const usedDisplay = formatTokens(used, {}, 0);
+        const totalDisplay = formatTokens(total, {}, 0);
 
         const slider = makeSliderBar(clampedPercent, COMPACT_SLIDER_WIDTH);
         const hidePercent = item.metadata?.hidePercent === 'true';
@@ -177,4 +186,5 @@ export class ContextBarWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
 }

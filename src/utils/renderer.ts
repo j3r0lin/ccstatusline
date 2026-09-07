@@ -12,6 +12,10 @@ import type {
     DefaultPaddingSide,
     Settings
 } from '../types/Settings';
+import {
+    MERGE_TARGET_HIDDEN_HIDEABLE_STATE,
+    isHidden
+} from '../widgets/shared/hideable';
 
 import {
     applyLineGradient,
@@ -34,21 +38,10 @@ import {
     parseGradientSpec
 } from './gradient';
 import { getTerminalWidth } from './terminal';
-import { getWidget } from './widgets';
-
-// Whether a widget's rendered content carries its own inline ANSI colors that
-// the renderer must preserve instead of applying the configured color. Covers
-// custom-command preserveColors plus any widget that opts in via usesInlineColors
-// (gated on the content actually containing SGR codes, so widgets that fall back
-// to plain text in some states are still colored normally).
-function widgetEmitsInlineColors(widget: WidgetItem, content: string): boolean {
-    if (widget.type === 'custom-command' && widget.preserveColors)
-        return true;
-    const impl = getWidget(widget.type);
-    if (impl?.usesInlineColors?.(widget) && content !== stripSgrCodes(content))
-        return true;
-    return false;
-}
+import {
+    getWidget,
+    widgetPreservesColors
+} from './widgets';
 
 export { formatTokens } from './format-tokens';
 
@@ -69,6 +62,30 @@ function maybeApplyForegroundGradient(
 ): string {
     const stops = parseGradientSpec(settings.overrideForegroundColor);
     return stops ? applyLineGradient(line, stops, colorLevel) : line;
+}
+
+function hasForegroundOverride(settings: Settings): boolean {
+    return Boolean(settings.overrideForegroundColor && settings.overrideForegroundColor !== 'none');
+}
+
+// A global foreground override owns the foreground even for widgets that
+// normally carry intrinsic ANSI colors. Other styling (bold, dim, background)
+// remains independent of foreground preservation.
+function widgetEmitsInlineColors(item: WidgetItem, content: string): boolean {
+    if (item.type === 'custom-command' && item.preserveColors) {
+        return true;
+    }
+
+    return getWidget(item.type)?.usesInlineColors?.(item) === true
+        && content !== stripSgrCodes(content);
+}
+
+function widgetHasIntrinsicForeground(item: WidgetItem, content: string): boolean {
+    return widgetEmitsInlineColors(item, content) || widgetPreservesColors(item);
+}
+
+function preservesIntrinsicForeground(item: WidgetItem, settings: Settings, content: string): boolean {
+    return widgetHasIntrinsicForeground(item, content) && !hasForegroundOverride(settings);
 }
 
 // Split the default padding string into the leading/trailing pieces that
@@ -278,10 +295,9 @@ function renderPowerlineStatusLine(
             const padding = settings.defaultPadding ?? '';
             const { leading: sideLeadingPadding, trailing: sideTrailingPadding } = resolvePaddingSides(padding, settings.defaultPaddingSide);
 
-            // If override FG color is set and this is a custom command with preserveColors,
+            // If override FG color is set and this widget preserves its own colors,
             // we need to strip the ANSI codes from the widget text
-            if (settings.overrideForegroundColor && settings.overrideForegroundColor !== 'none'
-                && widget.type === 'custom-command' && widget.preserveColors) {
+            if (hasForegroundOverride(settings) && (widgetEmitsInlineColors(widget, widgetText) || widgetPreservesColors(widget))) {
                 // Strip ANSI color codes when override is active
                 widgetText = stripSgrCodes(widgetText);
             }
@@ -307,8 +323,8 @@ function renderPowerlineStatusLine(
             let bgColor = widget.backgroundColor;
 
             // Apply theme colors if a theme is set (and not 'custom')
-            // For custom commands with preserveColors, only skip foreground theme colors
-            const skipFgTheme = widget.type === 'custom-command' && widget.preserveColors;
+            // For widgets that preserve their own colors, only skip foreground theme colors
+            const skipFgTheme = preservesIntrinsicForeground(widget, settings, widgetText);
 
             if (themeColors) {
                 if (!skipFgTheme) {
@@ -447,7 +463,7 @@ function renderPowerlineStatusLine(
 
     const powerlineGradientWidth = overrideForegroundGradientStops && colorLevel !== 'ansi16'
         ? widgetElements.reduce((sum, element) => {
-            const isPreserveColors = element.widget.type === 'custom-command' && element.widget.preserveColors;
+            const isPreserveColors = preservesIntrinsicForeground(element.widget, settings, element.content);
             return isPreserveColors ? sum : sum + getVisibleWidth(element.content);
         }, 0)
         : 0;
@@ -498,19 +514,20 @@ function renderPowerlineStatusLine(
 
         let widgetContent = '';
 
-        // For widgets that emit inline colors, only skip foreground color/bold
-        const isPreserveColors = widgetEmitsInlineColors(widget.widget, widget.content);
+        // Intrinsic colors replace only the renderer's foreground. Global/item
+        // intensity and Powerline backgrounds still apply around that content.
+        const isPreserveColors = preservesIntrinsicForeground(widget.widget, settings, widget.content);
 
-        if (shouldBold && !isPreserveColors) {
+        if (shouldBold) {
             widgetContent += '\x1b[1m';
         }
-        if (shouldDim && !isPreserveColors) {
+        if (shouldDim) {
             widgetContent += '\x1b[2m';
         }
         const textGradientStops = !isPreserveColors && powerlineGradientWidth > 1
             ? overrideForegroundGradientStops
             : null;
-        const styledContent = widget.widget.dim === 'parens' && !isPreserveColors
+        const styledContent = widget.widget.dim === 'parens'
             ? applyParensDim(widget.content, shouldBold)
             : widget.content;
 
@@ -762,8 +779,6 @@ export interface PreRenderedWidget {
     content: string;      // The rendered widget text (without padding)
     plainLength: number;  // Length without ANSI codes
     widget: WidgetItem;   // Original widget config
-    compactContent?: string;       // Shorter alternative text for width-constrained rendering
-    compactPlainLength?: number;   // Length of compact text without ANSI codes
 }
 
 export function countPowerlineStartCapSlots(
@@ -799,6 +814,65 @@ export function countPowerlineStartCapSlots(
     }
 
     return renderedSegmentCount;
+}
+
+// Decorative widget types that can opt into hiding alongside their merge target
+const DECORATIVE_WIDGET_TYPES = new Set(['custom-text', 'custom-symbol']);
+
+function isSeparatorType(type: string): boolean {
+    return type === 'separator' || type === 'flex-separator';
+}
+
+// Collapses decorative items (custom-text/custom-symbol) that opted into the
+// merge-target-hidden state when the widget they are merged with rendered
+// nothing, so merged chains hide as a unit instead of leaving orphaned icons.
+export function applyMergeTargetHiding(preRenderedLine: PreRenderedWidget[]): void {
+    let chainStart = 0;
+    for (let i = 0; i <= preRenderedLine.length; i++) {
+        const element = preRenderedLine[i];
+        if (element && !isSeparatorType(element.widget.type)) {
+            continue;
+        }
+
+        applyMergeTargetHidingToSegment(preRenderedLine.slice(chainStart, i));
+        chainStart = i + 1;
+    }
+}
+
+function applyMergeTargetHidingToSegment(segment: PreRenderedWidget[]): void {
+    let chainStart = 0;
+    for (let i = 0; i < segment.length; i++) {
+        const linksToNext = Boolean(segment[i]?.widget.merge) && i < segment.length - 1;
+        if (linksToNext) {
+            continue;
+        }
+
+        const chain = segment.slice(chainStart, i + 1);
+        chainStart = i + 1;
+        if (chain.length < 2) {
+            continue;
+        }
+
+        for (let position = 0; position < chain.length; position++) {
+            const element = chain[position];
+            if (!element
+                || !DECORATIVE_WIDGET_TYPES.has(element.widget.type)
+                || !isHidden(element.widget, MERGE_TARGET_HIDDEN_HIDEABLE_STATE.key)) {
+                continue;
+            }
+
+            // The target is the nearest non-decorative widget in the chain,
+            // preferring the merge direction (forward), falling back to the
+            // widget merging into this one (backward)
+            const target = chain.slice(position + 1).find(candidate => !DECORATIVE_WIDGET_TYPES.has(candidate.widget.type))
+                ?? chain.slice(0, position).reverse().find(candidate => !DECORATIVE_WIDGET_TYPES.has(candidate.widget.type));
+
+            if (target?.content === '') {
+                element.content = '';
+                element.plainLength = 0;
+            }
+        }
+    }
 }
 
 // Pre-render all widgets once and cache the results
@@ -838,18 +912,17 @@ export function preRenderAllWidgets(
             const effectiveWidget = context.minimalist ? { ...widget, rawValue: true } : widget;
             const widgetText = widgetImpl.render(effectiveWidget, context, settings) ?? '';
 
+            // Store the rendered content without padding (padding is applied later)
+            // Use stringWidth to properly calculate Unicode character display width
             const plainLength = getVisibleWidth(widgetText);
-            const compactText = widgetImpl.renderCompact?.(effectiveWidget, context, settings) ?? undefined;
-            const compactPlainLength = compactText !== undefined ? getVisibleWidth(compactText) : undefined;
             preRenderedLine.push({
                 content: widgetText,
                 plainLength,
-                widget,
-                compactContent: compactText,
-                compactPlainLength
+                widget
             });
         }
 
+        applyMergeTargetHiding(preRenderedLine);
         preRenderedLines.push(preRenderedLine);
     }
 
@@ -1115,9 +1188,8 @@ export function renderStatusLine(
             }
 
             if (widgetText) {
-                // Special handling for widgets that emit their own inline colors
-                // (custom-command preserveColors, effort-colored model name, etc.)
-                if (widgetEmitsInlineColors(widget, widgetText)) {
+                // Special handling for widgets that preserve their own colors
+                if (widgetHasIntrinsicForeground(widget, widgetText)) {
                     // Handle max width truncation for commands with ANSI codes
                     let finalOutput = widgetText;
                     if (widget.maxWidth && widget.maxWidth > 0) {
@@ -1126,8 +1198,17 @@ export function renderStatusLine(
                             finalOutput = truncateStyledText(widgetText, widget.maxWidth, { ellipsis: false });
                         }
                     }
-                    // Preserve original colors from command output
-                    elements.push({ content: finalOutput, type: widget.type, widget });
+                    if (hasForegroundOverride(settings)) {
+                        finalOutput = stripSgrCodes(finalOutput);
+                    }
+                    // Preserve intrinsic foregrounds only when no global
+                    // foreground override is active. Bold, dim, backgrounds,
+                    // and global overrides still wrap the widget normally.
+                    elements.push({
+                        content: applyColorsWithOverride(finalOutput, undefined, widget.backgroundColor, widget.bold, widget.dim),
+                        type: widget.type,
+                        widget
+                    });
                 } else {
                     // Normal widget rendering with colors
                     elements.push({
@@ -1146,21 +1227,26 @@ export function renderStatusLine(
     if (elements.length === 0)
         return '';
 
-    // Remove trailing separators and whitespace-only widgets so a status line
-    // never ends with a dangling separator or invisible spacer.
-    while (elements.length > 0) {
-        const last = elements[elements.length - 1];
-        if (!last)
-            break;
-        if (last.type === 'separator') {
-            elements.pop();
-            continue;
+    // Remove trailing separators
+    while (elements.length > 0 && elements[elements.length - 1]?.type === 'separator') {
+        elements.pop();
+    }
+
+    // When width detection fails, flex separators fall back to their own ' | '
+    // boundary. Drop any spacing-only separator stranded directly beside one so
+    // that fallback does not render a duplicate space. With a known width, keep
+    // the separator: a fully occupied line can leave the flex gap at zero columns,
+    // making this space the only boundary between the surrounding content.
+    if (!terminalWidth) {
+        for (let i = elements.length - 1; i >= 0; i--) {
+            if (elements[i]?.type !== 'separator'
+                || !isSpacingSeparator(elements[i]?.widget, settings.defaultSeparator)) {
+                continue;
+            }
+            if (elements[i - 1]?.type === 'flex-separator' || elements[i + 1]?.type === 'flex-separator') {
+                elements.splice(i, 1);
+            }
         }
-        if (stripSgrCodes(last.content).trim() === '') {
-            elements.pop();
-            continue;
-        }
-        break;
     }
 
     // Apply default padding and separators
@@ -1297,32 +1383,10 @@ export function renderStatusLine(
     // Use terminalWidth if available (already accounts for flex mode adjustments), otherwise use detectedWidth
     const maxWidth = terminalWidth ?? detectedWidth;
     if (maxWidth && maxWidth > 0) {
+        // Remove ANSI escape codes to get actual length
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
-            // Try compact degradation before truncating: walk widgets right-to-left,
-            // switching any that offer a compact variant until the line fits.
-            let overflow = plainLength - maxWidth;
-            let degraded = false;
-            for (let ri = preRenderedWidgets.length - 1; ri >= 0 && overflow > 0; ri--) {
-                const pw = preRenderedWidgets[ri];
-                if (!pw?.compactContent || pw.compactPlainLength === undefined)
-                    continue;
-                const saved = pw.plainLength - pw.compactPlainLength;
-                if (saved <= 0)
-                    continue;
-                pw.content = pw.compactContent;
-                pw.plainLength = pw.compactPlainLength;
-                pw.compactContent = undefined;
-                pw.compactPlainLength = undefined;
-                overflow -= saved;
-                degraded = true;
-            }
-
-            if (degraded) {
-                return renderStatusLine(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
-            }
-
             statusLine = truncateStyledText(statusLine, maxWidth, { ellipsis: true });
         }
     }

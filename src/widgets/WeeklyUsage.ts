@@ -3,10 +3,15 @@ import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
     CustomKeybind,
+    HideableState,
     Widget,
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
+import {
+    formatPercent,
+    resolveNumberFormat
+} from '../utils/number-format';
 import {
     getUsageErrorMessage,
     resolveMonthlyUsageWindow,
@@ -14,11 +19,12 @@ import {
     shouldPromoteMonthlyUsage
 } from '../utils/usage';
 
+import { isHidden } from './shared/hideable';
 import { makeTimerProgressBar } from './shared/progress-bar';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
+    USAGE_NO_DATA_HIDEABLE_STATE,
     cycleUsageDisplayMode,
-    formatUsagePercent,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
     getUsagePercentCustomKeybinds,
@@ -35,6 +41,13 @@ import {
     getUsagePaceIndicator,
     withPaceSuffix
 } from './shared/usage-pace';
+
+function formatConfiguredUsagePercent(value: number, format: ReturnType<typeof resolveNumberFormat>): string {
+    const rendered = formatPercent(value, format);
+    return format.style === undefined && format.decimals === undefined
+        ? rendered.replace(/\.0%$/, '%')
+        : rendered;
+}
 
 // When the monthly pool is the tighter cap, the weekly slot renders it with an
 // "M"-flavored prefix so the same position always shows the binding number.
@@ -63,6 +76,10 @@ export class WeeklyUsageWidget implements Widget {
         };
     }
 
+    getHideableStates(): HideableState[] {
+        return [USAGE_NO_DATA_HIDEABLE_STATE];
+    }
+
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
         if (action === 'toggle-progress') {
             return cycleUsageDisplayMode(item, [], true, true);
@@ -83,6 +100,7 @@ export class WeeklyUsageWidget implements Widget {
         const displayMode = getUsageDisplayMode(item);
         const inverted = isUsageInverted(item);
         const showCursor = isUsageCursorEnabled(item);
+        const format = resolveNumberFormat('percent', item, settings);
 
         if (context.isPreview) {
             const previewPercent = 12;
@@ -91,23 +109,26 @@ export class WeeklyUsageWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
-                const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+                const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
                 return formatRawOrLabeledValue(item, 'Weekly: ', progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
                 return formatRawOrLabeledValue(item, 'Weekly: ', sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, 'Weekly: ', formatUsagePercent(renderedPercent));
+            return formatRawOrLabeledValue(item, 'Weekly: ', formatConfiguredUsagePercent(renderedPercent, format));
         }
 
         const data = context.usageData ?? {};
         if (data.weeklyUsage === undefined) {
-            if (data.error)
-                return getUsageErrorMessage(data.error);
+            if (data.error) {
+                return isHidden(item, USAGE_NO_DATA_HIDEABLE_STATE.key)
+                    ? null
+                    : getUsageErrorMessage(data.error);
+            }
             return null;
         }
 
@@ -147,7 +168,7 @@ export class WeeklyUsageWidget implements Widget {
             const width = getUsageProgressBarWidth(displayMode);
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
-            const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+            const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(renderItem, label, withPaceSuffix(progressDisplay, pace, item, colorLevel));
         }
 
@@ -158,11 +179,11 @@ export class WeeklyUsageWidget implements Widget {
                 return formatRawOrLabeledValue(renderItem, label, slider);
             }
 
-            const sliderDisplay = `${slider} ${formatUsagePercent(renderedPercent)}`;
+            const sliderDisplay = `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(renderItem, label, withPaceSuffix(sliderDisplay, pace, item, colorLevel));
         }
 
-        const percentText = formatUsagePercent(renderedPercent);
+        const percentText = formatConfiguredUsagePercent(renderedPercent, format);
         return formatRawOrLabeledValue(renderItem, label, withPaceSuffix(percentText, pace, item, colorLevel));
     }
 
@@ -176,4 +197,5 @@ export class WeeklyUsageWidget implements Widget {
     // color. The renderer gates this on the output actually containing SGR
     // codes, so the plain on-pace output is still colored normally.
     usesInlineColors(): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
 }

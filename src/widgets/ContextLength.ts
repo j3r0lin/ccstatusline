@@ -9,6 +9,7 @@ import {
     getContextWindowMetrics,
     resolveContextLengthTokens
 } from '../utils/context-window';
+import { resolveNumberFormat } from '../utils/number-format';
 import { formatTokens } from '../utils/renderer';
 
 export class ContextLengthWidget implements Widget {
@@ -21,8 +22,10 @@ export class ContextLengthWidget implements Widget {
     }
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        const format = resolveNumberFormat('token', item, settings);
         if (context.isPreview) {
-            return item.rawValue ? '18.6k' : 'Ctx: 18.6k';
+            const value = formatTokens(18600, format);
+            return item.rawValue ? value : `Ctx: ${value}`;
         }
 
         const contextLengthTokens = resolveContextLengthTokens(
@@ -30,7 +33,7 @@ export class ContextLengthWidget implements Widget {
             context.tokenMetrics
         );
         if (contextLengthTokens !== null) {
-            return item.rawValue ? formatTokens(contextLengthTokens) : `Ctx: ${formatTokens(contextLengthTokens)}`;
+            return item.rawValue ? formatTokens(contextLengthTokens, format) : `Ctx: ${formatTokens(contextLengthTokens, format)}`;
         }
 
         return null;
@@ -38,4 +41,5 @@ export class ContextLengthWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
 }

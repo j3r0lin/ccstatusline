@@ -3,10 +3,15 @@ import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
     CustomKeybind,
+    HideableState,
     Widget,
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
+import {
+    formatPercent,
+    resolveNumberFormat
+} from '../utils/number-format';
 import {
     getUsageErrorMessage,
     resolveUsageWindowWithFallback,
@@ -14,11 +19,12 @@ import {
 } from '../utils/usage';
 import type { UsageData } from '../utils/usage-types';
 
+import { isHidden } from './shared/hideable';
 import { makeTimerProgressBar } from './shared/progress-bar';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
+    USAGE_NO_DATA_HIDEABLE_STATE,
     cycleUsageDisplayMode,
-    formatUsagePercent,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
     getUsagePercentCustomKeybinds,
@@ -35,6 +41,13 @@ import {
     getUsagePaceIndicator,
     withPaceSuffix
 } from './shared/usage-pace';
+
+function formatConfiguredUsagePercent(value: number, format: ReturnType<typeof resolveNumberFormat>): string {
+    const rendered = formatPercent(value, format);
+    return format.style === undefined && format.decimals === undefined
+        ? rendered.replace(/\.0%$/, '%')
+        : rendered;
+}
 
 const SESSION_LABEL = 'Session: ';
 const PROMOTED_WEEKLY_LABEL = 'Weekly: ';
@@ -86,6 +99,10 @@ export class SessionUsageWidget implements Widget {
         };
     }
 
+    getHideableStates(): HideableState[] {
+        return [USAGE_NO_DATA_HIDEABLE_STATE];
+    }
+
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
         if (action === 'toggle-progress') {
             return cycleUsageDisplayMode(item, [], true, true);
@@ -106,6 +123,7 @@ export class SessionUsageWidget implements Widget {
         const displayMode = getUsageDisplayMode(item);
         const inverted = isUsageInverted(item);
         const showCursor = isUsageCursorEnabled(item);
+        const format = resolveNumberFormat('percent', item, settings);
 
         if (context.isPreview) {
             const previewPercent = 20;
@@ -114,24 +132,27 @@ export class SessionUsageWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
-                const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+                const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
                 return formatRawOrLabeledValue(item, SESSION_LABEL, progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
                 return formatRawOrLabeledValue(item, SESSION_LABEL, sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, SESSION_LABEL, formatUsagePercent(renderedPercent));
+            return formatRawOrLabeledValue(item, SESSION_LABEL, formatConfiguredUsagePercent(renderedPercent, format));
         }
 
         const data = context.usageData ?? {};
         const source = resolveSessionUsageDisplaySource(data);
         if (!source) {
-            if (data.error)
-                return getUsageErrorMessage(data.error);
+            if (data.error) {
+                return isHidden(item, USAGE_NO_DATA_HIDEABLE_STATE.key)
+                    ? null
+                    : getUsageErrorMessage(data.error);
+            }
             return null;
         }
 
@@ -162,7 +183,7 @@ export class SessionUsageWidget implements Widget {
             const width = getUsageProgressBarWidth(displayMode);
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
-            const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+            const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(item, label, withPaceSuffix(progressDisplay, pace, item, colorLevel));
         }
 
@@ -173,23 +194,24 @@ export class SessionUsageWidget implements Widget {
                 return formatRawOrLabeledValue(item, label, slider);
             }
 
-            const sliderDisplay = `${slider} ${formatUsagePercent(renderedPercent)}`;
+            const sliderDisplay = `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(item, label, withPaceSuffix(sliderDisplay, pace, item, colorLevel));
         }
 
-        const percentText = formatUsagePercent(renderedPercent);
+        const percentText = formatConfiguredUsagePercent(renderedPercent, format);
         return formatRawOrLabeledValue(item, label, withPaceSuffix(percentText, pace, item, colorLevel));
     }
 
-    renderCompact(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
+    renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         const displayMode = getUsageDisplayMode(item);
+        const format = resolveNumberFormat('percent', item, settings);
         if (!isUsageSliderMode(displayMode))
             return null;
 
         if (context.isPreview) {
             const previewPercent = 20;
             const renderedPercent = isUsageInverted(item) ? 100 - previewPercent : previewPercent;
-            return formatRawOrLabeledValue(item, SESSION_LABEL, formatUsagePercent(renderedPercent));
+            return formatRawOrLabeledValue(item, SESSION_LABEL, formatConfiguredUsagePercent(renderedPercent, format));
         }
 
         const data = context.usageData ?? {};
@@ -205,7 +227,7 @@ export class SessionUsageWidget implements Widget {
 
         const percent = Math.max(0, Math.min(100, source.percent));
         const renderedPercent = isUsageInverted(item) ? 100 - percent : percent;
-        return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), formatUsagePercent(renderedPercent));
+        return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), formatConfiguredUsagePercent(renderedPercent, format));
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
@@ -217,4 +239,5 @@ export class SessionUsageWidget implements Widget {
     // The pace delta carries its own color, so the renderer hands color
     // handling to this widget whenever a delta is present.
     usesInlineColors(): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
 }

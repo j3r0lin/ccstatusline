@@ -68,6 +68,8 @@ Settings live at `~/.config/ccstatusline/settings.json`; Claude Code integration
 
 Widgets implement the interface in `src/types/Widget.ts` and register in the map in `src/utils/widgets.ts` — read both before adding one.
 
+Optional widget methods include `getHideableStates()`, `supportsNumberFormat()`, and `preservesRenderedColors()`.
+
 ## Conventions
 
 - Use `bun <file>`, `bun install`, `bun run <script>`, `bun build` instead of the Node equivalents. Bun loads `.env` on its own.
