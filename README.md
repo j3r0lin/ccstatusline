@@ -54,6 +54,7 @@
 - **📈 New Usage Projection widget** - Projects the 5-hour window usage percentage at reset time based on the current consumption rate. Color-coded green/yellow/red at 80%/95% thresholds. Type: `usage-projection`.
 - **💬 New Last Prompt widget** - Displays the last user prompt submitted in the current session as a dim status line. Reads directly from the session transcript. Type: `last-prompt`.
 - **⏱ New Idle widget** - Shows time elapsed since last API completion with auto color coding: green (<5m), yellow (5-15m), red (15m-1h), dim gray (>1h). Type: `idle`.
+- **🌐 New Dev Server widget** - Shows clickable `Local:` URLs of live background Bash dev servers registered by the Claude Code hook. Type: `dev-server`.
 
 ---### v2.2.28 - v2.2.29 - Service health, flexible formatting, and resilient rendering
 

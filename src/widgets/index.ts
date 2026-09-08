@@ -88,5 +88,6 @@ export { VoiceStatusWidget } from './VoiceStatus';
 export { RemoteControlStatusWidget } from './RemoteControlStatus';
 export { UsageProjectionWidget } from './UsageProjection';
 export { LastPromptWidget } from './LastPrompt';
+export { DevServerWidget } from './DevServer';
 export { IdleWidget } from './Idle';
 export { CacheTimerWidget } from './CacheTimer';

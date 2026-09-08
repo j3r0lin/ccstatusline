@@ -107,6 +107,7 @@ export const WIDGET_MANIFEST: WidgetManifestEntry[] = [
     { type: 'compaction-counter', create: () => new widgets.CompactionCounterWidget() },
     { type: 'usage-projection', create: () => new widgets.UsageProjectionWidget() },
     { type: 'last-prompt', create: () => new widgets.LastPromptWidget() },
+    { type: 'dev-server', create: () => new widgets.DevServerWidget() },
     { type: 'idle', create: () => new widgets.IdleWidget() },
     { type: 'cache-timer', create: () => new widgets.CacheTimerWidget() }
 ];
