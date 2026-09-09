@@ -2,6 +2,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { stripSgrCodes } from './ansi';
+
 export interface DevServerRecord {
     id: string;
     command: string;
@@ -82,7 +84,8 @@ export function logPathsFor(record: DevServerRecord): string[] {
     return paths;
 }
 
-export function extractDevServerUrl(text: string): string | null {
+export function extractDevServerUrl(rawText: string): string | null {
+    const text = stripSgrCodes(rawText);
     const local = LOCAL_LINE.exec(text);
     if (local?.[1])
         return normalizeUrl(local[1]);

@@ -46,6 +46,15 @@ Port 8000 is in use, trying another one...
     it('ignores localhost URLs that are not the origin', () => {
         expect(extractDevServerUrl('at x (http://localhost:8000/node_modules/foo.js:1:1)')).toBeNull();
     });
+
+    it('strips SGR codes before matching a colored Local: line', () => {
+        const log = '  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m8001\x1b[22m/\x1b[39m';
+        expect(extractDevServerUrl(log)).toBe('http://localhost:8001/');
+    });
+
+    it('strips SGR codes before matching a colored bare loopback URL', () => {
+        expect(extractDevServerUrl('\x1b[36mhttp://127.0.0.1:\x1b[1m5173\x1b[22m/\x1b[39m')).toBe('http://127.0.0.1:5173/');
+    });
 });
 
 describe('sidecarPathFromTranscript', () => {
