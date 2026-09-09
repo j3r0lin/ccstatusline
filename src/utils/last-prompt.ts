@@ -2,23 +2,54 @@ import * as fs from 'fs';
 
 const TRANSCRIPT_CHUNK_BYTES = 64 * 1024;
 
+const SKIP_PREFIXES = [
+    'Another Claude session sent a message:',
+    'This session is being continued from a previous conversation',
+    '[Request interrupted by user'
+];
+
+interface UserRecord {
+    type?: string;
+    isSidechain?: boolean;
+    isMeta?: boolean;
+    origin?: { kind?: string };
+    message?: { content?: unknown };
+}
+
 export function extractPlainUserPromptFromRecord(d: unknown): string | null {
-    const rec = d as { type?: string; origin?: { kind?: string }; message?: { content?: unknown } } | null;
+    const rec = d as UserRecord | null;
     if (rec?.type !== 'user')
+        return null;
+    if (rec.isSidechain === true || rec.isMeta === true)
         return null;
     if (rec.origin && rec.origin.kind !== 'human')
         return null;
-    const c = rec.message?.content;
-    if (typeof c !== 'string')
-        return null;
-    if (c.startsWith('Another Claude session sent a message:'))
-        return null;
-    if (!c.startsWith('<'))
-        return c;
 
-    const cmdName = /<command-name>(\/[^<]+)<\/command-name>/.exec(c);
+    const c = rec.message?.content;
+    let text: string;
+    if (typeof c === 'string') {
+        text = c;
+    } else if (Array.isArray(c)) {
+        // Prompts with pasted images arrive as an array of blocks; keep the text ones.
+        text = (c as { type?: string; text?: unknown }[])
+            .filter(b => b.type === 'text' && typeof b.text === 'string')
+            .map(b => b.text as string)
+            .join(' ')
+            .trim();
+        if (!text)
+            return null;
+    } else {
+        return null;
+    }
+
+    if (SKIP_PREFIXES.some(p => text.startsWith(p)))
+        return null;
+    if (!text.startsWith('<'))
+        return text;
+
+    const cmdName = /<command-name>(\/[^<]+)<\/command-name>/.exec(text);
     if (cmdName?.[1]) {
-        const args = /<command-args>([^<]+)<\/command-args>/.exec(c);
+        const args = /<command-args>([^<]+)<\/command-args>/.exec(text);
         return args?.[1] ? `${cmdName[1]} ${args[1].trim()}` : cmdName[1];
     }
 

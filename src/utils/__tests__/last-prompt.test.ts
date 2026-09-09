@@ -204,4 +204,57 @@ describe('readLastPromptFromTranscript', () => {
 
         expect(readLastPromptFromTranscript(transcript)).toBe('typed one');
     });
+
+    it('skips sidechain and meta records', () => {
+        const transcript = writeJsonl('sidechain-meta.jsonl', [
+            { type: 'user', message: { role: 'user', content: 'real' } },
+            { type: 'user', isSidechain: true, message: { role: 'user', content: 'subagent task' } },
+            { type: 'user', isMeta: true, message: { role: 'user', content: 'Stop hook feedback: keep going' } }
+        ]);
+
+        expect(readLastPromptFromTranscript(transcript)).toBe('real');
+    });
+
+    it('skips compaction summaries and interruption markers', () => {
+        const transcript = writeJsonl('compaction-interrupt.jsonl', [
+            { type: 'user', message: { role: 'user', content: 'real' } },
+            { type: 'user', message: { role: 'user', content: 'This session is being continued from a previous conversation that ran out of context.' } },
+            { type: 'user', message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } }
+        ]);
+
+        expect(readLastPromptFromTranscript(transcript)).toBe('real');
+    });
+
+    it('reads text blocks from array content', () => {
+        const transcript = writeJsonl('array-content.jsonl', [
+            {
+                type: 'user',
+                origin: { kind: 'human' },
+                message: {
+                    role: 'user',
+                    content: [
+                        { type: 'image', source: {} },
+                        { type: 'text', text: '[Image #1] what is this' }
+                    ]
+                }
+            }
+        ]);
+
+        expect(readLastPromptFromTranscript(transcript)).toBe('[Image #1] what is this');
+    });
+
+    it('ignores tool_result arrays', () => {
+        const transcript = writeJsonl('tool-result-array.jsonl', [
+            { type: 'user', message: { role: 'user', content: 'real' } },
+            {
+                type: 'user',
+                message: {
+                    role: 'user',
+                    content: [{ type: 'tool_result', tool_use_id: 't', content: 'ok' }]
+                }
+            }
+        ]);
+
+        expect(readLastPromptFromTranscript(transcript)).toBe('real');
+    });
 });

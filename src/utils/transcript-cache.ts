@@ -84,7 +84,7 @@ interface TranscriptCacheFile {
     effort: ResolvedThinkingEffort | null;
 }
 
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 const MAX_CACHED_PROMPT_LENGTH = 500;
 const HEAD_SAMPLE_BYTES = 4096;
 const MAX_CACHE_FILES = 512;
