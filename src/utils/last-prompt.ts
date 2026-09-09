@@ -3,11 +3,15 @@ import * as fs from 'fs';
 const TRANSCRIPT_CHUNK_BYTES = 64 * 1024;
 
 export function extractPlainUserPromptFromRecord(d: unknown): string | null {
-    const rec = d as { type?: string; message?: { content?: unknown } } | null;
+    const rec = d as { type?: string; origin?: { kind?: string }; message?: { content?: unknown } } | null;
     if (rec?.type !== 'user')
+        return null;
+    if (rec.origin && rec.origin.kind !== 'human')
         return null;
     const c = rec.message?.content;
     if (typeof c !== 'string')
+        return null;
+    if (c.startsWith('Another Claude session sent a message:'))
         return null;
     if (!c.startsWith('<'))
         return c;

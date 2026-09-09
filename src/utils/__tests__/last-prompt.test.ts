@@ -177,4 +177,31 @@ describe('readLastPromptFromTranscript', () => {
         ]);
         expect(readLastPromptFromTranscript(transcript)).toBe('real prompt');
     });
+
+    it('skips teammate messages injected by other sessions', () => {
+        const transcript = writeJsonl('teammate.jsonl', [
+            { type: 'user', origin: { kind: 'human' }, message: { role: 'user', content: 'real prompt' } },
+            { type: 'assistant', message: { role: 'assistant', content: 'ok' } },
+            {
+                type: 'user',
+                origin: { kind: 'peer' },
+                message: { role: 'user', content: 'Another Claude session sent a message:\n<teammate-message teammate_id="x">hi</teammate-message>' }
+            },
+            {
+                type: 'user',
+                message: { role: 'user', content: 'Another Claude session sent a message:\n<teammate-message teammate_id="x">hi</teammate-message>' }
+            }
+        ]);
+
+        expect(readLastPromptFromTranscript(transcript)).toBe('real prompt');
+    });
+
+    it('skips records whose origin is not human', () => {
+        const transcript = writeJsonl('origin.jsonl', [
+            { type: 'user', origin: { kind: 'human' }, message: { role: 'user', content: 'typed one' } },
+            { type: 'user', origin: { kind: 'task-notification' }, message: { role: 'user', content: 'Task finished' } }
+        ]);
+
+        expect(readLastPromptFromTranscript(transcript)).toBe('typed one');
+    });
 });
