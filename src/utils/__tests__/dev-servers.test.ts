@@ -97,9 +97,7 @@ describe('collectDevServerUrls', () => {
             }]
         }));
 
-        expect(collectDevServerUrls(session, {
-            isUrlReachable: () => true
-        })).toEqual(['http://localhost:8000/']);
+        expect(collectDevServerUrls(session, { isUrlReachable: () => true })).toEqual(['http://localhost:8000/']);
     });
 
     it('shows a reachable URL even when file-opener probing would fail', () => {
@@ -119,9 +117,7 @@ describe('collectDevServerUrls', () => {
             }]
         }));
 
-        expect(collectDevServerUrls(session, {
-            isUrlReachable: () => true
-        })).toEqual(['http://localhost:8000/']);
+        expect(collectDevServerUrls(session, { isUrlReachable: () => true })).toEqual(['http://localhost:8000/']);
     });
 
     it('hides an unreachable URL', () => {
@@ -141,9 +137,7 @@ describe('collectDevServerUrls', () => {
             }]
         }));
 
-        expect(collectDevServerUrls(session, {
-            isUrlReachable: () => false
-        })).toEqual([]);
+        expect(collectDevServerUrls(session, { isUrlReachable: () => false })).toEqual([]);
     });
 
     it('finds Local: at the head of a log whose tail is only HMR noise', () => {
@@ -155,9 +149,7 @@ describe('collectDevServerUrls', () => {
         const noise = '10:00:00 PM [vite] (client) hmr update /src/App.tsx\n    at Foo (http://localhost:8001/@fs/x/y.tsx:1:1)\n';
         fs.writeFileSync(log, `Port 8000 is in use, trying another one...\n\n  ➜  Local:   http://localhost:8001/\n${noise.repeat(2000)}`);
         expect(fs.statSync(log).size).toBeGreaterThan(64 * 1024);
-        fs.writeFileSync(path.join(sessionDir, 'dev-servers.json'), JSON.stringify({
-            servers: [{ id: 'wt2', command: 'nohup pnpm dev > x.log &', outputFile: log, redirect: log, ts: 1 }]
-        }));
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers.json'), JSON.stringify({ servers: [{ id: 'wt2', command: 'nohup pnpm dev > x.log &', outputFile: log, redirect: log, ts: 1 }] }));
 
         expect(collectDevServerUrls(session, { isUrlReachable: () => true })).toEqual(['http://localhost:8001/']);
     });

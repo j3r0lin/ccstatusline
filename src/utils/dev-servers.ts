@@ -12,9 +12,7 @@ export interface DevServerRecord {
     ts: number;
 }
 
-export interface DevServersSidecar {
-    servers: DevServerRecord[];
-}
+export interface DevServersSidecar { servers: DevServerRecord[] }
 
 const MAX_URLS = 2;
 const LOCAL_LINE = /^\s*(?:➜|->)?\s*Local:\s+(https?:\/\/\S+)/im;
@@ -38,7 +36,7 @@ export function extraSidecarPaths(transcriptPath: string): string[] {
     const subagents = path.join(sessionDir, 'subagents');
     if (!fs.existsSync(subagents))
         return extra;
-    let names: string[] = [];
+    let names: string[];
     try {
         names = fs.readdirSync(subagents);
     } catch {
@@ -58,7 +56,7 @@ export function readSidecar(filePath: string): DevServerRecord[] {
     try {
         const raw = fs.readFileSync(filePath, 'utf8');
         const parsed = JSON.parse(raw) as DevServersSidecar;
-        if (!parsed || !Array.isArray(parsed.servers))
+        if (!Array.isArray(parsed.servers))
             return [];
         return parsed.servers.filter(isRecord);
     } catch {
@@ -197,12 +195,14 @@ export function collectDevServerUrls(
             records.push(rec);
         }
     }
-    records.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+    records.sort((a, b) => a.ts - b.ts);
 
     const urls: string[] = [];
     const seenUrl = new Set<string>();
     for (let i = records.length - 1; i >= 0; i--) {
         const rec = records[i];
+        if (!rec)
+            continue;
         const logs = logPathsFor(rec);
         if (logs.length === 0)
             continue;

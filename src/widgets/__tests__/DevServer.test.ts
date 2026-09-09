@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import {
+    describe,
+    expect,
+    it
+} from 'vitest';
 
 import type { WidgetItem } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
