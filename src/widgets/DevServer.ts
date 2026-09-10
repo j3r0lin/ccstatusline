@@ -8,15 +8,6 @@ import type {
 import { collectDevServerUrls } from '../utils/dev-servers';
 import { renderOsc8Link } from '../utils/hyperlink';
 
-export function devServerLabel(url: string): string {
-    try {
-        const parsed = new URL(url);
-        return parsed.port ? `:${parsed.port}` : parsed.host;
-    } catch {
-        return url;
-    }
-}
-
 export class DevServerWidget implements Widget {
     getDefaultColor(): string { return 'cyan'; }
     getDescription(): string { return 'Shows clickable URLs of live dev servers started in this session'; }
@@ -43,7 +34,9 @@ export class DevServerWidget implements Widget {
         if (urls.length === 0)
             return null;
 
-        return urls.map(url => renderOsc8Link(url, devServerLabel(url))).join(' · ');
+        // The full URL is the link text: a terminal that ignores OSC-8 can still
+        // pick the address up with its own URL detection, and `:8000` cannot.
+        return urls.map(url => renderOsc8Link(url, url)).join(' · ');
     }
 
     supportsRawValue(): boolean { return false; }
