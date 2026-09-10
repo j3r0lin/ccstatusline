@@ -76,24 +76,14 @@ function looksHumanCodexDisplayName(name: string): boolean {
 
 /**
  * Short display names for OpenAI / Codex models used with Claude Code status lines.
- * GPT-5.6 tiers (Sol / Terra / Luna) collapse to the tier name alone.
+ * Versioned GPT models put the humanized variant first and retain the version.
  */
 function formatCodexModelName(id: string | undefined, name: string | undefined): string | null {
     const haystack = `${id ?? ''} ${name ?? ''}`;
-    const looksCodex = /codex|chatgpt-codex|(?:^|[\s/._-])(?:gpt-5|sol|terra|luna)(?:$|[\s/._-])/i.test(haystack)
-        || /^(?:sol|terra|luna)$/i.test((id ?? name ?? '').trim());
+    const looksCodex = /codex|chatgpt-codex|(?:^|[\s/._-])(?:gpt[-_ ]?\d|sol|terra|luna|astra)(?:$|[\s/._-])/i.test(haystack)
+        || /^(?:sol|terra|luna|astra)$/i.test((id ?? name ?? '').trim());
     if (!looksCodex) {
         return null;
-    }
-
-    // Keep a short human display_name (e.g. "Terra", "GPT 5.6 Sol").
-    if (name && /codex|gpt-?5|sol|terra|luna/i.test(name) && looksHumanCodexDisplayName(name)) {
-        const cleaned = name.replace(/\s*\(.*\)$/, '').trim();
-        const bareTierName = /^(sol|terra|luna)$/i.exec(cleaned);
-        if (bareTierName?.[1]) {
-            return titleCaseToken(bareTierName[1]);
-        }
-        return cleaned;
     }
 
     const slug = (id ?? name ?? '')
@@ -101,25 +91,29 @@ function formatCodexModelName(id: string | undefined, name: string | undefined):
         .replace(/\[1m\]$/i, '')
         .trim();
 
-    const bareTier = /^(sol|terra|luna)$/i.exec(slug);
+    const gptModel = /^gpt[-_ ]?(\d+(?:\.\d+)?)(?:[-_ ]+(.+))?$/i.exec(slug);
+    if (gptModel?.[1]) {
+        const variant = gptModel[2]
+            ?.split(/[-_ ]+/)
+            .filter(Boolean)
+            .map(titleCaseToken)
+            .join(' ');
+        return variant ? `${variant} ${gptModel[1]}` : `GPT ${gptModel[1]}`;
+    }
+
+    // Keep a short human display_name (e.g. "Terra", "GPT 5.6 Sol").
+    if (name && /codex|gpt|sol|terra|luna|astra/i.test(name) && looksHumanCodexDisplayName(name)) {
+        const cleaned = name.replace(/\s*\(.*\)$/, '').trim();
+        const bareTierName = /^(sol|terra|luna|astra)$/i.exec(cleaned);
+        if (bareTierName?.[1]) {
+            return titleCaseToken(bareTierName[1]);
+        }
+        return cleaned;
+    }
+
+    const bareTier = /^(sol|terra|luna|astra)$/i.exec(slug);
     if (bareTier?.[1]) {
         return titleCaseToken(bareTier[1]);
-    }
-
-    const gptTier = /^gpt[-_]?(\d+(?:\.\d+)?)[-_](sol|terra|luna)$/i.exec(slug);
-    if (gptTier?.[2]) {
-        return titleCaseToken(gptTier[2]);
-    }
-
-    // Bare gpt-5.6 routes to Sol in Codex; still show the family when tier is omitted.
-    const bareGpt = /^gpt[-_]?(\d+(?:\.\d+)?)$/i.exec(slug);
-    if (bareGpt?.[1]) {
-        return `GPT ${bareGpt[1]}`;
-    }
-
-    const gptCodex = /^gpt[-_]?(\d+(?:\.\d+)?)[-_]?codex(?:[-_].*)?$/i.exec(slug);
-    if (gptCodex?.[1]) {
-        return `GPT ${gptCodex[1]} Codex`;
     }
 
     if (/^chatgpt[-_]?codex/i.test(slug) || /^codex$/i.test(slug)) {
@@ -146,7 +140,11 @@ function formatModelDisplayName(model: string | ModelInfo): string {
     const name = typeof model === 'string' ? model : (model.display_name ?? model.id);
 
     if (/kimi-for-coding-highspeed/i.test(id ?? '') || /kimi-for-coding-highspeed/i.test(name ?? '')) {
-        return 'Kimi Fast';
+        return 'K2.7 Fast';
+    }
+
+    if (/^kimi-for-coding$/i.test(id ?? '')) {
+        return 'K2.7';
     }
 
     if (/^k3(?:-256k)?(?:\[1m\])?$/i.test(id ?? '')) {

@@ -81,14 +81,19 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi');
         });
 
-        it('renders kimi-for-coding-highspeed as "Kimi Fast"', () => {
-            const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi Fast');
+        it('renders kimi-for-coding as "K2.7"', () => {
+            const ctx = makeContext({ data: { model: { id: 'kimi-for-coding' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2.7');
         });
 
-        it('renders kimi-for-coding-highspeed display_name as "Kimi Fast"', () => {
+        it('renders kimi-for-coding-highspeed as "K2.7 Fast"', () => {
+            const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2.7 Fast');
+        });
+
+        it('prefers the kimi-for-coding-highspeed alias over its display_name', () => {
             const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed', display_name: 'Kimi for Coding Highspeed' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi Fast');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2.7 Fast');
         });
 
         it('renders k3[1m] id as "K3"', () => {
@@ -141,14 +146,25 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
         });
 
-        it('renders gpt-5.6-sol as "Sol"', () => {
+        it('renders gpt-5.6-sol as "Sol 5.6"', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-5.6-sol' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 5.6');
         });
 
-        it('renders gpt-5.6-terra as "Terra"', () => {
+        it('renders gpt-5.6-terra as "Terra 5.6"', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-5.6-terra' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra 5.6');
+        });
+
+        it('renders future GPT versions as variant then version', () => {
+            const widget = new ModelWidget();
+            const sol = makeContext({ data: { model: { id: 'gpt-6-sol' } } });
+            const astra = makeContext({ data: { model: { id: 'gpt-6-astra' } } });
+            const future = makeContext({ data: { model: { id: 'gpt-7-abc' } } });
+
+            expect(widget.render(RAW_ITEM, sol, DEFAULT_SETTINGS)).toBe('Sol 6');
+            expect(widget.render(RAW_ITEM, astra, DEFAULT_SETTINGS)).toBe('Astra 6');
+            expect(widget.render(RAW_ITEM, future, DEFAULT_SETTINGS)).toBe('Abc 7');
         });
 
         it('renders bare terra as "Terra"', () => {
@@ -156,14 +172,14 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra');
         });
 
-        it('renders openai/gpt-5.6-luna as "Luna"', () => {
+        it('renders a provider-prefixed GPT model as variant then version', () => {
             const ctx = makeContext({ data: { model: { id: 'openai/gpt-5.6-luna' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Luna');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Luna 5.6');
         });
 
-        it('renders gpt-5.3-codex as "GPT 5.3 Codex"', () => {
+        it('renders gpt-5.3-codex as "Codex 5.3"', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-5.3-codex' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('GPT 5.3 Codex');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Codex 5.3');
         });
 
         it('renders codex-mini as "Codex Mini"', () => {
@@ -171,9 +187,9 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Codex Mini');
         });
 
-        it('keeps a human Codex tier display_name', () => {
+        it('prefers the versioned model id over a shorter display_name', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-5.6-sol', display_name: 'Sol' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 5.6');
         });
 
         it('includes Model: prefix when rawValue is false', () => {
