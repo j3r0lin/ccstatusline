@@ -25,7 +25,10 @@ describe('Codex usage context detection', () => {
         { model: { id: 'openai/gpt-5.6-luna' } },
         { model: 'terra' },
         { model: { display_name: 'Sol' } },
-        { model: 'gpt-5.6' }
+        { model: 'gpt-5.6' },
+        { model: 'gpt-6-astra' },
+        { model: { display_name: 'GPT-6 Astra' } },
+        { model: 'astra' }
     ])('detects Codex from the status model', ({ model }) => {
         expect(isCodexUsageContext({ model }, {})).toBe(true);
     });

@@ -117,6 +117,9 @@ function isCodexModelIdentifier(value: string | undefined): boolean {
     const gpt56Tier = '(?:sol|terra|luna)';
     return lower.includes('codex')
         || lower.includes('chatgpt-codex')
+        || lower === 'gpt-6-astra'
+        || lower === 'gpt-6 astra'
+        || lower === 'astra'
         || new RegExp(`(?:^|/)gpt-5(?:\\.\\d+)?(?:-${gpt56Tier}|-codex)?(?:$|[^a-z0-9])`, 'i').test(value)
         || new RegExp(`(?:^|/)gpt-5(?:\\.\\d+)?-${gpt56Tier}$`, 'i').test(value)
         || new RegExp(`(?:^|/)${gpt56Tier}$`, 'i').test(value);

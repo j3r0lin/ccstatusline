@@ -275,6 +275,94 @@ describe('usage prefetch', () => {
         expect(mockFetchUsageData.mock.calls.length).toBe(0);
     });
 
+    it('uses Codex wham usage when the active model is GPT-6 Astra', async () => {
+        mockFetchCodexUsageData.mockResolvedValue({
+            sessionUsage: 42,
+            sessionResetAt: '2030-01-01T00:00:00.000Z',
+            weeklyUsage: 15,
+            weeklyResetAt: '2030-01-08T00:00:00.000Z'
+        });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'session-usage' }, { id: '2', type: 'weekly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'gpt-6-astra', display_name: 'GPT-6 Astra' },
+            rate_limits: {
+                five_hour: { used_percentage: 99 },
+                seven_day: { used_percentage: 99 }
+            }
+        });
+
+        expect(usageData).toEqual({
+            sessionUsage: 42,
+            sessionResetAt: '2030-01-01T00:00:00.000Z',
+            weeklyUsage: 15,
+            weeklyResetAt: '2030-01-08T00:00:00.000Z'
+        });
+        expect(mockFetchCodexUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['sessionUsage', 'weeklyUsage'] }]
+        ]);
+        expect(mockFetchKimiUsageData.mock.calls.length).toBe(0);
+        expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('uses Codex wham usage for the bare Astra alias', async () => {
+        mockFetchCodexUsageData.mockResolvedValue({
+            sessionUsage: 42,
+            weeklyUsage: 15
+        });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'session-usage' }, { id: '2', type: 'weekly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: 'astra',
+            rate_limits: {
+                five_hour: { used_percentage: 99 },
+                seven_day: { used_percentage: 99 }
+            }
+        });
+
+        expect(usageData).toEqual({
+            sessionUsage: 42,
+            weeklyUsage: 15
+        });
+        expect(mockFetchCodexUsageData.mock.calls.length).toBe(1);
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it.each([
+        'no-credentials',
+        'timeout',
+        'rate-limited',
+        'api-error',
+        'parse-error'
+    ] as const)('keeps status rate_limits when Codex usage fails with %s', async (error) => {
+        mockFetchCodexUsageData.mockResolvedValue({ error });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'session-usage' }, { id: '2', type: 'weekly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'gpt-6-astra' },
+            rate_limits: {
+                five_hour: { used_percentage: 99, resets_at: 1774020000 },
+                seven_day: { used_percentage: 88, resets_at: 1774540000 }
+            }
+        });
+
+        expect(usageData).toEqual({
+            sessionUsage: 99,
+            sessionResetAt: epochToIso(1774020000),
+            weeklyUsage: 88,
+            weeklyResetAt: epochToIso(1774540000)
+        });
+        expect(mockFetchCodexUsageData.mock.calls.length).toBe(1);
+        expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
     it('merges reset-only rate_limits data with API usage data', async () => {
         mockFetchUsageData.mockResolvedValue({ sessionUsage: 42 });
 

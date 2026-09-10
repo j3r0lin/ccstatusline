@@ -253,7 +253,12 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         return fetchKimiUsageData({ requiredFields: requirements.map(requirement => requirement.field) });
     }
     if (isCodexUsageContext(data)) {
-        return fetchCodexUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field) });
+        const codexData = await fetchCodexUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field) });
+        if (!codexData.error) {
+            return codexData;
+        }
+
+        return extractUsageDataFromRateLimits(data?.rate_limits) ?? codexData;
     }
 
     const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
