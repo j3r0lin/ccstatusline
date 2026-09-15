@@ -103,6 +103,22 @@ describe('findServerEndpoints', () => {
         expect(parseEndpoints(out, ['/jobs/a/dev.log']).size).toBe(0);
     });
 
+    it('matches the resolved path lsof prints for a log reached through a symlinked directory', () => {
+        const real = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'ccsl-'));
+        const link = path.join(fs.realpathSync(os.tmpdir()), `ccsl-link-${process.pid}`);
+        fs.symlinkSync(real, link);
+        const log = path.join(link, 'dev.log');
+        fs.writeFileSync(log, '');
+        try {
+            const printed = path.join(real, 'dev.log');
+            const out = ['p200', 'f1', `n${printed}`, 'f3', 'n127.0.0.1:5173'].join('\n');
+            expect(parseEndpoints(out, [log]).get(log)).toEqual({ pid: 200, ports: [5173] });
+        } finally {
+            fs.unlinkSync(link);
+            fs.rmSync(real, { recursive: true, force: true });
+        }
+    });
+
     it('finds nothing for a log whose holders all stopped listening', () => {
         const out = ['p100', 'f1', 'n/jobs/a/dev.log'].join('\n');
         expect(parseEndpoints(out, ['/jobs/a/dev.log']).size).toBe(0);

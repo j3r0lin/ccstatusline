@@ -188,17 +188,26 @@ export function findServerEndpoints(logs: string[]): Map<string, ServerEndpoint>
 }
 
 export function parseEndpoints(lsofOutput: string, logs: string[]): Map<string, ServerEndpoint> {
-    const wanted = new Set(logs);
+    // lsof prints the resolved path, so `/tmp/x.log` comes back as
+    // `/private/tmp/x.log` on macOS; both spellings have to find the record.
+    const wanted = new Map<string, string>();
+    for (const log of logs) {
+        wanted.set(log, log);
+        wanted.set(realPath(log), log);
+    }
     const endpoints = new Map<string, ServerEndpoint>();
     for (const proc of processesInLsofOutput(lsofOutput)) {
         const ports: number[] = [];
         const logsHeld: string[] = [];
         for (const name of proc.names) {
             const listening = LISTEN_ADDRESS.exec(name);
-            if (listening?.[1])
+            if (listening?.[1]) {
                 ports.push(Number.parseInt(listening[1], 10));
-            else if (wanted.has(name))
-                logsHeld.push(name);
+                continue;
+            }
+            const held = wanted.get(name);
+            if (held)
+                logsHeld.push(held);
         }
         // A pnpm wrapper holds the log without listening; vite does both. Only
         // the process that does both says where to point the link.
@@ -565,7 +574,7 @@ export function createServerResolver(
 
     function endpointFor(anchors: string[], found: Map<string, ServerEndpoint>): ServerEndpoint | undefined {
         for (const log of anchors) {
-            const endpoint = found.get(log) ?? found.get(realPath(log));
+            const endpoint = found.get(log);
             if (endpoint)
                 return endpoint;
         }
