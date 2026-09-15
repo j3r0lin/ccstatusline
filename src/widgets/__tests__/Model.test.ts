@@ -81,19 +81,19 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi');
         });
 
-        it('renders kimi-for-coding as "K2.7"', () => {
+        it('renders kimi-for-coding as the K2 family without a pinned version', () => {
             const ctx = makeContext({ data: { model: { id: 'kimi-for-coding' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2.7');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2');
         });
 
-        it('renders kimi-for-coding-highspeed as "K2.7 Fast"', () => {
+        it('renders kimi-for-coding-highspeed as "K2 Fast"', () => {
             const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2.7 Fast');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2 Fast');
         });
 
         it('prefers the kimi-for-coding-highspeed alias over its display_name', () => {
             const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed', display_name: 'Kimi for Coding Highspeed' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2.7 Fast');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2 Fast');
         });
 
         it('renders k3[1m] id as "K3"', () => {

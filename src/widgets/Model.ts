@@ -139,12 +139,15 @@ function formatModelDisplayName(model: string | ModelInfo): string {
     const id = typeof model === 'string' ? undefined : model.id;
     const name = typeof model === 'string' ? model : (model.display_name ?? model.id);
 
+    // kimi-for-coding is a stable alias whose backing model upgrades in place
+    // within the K2 family (K2.7 → K2.8 Preview per kimi.com/code/docs), so
+    // show the family name without pinning a version.
     if (/kimi-for-coding-highspeed/i.test(id ?? '') || /kimi-for-coding-highspeed/i.test(name ?? '')) {
-        return 'K2.7 Fast';
+        return 'K2 Fast';
     }
 
     if (/^kimi-for-coding$/i.test(id ?? '')) {
-        return 'K2.7';
+        return 'K2';
     }
 
     if (/^k3(?:-256k)?(?:\[1m\])?$/i.test(id ?? '')) {
