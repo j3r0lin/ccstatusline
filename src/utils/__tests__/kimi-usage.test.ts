@@ -1,3 +1,9 @@
+import { EventEmitter } from 'events';
+import type {
+    ClientRequest,
+    IncomingMessage
+} from 'http';
+import type * as https from 'https';
 import {
     describe,
     expect,
@@ -5,12 +11,60 @@ import {
 } from 'vitest';
 
 import {
+    __testing,
     getKimiUsageEndpoint,
     isKimiUsageContext,
     parseKimiSubscriptionStats,
     parseKimiUsageResponse,
     resolveKimiCodeApiKey
 } from '../kimi-usage';
+
+interface MockWebRequest {
+    body: string;
+    headers: Record<string, string>;
+    url: string;
+}
+
+function createWebRequester(responses: { body: string; statusCode: number }[]): {
+    requests: MockWebRequest[];
+    requester: typeof https.request;
+} {
+    const requests: MockWebRequest[] = [];
+    const requester = ((url: string | URL, options: https.RequestOptions, callback: (response: IncomingMessage) => void) => {
+        const requestEvents = new EventEmitter();
+        const request = {
+            destroy() { return request; },
+            end(body = '') {
+                const next = responses.shift();
+                if (!next) {
+                    requestEvents.emit('error', new Error('Unexpected request'));
+                    return;
+                }
+
+                requests.push({
+                    url: url.toString(),
+                    headers: options.headers as Record<string, string>,
+                    body
+                });
+                const response = new EventEmitter() as IncomingMessage;
+                response.statusCode = next.statusCode;
+                response.setEncoding = () => response;
+                callback(response);
+                if (next.body) {
+                    response.emit('data', next.body);
+                }
+                response.emit('end');
+            },
+            on(event: string, handler: (...args: unknown[]) => void) {
+                requestEvents.on(event, handler);
+                return request;
+            }
+        };
+        return request as unknown as ClientRequest;
+    }) as typeof https.request;
+
+    return { requester, requests };
+}
 
 describe('Kimi usage context detection', () => {
     it.each([
@@ -114,6 +168,61 @@ describe('Kimi usage response parsing', () => {
     it('rejects malformed responses', () => {
         expect(parseKimiUsageResponse('{"usage":{"remaining":"10"}}')).toBeNull();
         expect(parseKimiUsageResponse('not-json')).toBeNull();
+    });
+});
+
+describe('Kimi subscription stats authentication', () => {
+    it('uses Bearer access without the legacy kimi-auth cookie', async () => {
+        const { requester, requests } = createWebRequester([{
+            statusCode: 200,
+            body: '{"subscriptionBalance":{"amountUsedRatio":0.25}}'
+        }]);
+
+        await expect(__testing.fetchKimiSubscriptionStats({ accessToken: 'fake-access' }, requester))
+            .resolves.toContain('amountUsedRatio');
+        expect(requests).toHaveLength(1);
+        expect(requests[0]?.headers.Authorization).toBe('Bearer fake-access');
+        expect(requests[0]?.headers.Cookie).toBeUndefined();
+        expect(requests[0]?.headers.Origin).toBe('https://www.kimi.com');
+        expect(requests[0]?.headers.Referer).toBe('https://www.kimi.com/code/console');
+        expect(requests[0]?.headers['connect-protocol-version']).toBe('1');
+        expect(requests[0]?.headers['x-msh-platform']).toBe('web');
+    });
+
+    it('refreshes after a 401 and retries stats once with the new access token', async () => {
+        const statsBody = '{"subscriptionBalance":{"amountUsedRatio":0.5}}';
+        const { requester, requests } = createWebRequester([
+            { statusCode: 401, body: '{"code":"unauthenticated"}' },
+            { statusCode: 200, body: '{"accessToken":"fresh-access","refreshToken":"fresh-refresh"}' },
+            { statusCode: 200, body: statsBody }
+        ]);
+
+        await expect(__testing.fetchKimiSubscriptionStats({
+            accessToken: 'expired-access',
+            refreshToken: 'valid-refresh'
+        }, requester)).resolves.toBe(statsBody);
+
+        expect(requests.map(request => request.url)).toEqual([
+            'https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats',
+            'https://auth.kimi.com/api/account.gateway.v1.AuthService/RefreshToken',
+            'https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats'
+        ]);
+        expect(requests[1]?.body).toBe('{"refresh_token":"valid-refresh"}');
+        expect(requests[2]?.headers.Authorization).toBe('Bearer fresh-access');
+    });
+
+    it('refreshes before stats when only a refresh token is available', async () => {
+        const statsBody = '{"subscriptionBalance":{"amountUsedRatio":0.75}}';
+        const { requester, requests } = createWebRequester([
+            { statusCode: 200, body: '{"accessToken":"fresh-access"}' },
+            { statusCode: 200, body: statsBody }
+        ]);
+
+        await expect(__testing.fetchKimiSubscriptionStats({ refreshToken: 'valid-refresh' }, requester))
+            .resolves.toBe(statsBody);
+        expect(requests).toHaveLength(2);
+        expect(requests[0]?.body).toBe('{"refresh_token":"valid-refresh"}');
+        expect(requests[1]?.headers.Authorization).toBe('Bearer fresh-access');
     });
 });
 

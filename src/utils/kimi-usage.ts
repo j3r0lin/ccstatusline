@@ -7,9 +7,10 @@ import { z } from 'zod';
 
 import type { StatusJSON } from '../types/StatusJSON';
 
+import type { KimiWebAuthSession } from './kimi-web-auth';
 import {
     decodeKimiJwtPayload,
-    resolveKimiWebAuthToken
+    resolveKimiWebAuthSession
 } from './kimi-web-auth';
 import type {
     UsageData,
@@ -22,6 +23,7 @@ const DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 300;
 const REQUEST_TIMEOUT_MS = 5000;
 const DEFAULT_API_BASE_URL = 'https://api.kimi.com';
 const SUBSCRIPTION_STATS_URL = 'https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats';
+const REFRESH_TOKEN_URL = 'https://auth.kimi.com/api/account.gateway.v1.AuthService/RefreshToken';
 const CACHE_DIR = path.join(os.homedir(), '.cache', 'ccstatusline');
 const CACHE_FILE = path.join(CACHE_DIR, 'kimi-usage.json');
 const LOCK_FILE = path.join(CACHE_DIR, 'kimi-usage.lock');
@@ -86,6 +88,11 @@ const KimiSubscriptionStatsSchema = z.looseObject({
         amountUsedRatio: z.number().nullable().optional(),
         expireTime: z.string().nullable().optional()
     }).nullable().optional()
+});
+
+const KimiRefreshTokenResponseSchema = z.looseObject({
+    accessToken: z.string().min(1),
+    refreshToken: z.string().min(1).optional()
 });
 
 const KimiUsageLockSchema = z.object({
@@ -413,8 +420,8 @@ function fetchFromKimiApi(apiKey: string, endpoint: URL): Promise<KimiFetchResul
     });
 }
 
-function buildKimiWebHeaders(token: string): Record<string, string> {
-    const claims = decodeKimiJwtPayload(token);
+function buildKimiWebHeaders(token?: string): Record<string, string> {
+    const claims = token ? decodeKimiJwtPayload(token) : null;
     const deviceId = claims?.device_id;
     const sessionId = claims?.ssid;
     const trafficId = claims?.sub;
@@ -422,28 +429,32 @@ function buildKimiWebHeaders(token: string): Record<string, string> {
     return {
         'Accept': '*/*',
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-        'Cookie': `kimi-auth=${token}`,
         'Origin': 'https://www.kimi.com',
         'Referer': 'https://www.kimi.com/code/console',
         'connect-protocol-version': '1',
         'x-msh-platform': 'web',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(typeof deviceId === 'string' ? { 'x-msh-device-id': deviceId } : {}),
         ...(typeof sessionId === 'string' ? { 'x-msh-session-id': sessionId } : {}),
         ...(typeof trafficId === 'string' ? { 'x-traffic-id': trafficId } : {})
     };
 }
 
-// Best-effort monthly membership pool fetch against the kimi.com web gateway.
-// The gateway requires the kimi-auth web session JWT, not the coding API key.
-// Returns the response body on HTTP 200, null on any failure.
-function fetchKimiSubscriptionStats(webAuthToken: string): Promise<string | null> {
+type KimiWebRequestResult = { body: string; statusCode: number } | null;
+type HttpsRequester = typeof https.request;
+
+function requestKimiWebApi(
+    url: string,
+    headers: Record<string, string>,
+    requestBody: string,
+    requester: HttpsRequester = https.request
+): Promise<KimiWebRequestResult> {
     return new Promise((resolve) => {
         let settled = false;
-        const finish = (body: string | null) => {
+        const finish = (result: KimiWebRequestResult) => {
             if (!settled) {
                 settled = true;
-                resolve(body);
+                resolve(result);
             }
         };
 
@@ -456,9 +467,9 @@ function fetchKimiSubscriptionStats(webAuthToken: string): Promise<string | null
             return;
         }
 
-        const request = https.request(SUBSCRIPTION_STATS_URL, {
+        const request = requester(url, {
             method: 'POST',
-            headers: buildKimiWebHeaders(webAuthToken),
+            headers,
             timeout: REQUEST_TIMEOUT_MS,
             ...(agent ? { agent } : {})
         }, (response) => {
@@ -468,7 +479,7 @@ function fetchKimiSubscriptionStats(webAuthToken: string): Promise<string | null
                 body += chunk;
             });
             response.on('end', () => {
-                finish(response.statusCode === 200 && body ? body : null);
+                finish({ statusCode: response.statusCode ?? 0, body });
             });
         });
 
@@ -477,8 +488,74 @@ function fetchKimiSubscriptionStats(webAuthToken: string): Promise<string | null
             request.destroy();
             finish(null);
         });
-        request.end('{}');
+        request.end(requestBody);
     });
+}
+
+async function refreshKimiWebAuthSession(
+    refreshToken: string,
+    requester: HttpsRequester = https.request
+): Promise<KimiWebAuthSession | null> {
+    const response = await requestKimiWebApi(
+        REFRESH_TOKEN_URL,
+        buildKimiWebHeaders(),
+        JSON.stringify({ refresh_token: refreshToken }),
+        requester
+    );
+    if (response?.statusCode !== 200 || !response.body) {
+        return null;
+    }
+
+    try {
+        const parsed = KimiRefreshTokenResponseSchema.safeParse(JSON.parse(response.body));
+        return parsed.success
+            ? { accessToken: parsed.data.accessToken, refreshToken: parsed.data.refreshToken ?? refreshToken }
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+// Best-effort monthly membership pool fetch against the kimi.com web gateway.
+// The gateway requires a web access_token, not the coding API key. A rejected
+// access token is refreshed once with the paired refresh_token.
+async function fetchKimiSubscriptionStats(
+    session: KimiWebAuthSession,
+    requester: HttpsRequester = https.request
+): Promise<string | null> {
+    let currentSession = session;
+    if (!currentSession.accessToken && currentSession.refreshToken) {
+        const refreshed = await refreshKimiWebAuthSession(currentSession.refreshToken, requester);
+        if (!refreshed) {
+            return null;
+        }
+        currentSession = refreshed;
+    }
+
+    if (!currentSession.accessToken) {
+        return null;
+    }
+
+    let response = await requestKimiWebApi(
+        SUBSCRIPTION_STATS_URL,
+        buildKimiWebHeaders(currentSession.accessToken),
+        '{}',
+        requester
+    );
+    if (response?.statusCode === 401 && currentSession.refreshToken) {
+        const refreshed = await refreshKimiWebAuthSession(currentSession.refreshToken, requester);
+        if (!refreshed?.accessToken) {
+            return null;
+        }
+        response = await requestKimiWebApi(
+            SUBSCRIPTION_STATS_URL,
+            buildKimiWebHeaders(refreshed.accessToken),
+            '{}',
+            requester
+        );
+    }
+
+    return response?.statusCode === 200 && response.body ? response.body : null;
 }
 
 async function resolveMonthlyUsage(
@@ -530,8 +607,8 @@ export async function fetchKimiUsageData(options: FetchKimiUsageDataOptions = {}
     // Resolve the web session and start the monthly stats request up front so
     // it overlaps the coding API call instead of doubling render latency.
     const monthlyRequired = requiredFields.some(field => KIMI_MONTHLY_FIELDS.has(field));
-    const webAuthToken = monthlyRequired ? resolveKimiWebAuthToken() : null;
-    const statsRequest = webAuthToken ? fetchKimiSubscriptionStats(webAuthToken) : null;
+    const webAuthSession = monthlyRequired ? resolveKimiWebAuthSession() : null;
+    const statsRequest = webAuthSession ? fetchKimiSubscriptionStats(webAuthSession) : null;
 
     const response = await fetchFromKimiApi(apiKey, endpoint);
     if (response.kind === 'auth-error') {
@@ -565,3 +642,9 @@ export async function fetchKimiUsageData(options: FetchKimiUsageDataOptions = {}
     }
     return mergedUsage;
 }
+
+export const __testing = {
+    buildKimiWebHeaders,
+    fetchKimiSubscriptionStats,
+    refreshKimiWebAuthSession
+};
