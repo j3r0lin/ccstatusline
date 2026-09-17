@@ -11,6 +11,7 @@ export { GitCiStatusWidget } from './GitCiStatus';
 export { GitCleanStatusWidget } from './GitCleanStatus';
 export { GitRootDirWidget } from './GitRootDir';
 export { GitPrWidget } from './GitPr';
+export { JiraIssueWidget } from './JiraIssue';
 export { GitWorktreeWidget } from './GitWorktree';
 export { GitStatusWidget } from './GitStatus';
 export { GitStagedWidget } from './GitStaged';

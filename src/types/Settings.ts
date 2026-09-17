@@ -91,7 +91,14 @@ export const SettingsSchema = z.object({
         message: z.string().nullable().optional(),
         remaining: z.number().nullable().optional()
     }).optional(),
-    installation: InstallationMetadataSchema.optional()
+    installation: InstallationMetadataSchema.optional(),
+    // Overrides for the Jira Issue widget. All fields are optional; unset
+    // fields fall back to ~/.config/.jira/.config.yml (server) or the
+    // widget's built-in status -> color map.
+    jira: z.object({
+        server: z.string().optional(),
+        statusColors: z.record(z.string(), z.string()).optional()
+    }).optional()
 });
 
 // Inferred type from schema

@@ -21,6 +21,10 @@ import {
     refreshGitReviewCacheFromCli
 } from './utils/git-review-cache';
 import { handleHookInput } from './utils/hook-handler';
+import {
+    JIRA_ISSUE_REFRESH_FLAG,
+    refreshJiraIssueCacheFromCli
+} from './utils/jira-issue-cache';
 import { getTranscriptAnalysis } from './utils/jsonl';
 import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
 import {
@@ -326,10 +330,30 @@ function handleGitReviewRefresh(): boolean {
     return true;
 }
 
+function handleJiraIssueRefresh(): boolean {
+    const flagIndex = process.argv.indexOf(JIRA_ISSUE_REFRESH_FLAG);
+    if (flagIndex === -1) {
+        return false;
+    }
+
+    const key = process.argv[flagIndex + 1];
+    const lockPath = process.argv[flagIndex + 2];
+    if (!key || !lockPath) {
+        return true;
+    }
+
+    refreshJiraIssueCacheFromCli(key, lockPath);
+    return true;
+}
+
 async function main() {
     // Detached cache refreshes re-enter this executable without reading stdin
     // or loading user settings. This mode intentionally emits no output.
     if (handleGitReviewRefresh()) {
+        return;
+    }
+
+    if (handleJiraIssueRefresh()) {
         return;
     }
 
