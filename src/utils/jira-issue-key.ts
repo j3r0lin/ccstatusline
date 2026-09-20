@@ -73,9 +73,11 @@ export interface ResolveJiraIssueKeyParams {
 //      as-is.
 //   2. the current branch name, matched anywhere in the string.
 //   3. the cached PR/MR title, matched only at its start.
-//   4. a jira-naming command run earlier in this session's transcript - "I
-//      just looked at this issue", less authoritative than "I'm working on
-//      this issue" (sources 1-2), so it comes last.
+//   4. this session's transcript: a slash command whose args start with a KEY,
+//      or a jira mutation, most recent of those; otherwise the first
+//      jira-naming command (a view). Later views of related issues do not
+//      override. Less authoritative than "I'm working on this issue"
+//      (sources 1-2), so it comes last.
 export function resolveJiraIssueKey(
     params: ResolveJiraIssueKeyParams,
     deps: JiraIssueKeyDeps = DEFAULT_JIRA_ISSUE_KEY_DEPS
