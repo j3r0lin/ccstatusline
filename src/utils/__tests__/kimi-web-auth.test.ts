@@ -145,12 +145,18 @@ describe('Chromium Local Storage auth', () => {
         const profileLevelDb = path.join(chromeRoot, 'Profile 1', 'Local Storage', 'leveldb');
         fs.mkdirSync(defaultLevelDb, { recursive: true });
         fs.mkdirSync(profileLevelDb, { recursive: true });
+        // Browser Local Storage is darwin-only in production (Safe Storage lives
+        // in the macOS keychain). Pin platform so Linux CI still exercises the
+        // profile walk rather than returning null at the gate.
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true, writable: true, enumerable: true });
         try {
             writeLevelDbLog(defaultLevelDb, { access_token: makeJwt(Date.now() / 1000 - 3600) });
             writeLevelDbLog(profileLevelDb, { refresh_token: 'valid-refresh-token' });
 
             expect(resolveKimiWebAuthSession({}, homeDir)).toEqual({ refreshToken: 'valid-refresh-token' });
         } finally {
+            Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true, writable: true, enumerable: true });
             fs.rmSync(homeDir, { recursive: true, force: true });
         }
     });
