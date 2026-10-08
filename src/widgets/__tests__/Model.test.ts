@@ -151,6 +151,17 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 5.6');
         });
 
+        it.each([
+            ['gpt-6.1-sol-fast', 'Sol 6.1 Fast'],
+            ['gpt-6.1-sol', 'Sol 6.1'],
+            ['openai/gpt-6.1-sol-fast', 'Sol 6.1 Fast'],
+            ['gpt-6.1-fast', 'GPT 6.1 Fast']
+        ])('renders %s as %s', (id, expected) => {
+            const widget = new ModelWidget();
+            expect(widget.render(RAW_ITEM, makeContext({ data: { model: { id } } }), DEFAULT_SETTINGS)).toBe(expected);
+            expect(widget.render(RAW_ITEM, makeContext({ data: { model: id } }), DEFAULT_SETTINGS)).toBe(expected);
+        });
+
         it('renders gpt-5.6-terra as "Terra 5.6"', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-5.6-terra' } } });
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra 5.6');

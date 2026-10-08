@@ -93,12 +93,17 @@ function formatCodexModelName(id: string | undefined, name: string | undefined):
 
     const gptModel = /^gpt[-_ ]?(\d+(?:\.\d+)?)(?:[-_ ]+(.+))?$/i.exec(slug);
     if (gptModel?.[1]) {
-        const variant = gptModel[2]
+        const tokens = gptModel[2]
             ?.split(/[-_ ]+/)
             .filter(Boolean)
-            .map(titleCaseToken)
-            .join(' ');
-        return variant ? `${variant} ${gptModel[1]}` : `GPT ${gptModel[1]}`;
+            .map(titleCaseToken) ?? [];
+        const fast = tokens[tokens.length - 1] === 'Fast';
+        if (fast) {
+            tokens.pop();
+        }
+        const variant = tokens.join(' ');
+        const modelName = variant ? `${variant} ${gptModel[1]}` : `GPT ${gptModel[1]}`;
+        return fast ? `${modelName} Fast` : modelName;
     }
 
     // Keep a short human display_name (e.g. "Terra", "GPT 5.6 Sol").
