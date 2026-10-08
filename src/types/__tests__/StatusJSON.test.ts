@@ -6,6 +6,17 @@ import {
 
 import { StatusJSONSchema } from '../StatusJSON';
 
+describe('StatusJSONSchema fast mode', () => {
+    it.each([true, false, undefined])('accepts fast_mode=%s', (fastMode) => {
+        const result = StatusJSONSchema.parse({ fast_mode: fastMode });
+        expect(result.fast_mode).toBe(fastMode);
+    });
+
+    it('rejects non-boolean fast mode values', () => {
+        expect(StatusJSONSchema.safeParse({ fast_mode: 'true' }).success).toBe(false);
+    });
+});
+
 describe('StatusJSONSchema numeric coercion', () => {
     it('coerces numeric strings to numbers', () => {
         const result = StatusJSONSchema.safeParse({

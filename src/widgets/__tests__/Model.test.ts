@@ -230,6 +230,43 @@ describe('ModelWidget', () => {
         });
     });
 
+    describe('session fast mode', () => {
+        it.each([
+            ['gpt-6.1-sol', true, 'Sol 6.1 Fast'],
+            ['gpt-6.1-sol', false, 'Sol 6.1'],
+            ['gpt-6.1-sol', undefined, 'Sol 6.1'],
+            ['gpt-6.1-sol-fast', true, 'Sol 6.1 Fast'],
+            ['gpt-6.1-sol-fast', false, 'Sol 6.1 Fast'],
+            ['gpt-6.1-sol-fast', undefined, 'Sol 6.1 Fast'],
+            ['kimi-for-coding-highspeed', true, 'K2 Fast'],
+            ['grok-code-fast-1', true, 'Grok Code Fast']
+        ] as const)('renders %s with fast_mode=%s as %s', (id, fastMode, expected) => {
+            const widget = new ModelWidget();
+            const ctx = makeContext({ data: { model: { id }, fast_mode: fastMode } });
+            expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe(expected);
+            expect(widget.render(ITEM, ctx, DEFAULT_SETTINGS)).toBe(`Model: ${expected}`);
+            expect(widget.render(RAW_ITEM, makeContext({ data: { model: id, fast_mode: fastMode } }), DEFAULT_SETTINGS)).toBe(expected);
+        });
+
+        it('reflects fast mode changes within a session', () => {
+            const widget = new ModelWidget();
+            const data = { model: { id: 'gpt-6.1-sol' }, fast_mode: false };
+            const ctx = makeContext({ data });
+            expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 6.1');
+            data.fast_mode = true;
+            expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 6.1 Fast');
+            data.fast_mode = false;
+            expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 6.1');
+        });
+
+        it('preserves effort coloring with the Fast suffix', () => {
+            const ctx = makeContext({ data: { model: { id: 'gpt-6.1-sol' }, fast_mode: true, effort: { level: 'high' } } });
+            const out = new ModelWidget().render(EFFORT_RAW, ctx, DEFAULT_SETTINGS) ?? '';
+            expect(stripSgrCodes(out)).toBe('Sol 6.1 Fast');
+            expect(colorCodes(out).length).toBeGreaterThan(0);
+        });
+    });
+
     describe('effort coloring', () => {
         it('wraps the name in inline color for a known effort level', () => {
             const out = new ModelWidget().render(EFFORT_RAW, modelContext('high'), DEFAULT_SETTINGS) ?? '';

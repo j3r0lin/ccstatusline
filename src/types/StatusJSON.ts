@@ -39,6 +39,7 @@ export const StatusJSONSchema = z.looseObject({
     }).optional(),
     version: z.string().optional(),
     output_style: z.object({ name: z.string().optional() }).optional(),
+    fast_mode: z.boolean().optional(),
     effort: z.object({ level: z.string().nullable().optional() }).nullable().optional(),
     cost: z.object({
         total_cost_usd: CoercedNumberSchema.optional(),

@@ -227,7 +227,10 @@ export class ModelWidget implements Widget {
             return null;
         }
 
-        const shortName = formatModelDisplayName(model);
+        const modelName = formatModelDisplayName(model);
+        const shortName = context.data?.fast_mode === true && !/\bFast$/i.test(modelName)
+            ? `${modelName} Fast`
+            : modelName;
         const colored = effortColor
             ? colorizeModelName(shortName, resolveThinkingEffort(context), colorLevel)
             : null;
