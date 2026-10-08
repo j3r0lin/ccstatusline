@@ -68,12 +68,26 @@ describe('renderer inline-color preservation', () => {
     });
 
     it('applies the configured color when the widget does not opt into inline colors', () => {
-        const widget: WidgetItem = { id: 'm', type: 'model', color: 'blue' };
+        const widget: WidgetItem = { id: 'm', type: 'custom-text', color: 'blue', customText: 'Opus' };
         const out = render(widget, INLINE);
         // Without usesInlineColors, the renderer re-colors the whole content;
         // the configured blue is applied rather than the inline red being treated as authoritative.
         expect(stripSgrCodes(out)).toContain('Opus');
         expect(out).not.toBe(INLINE);
+    });
+
+    it.each([false, true])('keeps the Fast icon color through rendering with powerline=%s', (powerline) => {
+        const widget: WidgetItem = { id: 'm', type: 'model', rawValue: true, color: 'blue' };
+        const settings = createSettings({ colorLevel: 3, powerline: { ...DEFAULT_SETTINGS.powerline, enabled: powerline } });
+        const context: RenderContext = {
+            isPreview: false,
+            terminalWidth: 200,
+            data: { model: { id: 'gpt-6.1-sol' }, fast_mode: true }
+        };
+        const preRendered = preRenderAllWidgets([[widget]], settings, context);
+        const out = renderStatusLine([widget], settings, context, preRendered[0] ?? [], []);
+        expect(stripSgrCodes(out)).toContain('Sol 6.1 ↯');
+        expect(out).toContain('\x1b[38;2;255;120;20m↯');
     });
 
     it('preserves inline colors through preRenderAllWidgets for an effort-colored model', () => {

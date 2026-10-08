@@ -228,13 +228,23 @@ export class ModelWidget implements Widget {
         }
 
         const modelName = formatModelDisplayName(model);
-        const shortName = context.data?.fast_mode === true && !/\bFast$/i.test(modelName)
-            ? `${modelName} Fast`
-            : modelName;
+        const hasFastSuffix = /\s+Fast$/i.test(modelName);
+        const fast = context.data?.fast_mode === true || hasFastSuffix;
+        const shortName = hasFastSuffix ? modelName.replace(/\s+Fast$/i, '') : modelName;
         const colored = effortColor
             ? colorizeModelName(shortName, resolveThinkingEffort(context), colorLevel)
             : null;
-        return this.compose(item, colored ?? shortName, colored !== null, colorLevel);
+        if (!fast) {
+            return this.compose(item, colored ?? shortName, colored !== null, colorLevel);
+        }
+        if (settings.colorLevel === 0) {
+            return this.compose(item, `${shortName} ↯`, false, colorLevel);
+        }
+        const nameColor = getColorAnsiCode(item.color ?? this.getDefaultColor(), colorLevel, false);
+        const name = colored ?? `${nameColor}${shortName}\x1b[39m`;
+        // 使用 Claude Code 2.1.294 深色主题的 Fast mode 配色。
+        const iconColor = getColorAnsiCode(colorLevel === 'truecolor' ? 'hex:FF7814' : colorLevel === 'ansi256' ? 'ansi256:208' : 'brightRed', colorLevel, false);
+        return this.compose(item, `${name} ${iconColor}↯\x1b[39m`, true, colorLevel);
     }
 
     // Builds the final output. When the name carries inline effort colors, the
@@ -258,5 +268,5 @@ export class ModelWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
-    usesInlineColors(item: WidgetItem): boolean { return isEffortColor(item); }
+    usesInlineColors(item: WidgetItem): boolean { return true; }
 }

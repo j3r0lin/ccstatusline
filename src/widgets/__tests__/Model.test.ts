@@ -88,12 +88,12 @@ describe('ModelWidget', () => {
 
         it('renders kimi-for-coding-highspeed as "K2 Fast"', () => {
             const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2 Fast');
+            expect(stripSgrCodes(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe('K2 ↯');
         });
 
         it('prefers the kimi-for-coding-highspeed alias over its display_name', () => {
             const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed', display_name: 'Kimi for Coding Highspeed' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('K2 Fast');
+            expect(stripSgrCodes(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe('K2 ↯');
         });
 
         it('renders k3[1m] id as "K3"', () => {
@@ -133,7 +133,7 @@ describe('ModelWidget', () => {
 
         it('renders grok-code-fast-1 as "Grok Code Fast"', () => {
             const ctx = makeContext({ data: { model: { id: 'grok-code-fast-1' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok Code Fast');
+            expect(stripSgrCodes(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe('Grok Code ↯');
         });
 
         it('keeps a human Grok display_name', () => {
@@ -152,14 +152,14 @@ describe('ModelWidget', () => {
         });
 
         it.each([
-            ['gpt-6.1-sol-fast', 'Sol 6.1 Fast'],
+            ['gpt-6.1-sol-fast', 'Sol 6.1 ↯'],
             ['gpt-6.1-sol', 'Sol 6.1'],
-            ['openai/gpt-6.1-sol-fast', 'Sol 6.1 Fast'],
-            ['gpt-6.1-fast', 'GPT 6.1 Fast']
+            ['openai/gpt-6.1-sol-fast', 'Sol 6.1 ↯'],
+            ['gpt-6.1-fast', 'GPT 6.1 ↯']
         ])('renders %s as %s', (id, expected) => {
             const widget = new ModelWidget();
-            expect(widget.render(RAW_ITEM, makeContext({ data: { model: { id } } }), DEFAULT_SETTINGS)).toBe(expected);
-            expect(widget.render(RAW_ITEM, makeContext({ data: { model: id } }), DEFAULT_SETTINGS)).toBe(expected);
+            expect(stripSgrCodes(widget.render(RAW_ITEM, makeContext({ data: { model: { id } } }), DEFAULT_SETTINGS) ?? '')).toBe(expected);
+            expect(stripSgrCodes(widget.render(RAW_ITEM, makeContext({ data: { model: id } }), DEFAULT_SETTINGS) ?? '')).toBe(expected);
         });
 
         it('renders gpt-5.6-terra as "Terra 5.6"', () => {
@@ -232,20 +232,20 @@ describe('ModelWidget', () => {
 
     describe('session fast mode', () => {
         it.each([
-            ['gpt-6.1-sol', true, 'Sol 6.1 Fast'],
+            ['gpt-6.1-sol', true, 'Sol 6.1 ↯'],
             ['gpt-6.1-sol', false, 'Sol 6.1'],
             ['gpt-6.1-sol', undefined, 'Sol 6.1'],
-            ['gpt-6.1-sol-fast', true, 'Sol 6.1 Fast'],
-            ['gpt-6.1-sol-fast', false, 'Sol 6.1 Fast'],
-            ['gpt-6.1-sol-fast', undefined, 'Sol 6.1 Fast'],
-            ['kimi-for-coding-highspeed', true, 'K2 Fast'],
-            ['grok-code-fast-1', true, 'Grok Code Fast']
+            ['gpt-6.1-sol-fast', true, 'Sol 6.1 ↯'],
+            ['gpt-6.1-sol-fast', false, 'Sol 6.1 ↯'],
+            ['gpt-6.1-sol-fast', undefined, 'Sol 6.1 ↯'],
+            ['kimi-for-coding-highspeed', true, 'K2 ↯'],
+            ['grok-code-fast-1', true, 'Grok Code ↯']
         ] as const)('renders %s with fast_mode=%s as %s', (id, fastMode, expected) => {
             const widget = new ModelWidget();
             const ctx = makeContext({ data: { model: { id }, fast_mode: fastMode } });
-            expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe(expected);
-            expect(widget.render(ITEM, ctx, DEFAULT_SETTINGS)).toBe(`Model: ${expected}`);
-            expect(widget.render(RAW_ITEM, makeContext({ data: { model: id, fast_mode: fastMode } }), DEFAULT_SETTINGS)).toBe(expected);
+            expect(stripSgrCodes(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe(expected);
+            expect(stripSgrCodes(widget.render(ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe(`Model: ${expected}`);
+            expect(stripSgrCodes(widget.render(RAW_ITEM, makeContext({ data: { model: id, fast_mode: fastMode } }), DEFAULT_SETTINGS) ?? '')).toBe(expected);
         });
 
         it('reflects fast mode changes within a session', () => {
@@ -254,7 +254,7 @@ describe('ModelWidget', () => {
             const ctx = makeContext({ data });
             expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 6.1');
             data.fast_mode = true;
-            expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 6.1 Fast');
+            expect(stripSgrCodes(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe('Sol 6.1 ↯');
             data.fast_mode = false;
             expect(widget.render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 6.1');
         });
@@ -262,7 +262,7 @@ describe('ModelWidget', () => {
         it('preserves effort coloring with the Fast suffix', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-6.1-sol' }, fast_mode: true, effort: { level: 'high' } } });
             const out = new ModelWidget().render(EFFORT_RAW, ctx, DEFAULT_SETTINGS) ?? '';
-            expect(stripSgrCodes(out)).toBe('Sol 6.1 Fast');
+            expect(stripSgrCodes(out)).toBe('Sol 6.1 ↯');
             expect(colorCodes(out).length).toBeGreaterThan(0);
         });
     });
@@ -324,10 +324,23 @@ describe('ModelWidget', () => {
             expect(off?.metadata?.effortColor).toBe('false');
         });
 
-        it('reports inline colors only when the toggle is on', () => {
+        it('keeps the Fast icon color independent of effort coloring', () => {
             const widget = new ModelWidget();
-            expect(widget.usesInlineColors({ id: 'model', type: 'model' })).toBe(false);
-            expect(widget.usesInlineColors({ id: 'model', type: 'model', metadata: { effortColor: 'true' } })).toBe(true);
+            const ctx = makeContext({ data: { model: { id: 'gpt-6.1-sol' }, fast_mode: true, effort: { level: 'high' } } });
+            const settings = { ...DEFAULT_SETTINGS, colorLevel: 3 as const };
+            const plain = widget.render(RAW_ITEM, ctx, settings) ?? '';
+            const colored = widget.render(EFFORT_RAW, ctx, settings) ?? '';
+            expect(stripSgrCodes(plain)).toBe('Sol 6.1 ↯');
+            expect(stripSgrCodes(colored)).toBe('Sol 6.1 ↯');
+            expect(plain).toContain('\x1b[38;2;255;120;20m↯');
+            expect(colored).toContain('\x1b[38;2;255;120;20m↯');
+        });
+
+        it('renders the Fast icon without ANSI in no-color mode', () => {
+            const ctx = makeContext({ data: { model: { id: 'gpt-6.1-sol' }, fast_mode: true, effort: { level: 'high' } } });
+            const settings = { ...DEFAULT_SETTINGS, colorLevel: 0 as const };
+            expect(new ModelWidget().render(EFFORT_RAW, ctx, settings)).toBe('Sol 6.1 ↯');
+            expect(new ModelWidget().render(ITEM, ctx, settings)).toBe('Model: Sol 6.1 ↯');
         });
 
         it('shows an effort-color modifier in the editor display', () => {
