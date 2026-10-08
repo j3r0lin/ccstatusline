@@ -26,8 +26,14 @@ describe('Codex usage context detection', () => {
         { model: 'terra' },
         { model: { display_name: 'Sol' } },
         { model: 'gpt-5.6' },
+        { model: 'gpt-4.1' },
         { model: 'gpt-6-astra' },
         { model: { display_name: 'GPT-6 Astra' } },
+        { model: 'gpt-6-sol' },
+        { model: 'gpt-6-luna' },
+        { model: { id: 'openai/gpt-6-terra' } },
+        { model: { display_name: 'GPT-6 Sol' } },
+        { model: 'gpt-7-new-tier' },
         { model: 'astra' }
     ])('detects Codex from the status model', ({ model }) => {
         expect(isCodexUsageContext({ model }, {})).toBe(true);
@@ -35,6 +41,7 @@ describe('Codex usage context detection', () => {
 
     it('does not treat unrelated short words as Codex tiers', () => {
         expect(isCodexUsageContext({ model: { id: 'solar-pro' } }, {})).toBe(false);
+        expect(isCodexUsageContext({ model: { id: 'other-gpt-6-sol' } }, {})).toBe(false);
         expect(isCodexUsageContext({ model: { id: 'claude-sonnet-4-5' } }, {})).toBe(false);
     });
 
