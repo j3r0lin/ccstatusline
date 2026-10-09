@@ -9,6 +9,10 @@ import type {
     WidgetItem
 } from '../types/Widget';
 import {
+    formatPercent,
+    resolveNumberFormat
+} from '../utils/number-format';
+import {
     getUsageErrorMessage,
     resolveMonthlyUsageWindow,
     shouldPromoteMonthlyUsage
@@ -20,7 +24,6 @@ import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import {
     USAGE_NO_DATA_HIDEABLE_STATE,
     cycleUsageDisplayMode,
-    formatUsagePercent,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
     getUsagePercentCustomKeybinds,
@@ -37,6 +40,13 @@ import {
     getUsagePaceIndicator,
     withPaceSuffix
 } from './shared/usage-pace';
+
+function formatConfiguredUsagePercent(value: number, format: ReturnType<typeof resolveNumberFormat>): string {
+    const rendered = formatPercent(value, format);
+    return format.style === undefined && format.decimals === undefined
+        ? rendered.replace(/\.0%$/, '%')
+        : rendered;
+}
 
 export class MonthlyUsageWidget implements Widget {
     getDefaultColor(): string { return 'brightMagenta'; }
@@ -75,6 +85,7 @@ export class MonthlyUsageWidget implements Widget {
         const displayMode = getUsageDisplayMode(item);
         const inverted = isUsageInverted(item);
         const showCursor = isUsageCursorEnabled(item);
+        const format = resolveNumberFormat('percent', item, settings);
 
         if (context.isPreview) {
             const previewPercent = 12;
@@ -83,17 +94,17 @@ export class MonthlyUsageWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width, showCursor ? { cursorPercent: 50 } : undefined);
-                const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+                const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
                 return formatRawOrLabeledValue(item, 'Monthly: ', progressDisplay);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent, undefined, showCursor ? { cursorPercent: 50 } : undefined);
-                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatUsagePercent(renderedPercent)}` : slider;
+                const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
                 return formatRawOrLabeledValue(item, 'Monthly: ', sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, 'Monthly: ', formatUsagePercent(renderedPercent));
+            return formatRawOrLabeledValue(item, 'Monthly: ', formatConfiguredUsagePercent(renderedPercent, format));
         }
 
         const data = context.usageData ?? {};
@@ -131,7 +142,7 @@ export class MonthlyUsageWidget implements Widget {
             const width = getUsageProgressBarWidth(displayMode);
 
             const progressBar = makeTimerProgressBar(renderedPercent, width, getCursorOptions());
-            const progressDisplay = `[${progressBar}] ${formatUsagePercent(renderedPercent)}`;
+            const progressDisplay = `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(item, 'Monthly: ', withPaceSuffix(progressDisplay, pace, item, colorLevel));
         }
 
@@ -142,11 +153,11 @@ export class MonthlyUsageWidget implements Widget {
                 return formatRawOrLabeledValue(item, 'Monthly: ', slider);
             }
 
-            const sliderDisplay = `${slider} ${formatUsagePercent(renderedPercent)}`;
+            const sliderDisplay = `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}`;
             return formatRawOrLabeledValue(item, 'Monthly: ', withPaceSuffix(sliderDisplay, pace, item, colorLevel));
         }
 
-        const percentText = formatUsagePercent(renderedPercent);
+        const percentText = formatConfiguredUsagePercent(renderedPercent, format);
         return formatRawOrLabeledValue(item, 'Monthly: ', withPaceSuffix(percentText, pace, item, colorLevel));
     }
 
@@ -156,6 +167,7 @@ export class MonthlyUsageWidget implements Widget {
 
     supportsRawValue(): boolean { return true; }
     supportsColors(item: WidgetItem): boolean { return true; }
+    supportsNumberFormat(): boolean { return true; }
     // Only the pace delta is colored here; the percent keeps the configured
     // color. The renderer gates this on the output actually containing SGR
     // codes, so the plain on-pace output is still colored normally.

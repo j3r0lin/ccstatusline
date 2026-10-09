@@ -168,6 +168,7 @@ describe('SessionUsageWidget', () => {
         expectedRawProgress: '[████████░░░░░░░░░░░░░░░░░░░░░░░░] 23.4%',
         expectedRawTime: '23.4%',
         expectedTime: 'Session: 23.4%',
+        expectedWholePercentTime: 'Session: 23%',
         modifierItem: {
             id: 'session',
             type: 'session-usage',

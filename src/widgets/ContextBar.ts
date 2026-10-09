@@ -21,7 +21,10 @@ import {
 import { formatTokens } from '../utils/renderer';
 import { makeUsageProgressBar } from '../utils/usage';
 
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 import { makeSliderBar } from './shared/usage-display';
+
+const LABEL = 'Context: ';
 
 type DisplayMode = 'progress' | 'progress-short' | 'slider' | 'slider-only';
 
@@ -59,6 +62,7 @@ export class ContextBarWidget implements Widget {
     getDescription(): string { return 'Shows context usage as a progress bar'; }
     getDisplayName(): string { return 'Context Bar'; }
     getCategory(): string { return 'Context'; }
+    getLabelPrefix(): string { return LABEL; }
 
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         const mode = getDisplayMode(item);
@@ -113,11 +117,11 @@ export class ContextBarWidget implements Widget {
                 const percentDisplay = formatPercent(25, percentFormat, 0);
                 const slider = makeSliderBar(25);
                 const sliderDisplay = displayMode === 'slider' ? `${slider} ${usedDisplay}/${totalDisplay} (${percentDisplay})` : slider;
-                return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(), sliderDisplay);
             }
             const barWidth = displayMode === 'progress' ? 32 : 16;
             const previewDisplay = `${makeUsageProgressBar(25, barWidth)} ${formatTokens(50000, tokenFormat, 0)}/${formatTokens(200000, tokenFormat, 0)} (${formatPercent(25, percentFormat, 0)})`;
-            return item.rawValue ? previewDisplay : `Context: ${previewDisplay}`;
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), previewDisplay);
         }
 
         const metrics = resolveContextBarMetrics(context);
@@ -140,13 +144,13 @@ export class ContextBarWidget implements Widget {
             } else {
                 sliderDisplay = `${slider} ${usedDisplay}/${totalDisplay} (${formatPercent(clampedPercent, percentFormat, 0)})`;
             }
-            return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), sliderDisplay);
         }
 
         const barWidth = displayMode === 'progress' ? 32 : 16;
         const display = `${makeUsageProgressBar(clampedPercent, barWidth)} ${usedDisplay}/${totalDisplay} (${formatPercent(clampedPercent, percentFormat, 0)})`;
 
-        return item.rawValue ? display : `Context: ${display}`;
+        return formatRawOrLabeledValue(item, this.getLabelPrefix(), display);
     }
 
     renderCompact(item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
@@ -175,7 +179,7 @@ export class ContextBarWidget implements Widget {
         } else {
             sliderDisplay = `${slider} ${usedDisplay}/${totalDisplay} (${Math.round(clampedPercent)}%)`;
         }
-        return item.rawValue ? sliderDisplay : `Context: ${sliderDisplay}`;
+        return formatRawOrLabeledValue(item, this.getLabelPrefix(), sliderDisplay);
     }
 
     getCustomKeybinds(): CustomKeybind[] {
@@ -185,6 +189,7 @@ export class ContextBarWidget implements Widget {
     }
 
     supportsRawValue(): boolean { return true; }
+
     supportsColors(item: WidgetItem): boolean { return true; }
     supportsNumberFormat(): boolean { return true; }
 }

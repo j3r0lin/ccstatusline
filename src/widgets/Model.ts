@@ -13,6 +13,8 @@ import {
     resolveThinkingEffort
 } from '../utils/thinking-effort';
 
+import { getLabel } from './shared/raw-or-labeled';
+
 const RESET = '\x1b[0m';
 
 function isEffortColor(item: WidgetItem): boolean {
@@ -176,11 +178,14 @@ function formatModelDisplayName(model: string | ModelInfo): string {
     return (name ?? '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');
 }
 
+const LABEL = 'Model: ';
+
 export class ModelWidget implements Widget {
     getDefaultColor(): string { return 'cyan'; }
     getDescription(): string { return 'Displays the Claude model name (e.g., Claude 3.5 Sonnet).\nOptionally colors the name by thinking effort: low=gold, medium=green, high=lavender, xhigh=purple, max=rainbow.'; }
     getDisplayName(): string { return 'Model'; }
     getCategory(): string { return 'Core'; }
+    getLabelPrefix(): string { return LABEL; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         return {
             displayText: this.getDisplayName(),
@@ -248,16 +253,17 @@ export class ModelWidget implements Widget {
     }
 
     // Builds the final output. When the name carries inline effort colors, the
-    // "Model: " label keeps the widget's base color so only the value is recolored.
+    // The label keeps the widget's base color so only the value is recolored.
     private compose(item: WidgetItem, value: string, valueIsColored: boolean, colorLevel: ReturnType<typeof getColorLevelString>): string {
         if (item.rawValue) {
             return value;
         }
+        const label = getLabel(item, this.getLabelPrefix());
         if (!valueIsColored) {
-            return `Model: ${value}`;
+            return `${label}${value}`;
         }
         const labelCode = getColorAnsiCode(item.color ?? this.getDefaultColor(), colorLevel, false);
-        return `${labelCode}Model: ${RESET}${value}`;
+        return `${labelCode}${label}${RESET}${value}`;
     }
 
     getCustomKeybinds(): CustomKeybind[] {

@@ -4,6 +4,7 @@ import type { RenderContext } from '../types/RenderContext';
 import type { Settings } from '../types/Settings';
 import type {
     CustomKeybind,
+    HideableState,
     Widget,
     WidgetEditorDisplay,
     WidgetEditorProps,
@@ -22,6 +23,7 @@ import {
     shouldPromoteWeeklyIntoSessionSlot
 } from '../utils/usage';
 
+import { isHidden } from './shared/hideable';
 import {
     LOCALE_EDITOR_ACTION,
     renderUsageLocaleEditor
@@ -33,6 +35,7 @@ import {
     renderUsageTimezoneEditor
 } from './shared/timezone-editor';
 import {
+    USAGE_NO_DATA_HIDEABLE_STATE,
     cycleUsageDisplayMode,
     getUsageDisplayMode,
     getUsageDisplayModifierText,
@@ -53,6 +56,9 @@ import {
     toggleUsageInverted
 } from './shared/usage-display';
 
+const LABEL = 'Reset: ';
+const BAR_LABEL = 'Reset ';
+
 const BLOCK_RESET_PREVIEW_AT = '2026-03-12T08:30:00.000Z';
 const USAGE_TIMER_LOADING_MESSAGE = '[Loading]';
 
@@ -61,12 +67,20 @@ export class BlockResetTimerWidget implements Widget {
     getDescription(): string { return 'Shows time remaining until current 5hr block reset window'; }
     getDisplayName(): string { return 'Block Reset Timer'; }
     getCategory(): string { return 'Usage'; }
+    getLabelPrefix(item: WidgetItem): string {
+        const displayMode = getUsageDisplayMode(item);
+        return isUsageProgressMode(displayMode) || isUsageSliderMode(displayMode) ? BAR_LABEL : LABEL;
+    }
 
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         return {
             displayText: this.getDisplayName(),
             modifierText: getUsageDisplayModifierText(item, { includeCompact: true, includeDate: true })
         };
+    }
+
+    getHideableStates(): HideableState[] {
+        return [USAGE_NO_DATA_HIDEABLE_STATE];
     }
 
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
@@ -106,7 +120,7 @@ export class BlockResetTimerWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const barWidth = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(previewPercent, barWidth);
-                return formatRawOrLabeledValue(item, 'Reset ', `[${progressBar}] ${formatPercent(previewPercent, format)}`);
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(item), `[${progressBar}] ${formatPercent(previewPercent, format)}`);
             }
 
             if (isUsageSliderMode(displayMode)) {
@@ -114,7 +128,7 @@ export class BlockResetTimerWidget implements Widget {
                 const sliderDisplay = displayMode === 'slider'
                     ? `${slider} ${formatPercent(previewPercent, format)}`
                     : slider;
-                return formatRawOrLabeledValue(item, 'Reset ', sliderDisplay);
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(item), sliderDisplay);
             }
 
             if (dateMode) {
@@ -125,10 +139,10 @@ export class BlockResetTimerWidget implements Widget {
                     getUsageLocale(item),
                     isUsage12HourClock(item)
                 );
-                return formatRawOrLabeledValue(item, 'Reset: ', resetAt ?? (compact ? '03-12 08:30Z' : '2026-03-12 08:30 UTC'));
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(item), resetAt ?? (compact ? '03-12 08:30Z' : '2026-03-12 08:30 UTC'));
             }
 
-            return formatRawOrLabeledValue(item, 'Reset: ', compact ? '4h30m' : '4hr 30m');
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(item), compact ? '4h30m' : '4hr 30m');
         }
 
         const usageData = context.usageData ?? {};
@@ -140,7 +154,8 @@ export class BlockResetTimerWidget implements Widget {
         const window = weeklyPromoted
             ? resolveWeeklyUsageWindow(usageData)
             : resolveUsageWindowWithFallback(usageData, context.blockMetrics);
-        const label = weeklyPromoted ? 'Weekly Reset' : 'Reset';
+        const defaultLabel = this.getLabelPrefix(item);
+        const labelPrefix = weeklyPromoted ? defaultLabel.replace(/^Reset/, 'Weekly Reset') : defaultLabel;
 
         // A promoted weekly window with no reset timestamp has nothing to count
         // down to, and the weekly slot never showed this timer before.
@@ -149,11 +164,15 @@ export class BlockResetTimerWidget implements Widget {
         }
 
         if (!window) {
+            if (isHidden(item, USAGE_NO_DATA_HIDEABLE_STATE.key)) {
+                return null;
+            }
+
             if (usageData.error) {
                 return getUsageErrorMessage(usageData.error);
             }
 
-            return formatRawOrLabeledValue(item, `${label}: `, USAGE_TIMER_LOADING_MESSAGE);
+            return formatRawOrLabeledValue(item, labelPrefix, USAGE_TIMER_LOADING_MESSAGE);
         }
 
         if (window.remainingMs <= 0) {
@@ -164,7 +183,7 @@ export class BlockResetTimerWidget implements Widget {
             const barWidth = getUsageProgressBarWidth(displayMode);
             const percent = inverted ? window.remainingPercent : window.elapsedPercent;
             const progressBar = makeTimerProgressBar(percent, barWidth);
-            return formatRawOrLabeledValue(item, `${label} `, `[${progressBar}] ${formatPercent(percent, format)}`);
+            return formatRawOrLabeledValue(item, labelPrefix, `[${progressBar}] ${formatPercent(percent, format)}`);
         }
 
         if (isUsageSliderMode(displayMode)) {
@@ -173,7 +192,7 @@ export class BlockResetTimerWidget implements Widget {
             const sliderDisplay = displayMode === 'slider'
                 ? `${slider} ${formatPercent(percent, format)}`
                 : slider;
-            return formatRawOrLabeledValue(item, `${label} `, sliderDisplay);
+            return formatRawOrLabeledValue(item, labelPrefix, sliderDisplay);
         }
 
         if (dateMode) {
@@ -181,12 +200,12 @@ export class BlockResetTimerWidget implements Widget {
             const locale = getUsageLocale(item);
             const resetAt = formatUsageResetAt(weeklyPromoted ? usageData.weeklyResetAt : usageData.sessionResetAt, compact, timezone, locale, isUsage12HourClock(item));
             if (resetAt) {
-                return formatRawOrLabeledValue(item, `${label}: `, resetAt);
+                return formatRawOrLabeledValue(item, labelPrefix, resetAt);
             }
         }
 
         const remainingTime = formatUsageDuration(window.remainingMs, compact);
-        return formatRawOrLabeledValue(item, `${label}: `, remainingTime);
+        return formatRawOrLabeledValue(item, labelPrefix, remainingTime);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

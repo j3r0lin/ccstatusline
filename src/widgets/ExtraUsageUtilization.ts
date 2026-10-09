@@ -38,11 +38,14 @@ function formatConfiguredUsagePercent(value: number, format: ReturnType<typeof r
         : rendered;
 }
 
+const LABEL = 'Overage: ';
+
 export class ExtraUsageUtilizationWidget implements Widget {
     getDefaultColor(): string { return 'green'; }
     getDescription(): string { return 'Shows extra usage (pay-as-you-go) utilization percentage'; }
     getDisplayName(): string { return 'Extra Usage Utilization'; }
     getCategory(): string { return 'Usage'; }
+    getLabelPrefix(): string { return LABEL; }
 
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         return {
@@ -79,23 +82,23 @@ export class ExtraUsageUtilizationWidget implements Widget {
             if (isUsageProgressMode(displayMode)) {
                 const width = getUsageProgressBarWidth(displayMode);
                 const progressBar = makeTimerProgressBar(renderedPercent, width);
-                return formatRawOrLabeledValue(item, 'Overage: ', `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`);
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(), `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`);
             }
 
             if (isUsageSliderMode(displayMode)) {
                 const slider = makeSliderBar(renderedPercent);
                 const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
-                return formatRawOrLabeledValue(item, 'Overage: ', sliderDisplay);
+                return formatRawOrLabeledValue(item, this.getLabelPrefix(), sliderDisplay);
             }
 
-            return formatRawOrLabeledValue(item, 'Overage: ', formatConfiguredUsagePercent(renderedPercent, format));
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), formatConfiguredUsagePercent(renderedPercent, format));
         }
 
         const data = context.usageData ?? {};
         if (data.extraUsageEnabled === false) {
             return isHidden(item, EXTRA_USAGE_DISABLED_HIDEABLE_STATE.key)
                 ? null
-                : formatRawOrLabeledValue(item, 'Overage: ', 'n/a');
+                : formatRawOrLabeledValue(item, this.getLabelPrefix(), 'n/a');
         }
         if (data.extraUsageEnabled !== true || data.extraUsageUtilization === undefined) {
             if (data.error) {
@@ -113,16 +116,16 @@ export class ExtraUsageUtilizationWidget implements Widget {
         if (isUsageProgressMode(displayMode)) {
             const width = getUsageProgressBarWidth(displayMode);
             const progressBar = makeTimerProgressBar(renderedPercent, width);
-            return formatRawOrLabeledValue(item, 'Overage: ', `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`);
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), `[${progressBar}] ${formatConfiguredUsagePercent(renderedPercent, format)}`);
         }
 
         if (isUsageSliderMode(displayMode)) {
             const slider = makeSliderBar(renderedPercent);
             const sliderDisplay = displayMode === 'slider' ? `${slider} ${formatConfiguredUsagePercent(renderedPercent, format)}` : slider;
-            return formatRawOrLabeledValue(item, 'Overage: ', sliderDisplay);
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), sliderDisplay);
         }
 
-        return formatRawOrLabeledValue(item, 'Overage: ', formatConfiguredUsagePercent(renderedPercent, format));
+        return formatRawOrLabeledValue(item, this.getLabelPrefix(), formatConfiguredUsagePercent(renderedPercent, format));
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

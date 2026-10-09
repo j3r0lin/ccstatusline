@@ -12,11 +12,16 @@ import {
 import { resolveNumberFormat } from '../utils/number-format';
 import { formatTokens } from '../utils/renderer';
 
+import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+
+const LABEL = 'Ctx: ';
+
 export class ContextLengthWidget implements Widget {
     getDefaultColor(): string { return 'brightBlack'; }
     getDescription(): string { return 'Shows the current context window size in tokens'; }
     getDisplayName(): string { return 'Context Length'; }
     getCategory(): string { return 'Context'; }
+    getLabelPrefix(): string { return LABEL; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
         return { displayText: this.getDisplayName() };
     }
@@ -25,7 +30,7 @@ export class ContextLengthWidget implements Widget {
         const format = resolveNumberFormat('token', item, settings);
         if (context.isPreview) {
             const value = formatTokens(18600, format);
-            return item.rawValue ? value : `Ctx: ${value}`;
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), value);
         }
 
         const contextLengthTokens = resolveContextLengthTokens(
@@ -33,7 +38,7 @@ export class ContextLengthWidget implements Widget {
             context.tokenMetrics
         );
         if (contextLengthTokens !== null) {
-            return item.rawValue ? formatTokens(contextLengthTokens, format) : `Ctx: ${formatTokens(contextLengthTokens, format)}`;
+            return formatRawOrLabeledValue(item, this.getLabelPrefix(), formatTokens(contextLengthTokens, format));
         }
 
         return null;

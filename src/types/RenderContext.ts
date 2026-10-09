@@ -68,6 +68,7 @@ export interface RenderContext {
     isPreview?: boolean;
     minimalist?: boolean;
     gitCacheTtlSeconds?: number;
+    customCommandCacheTtlSeconds?: number;
     /**
      * True when a session-usage widget is configured on any line.
      * WeeklyUsage uses this to hide itself when session has promoted weekly

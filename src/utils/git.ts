@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -38,6 +38,12 @@ interface PersistentGitCache {
 
 const DEFAULT_GIT_CACHE_TTL_SECONDS = 5;
 const GIT_CACHE_SCHEMA_VERSION = 1 as const;
+
+// Matches the timeout used by every other external CLI call site: a git
+// invocation that blocks (slow network filesystem, hung credential helper)
+// must not freeze the statusline process - the error path below caches null
+// and the widget renders empty instead.
+const GIT_COMMAND_TIMEOUT_MS = 5_000;
 
 // In-process cache keeps cwd in the key; the persistent cache stores cwd once
 // at the file level and keys entries by command.
@@ -342,6 +348,7 @@ export function runGitArgs(args: string[], context: RenderContext, cacheCommand?
             encoding: 'utf8',
             stdio: ['pipe', 'pipe', 'ignore'],
             env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+            timeout: GIT_COMMAND_TIMEOUT_MS,
             windowsHide: true,
             ...(cwd ? { cwd } : {})
         }).trimEnd();
@@ -375,8 +382,8 @@ function parseDiffShortStat(stat: string): GitChangeCounts {
     const deleteMatch = /(\d+)\s+deletions?/.exec(stat);
 
     return {
-        insertions: insertMatch?.[1] ? parseInt(insertMatch[1], 10) : 0,
-        deletions: deleteMatch?.[1] ? parseInt(deleteMatch[1], 10) : 0
+        insertions: insertMatch?.[1] ? Number.parseInt(insertMatch[1], 10) : 0,
+        deletions: deleteMatch?.[1] ? Number.parseInt(deleteMatch[1], 10) : 0
     };
 }
 
@@ -490,10 +497,10 @@ export function getGitAheadBehind(context: RenderContext): GitAheadBehind | null
     if (parts.length !== 2 || !parts[0] || !parts[1])
         return null;
 
-    const ahead = parseInt(parts[0], 10);
-    const behind = parseInt(parts[1], 10);
+    const ahead = Number.parseInt(parts[0], 10);
+    const behind = Number.parseInt(parts[1], 10);
 
-    if (isNaN(ahead) || isNaN(behind))
+    if (Number.isNaN(ahead) || Number.isNaN(behind))
         return null;
 
     return { ahead, behind };
