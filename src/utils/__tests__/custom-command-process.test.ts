@@ -44,6 +44,8 @@ beforeAll(() => {
         const mode = process.argv[2];
         if (mode === 'stdin') {
             process.stdout.write(fs.readFileSync(0));
+        } else if (mode === 'env') {
+            process.stdout.write(process.env.BUN_BE_BUN === undefined ? 'unset' : 'set');
         } else if (mode === 'exit') {
             process.exit(7);
         } else if (mode === 'sleep') {
@@ -126,6 +128,10 @@ for (const runtime of ['bun', 'node']) {
             expect(run('stdin').result).toEqual({ status: 'ok', stdout: '{"session_id":"capture-test","terminal_width":120}' });
         });
 
+        it('runs the command without the runtime override in its environment', () => {
+            expect(run('env').result).toEqual({ status: 'ok', stdout: 'unset' });
+        });
+
         it('reports the command exit status', () => {
             expect(run('exit').result).toEqual({ status: 'failed', marker: '[Exit: 7]' });
         });
@@ -167,3 +173,21 @@ for (const runtime of ['bun', 'node']) {
         }
     });
 }
+
+describe('custom command capture in a bun --compile executable', () => {
+    it('runs the command instead of timing out', () => {
+        const binaryPath = path.join(tempRoot, process.platform === 'win32' ? 'probe.exe' : 'probe');
+        execFileSync('bun', ['build', '--compile', probePath, `--outfile=${binaryPath}`], { stdio: 'pipe' });
+        const output = execFileSync(binaryPath, [JSON.stringify({
+            command: `"node" "${writerPath}" "env"`,
+            input: '{}',
+            timeoutMs: 2000,
+            ttlSeconds: 0
+        })], {
+            encoding: 'utf8',
+            timeout: 10000,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        expect((JSON.parse(output) as { result: CustomCommandResult }).result).toEqual({ status: 'ok', stdout: 'unset' });
+    }, 30000);
+});

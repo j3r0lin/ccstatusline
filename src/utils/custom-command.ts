@@ -255,7 +255,11 @@ function executeCommand(request: CustomCommandRequest): CustomCommandResult {
         // cannot inherit it and keep spawnSync waiting after their shell exits.
         // Keep CommonJS requires unprefixed for Node versions before 14.18;
         // this script runs verbatim and is not transformed by the bundler.
-        const script = `(${captureCustomCommand.toString()})(
+        // A `bun build --compile` executable is its own process.execPath and
+        // ignores `-e` unless BUN_BE_BUN is set. Drop the flag before the
+        // command runs so a nested ccstatusline binary still renders.
+        const script = `delete process.env.BUN_BE_BUN;
+        (${captureCustomCommand.toString()})(
             require('child_process').spawn,
             JSON.parse(require('fs').readFileSync(0, 'utf8')),
             ${MAX_STDOUT_BYTES}, ${MAX_CACHED_OUTPUT_CHARS}
@@ -269,7 +273,7 @@ function executeCommand(request: CustomCommandRequest): CustomCommandResult {
             // result delivery here, with a backstop if the helper fails to reply.
             timeout: request.timeoutMs > 0 ? request.timeoutMs + 1000 : 0,
             killSignal: 'SIGKILL',
-            env: process.env,
+            env: { ...process.env, BUN_BE_BUN: '1' },
             windowsHide: true
         });
         const marker = getFailureMarker(result);
