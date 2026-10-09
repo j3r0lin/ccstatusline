@@ -381,7 +381,8 @@ describe('jsonl transcript metrics', () => {
             cacheReadTokens: 12000,
             cacheCreationTokens: 11000,
             totalTokens: 23151,
-            contextLength: 23001
+            contextLength: 23001,
+            lastCompletionMs: new Date('2026-01-01T10:00:01.000Z').getTime()
         });
     });
 
