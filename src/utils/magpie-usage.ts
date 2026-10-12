@@ -48,6 +48,7 @@ const QuotaWindowSchema = z.looseObject({
 const QuotaEntrySchema = z.looseObject({
     provider: z.string(),
     user: z.string().nullable().optional(),
+    alias: z.string().nullable().optional(),
     windows: z.array(QuotaWindowSchema).nullable().optional()
 });
 
@@ -78,6 +79,10 @@ function parseLoopbackGateway(rawUrl: string | undefined): URL | null {
     }
 }
 
+export function isMagpieGateway(environment: Record<string, string | undefined> = process.env): boolean {
+    return parseLoopbackGateway(environment.ANTHROPIC_BASE_URL) !== null;
+}
+
 // Any model through the local gateway: routing groups such as sonnet-tier name
 // no vendor, so the served provider is resolved per session. Callers check the
 // Grok, Kimi and Codex model names first.
@@ -85,7 +90,7 @@ export function isMagpieUsageContext(
     data: StatusJSON | undefined,
     environment: Record<string, string | undefined> = process.env
 ): boolean {
-    return parseLoopbackGateway(environment.ANTHROPIC_BASE_URL) !== null && getModelIdentifiers(data?.model).length > 0;
+    return isMagpieGateway(environment) && getModelIdentifiers(data?.model).length > 0;
 }
 
 function findWindow(windows: readonly QuotaWindow[], name: string): QuotaWindow | undefined {
@@ -111,6 +116,9 @@ function accountEmail(user: string | null | undefined): string | undefined {
 export interface MagpieAccount {
     provider: string;
     email: string;
+    // True when the session's model is a routing group (e.g. sonnet-tier) whose
+    // provider varies per session.
+    routed?: boolean;
 }
 
 function pickAccount(entries: readonly QuotaEntry[], account: MagpieAccount): QuotaEntry | undefined {
@@ -147,7 +155,7 @@ function readPinnedAccount(sessionId: string, modelId: string, affinityFile: str
         const who = latest?.[1].who ?? '';
         const separator = who.indexOf('@');
         const email = separator > 0 ? accountEmail(who.slice(separator + 1)) : undefined;
-        return email ? { provider: who.slice(0, separator), email } : undefined;
+        return email ? { provider: who.slice(0, separator), email, routed: latest?.[0].startsWith('group/') } : undefined;
     } catch {
         return undefined;
     }
@@ -194,10 +202,39 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
     }
 }
 
-function readCachedBody(maxAgeSeconds: number): string | null {
+export interface MagpieAccountDetails {
+    // How many accounts magpie knows for the account's provider.
+    providerAccountCount: number;
+    // The name set with `magpie accounts alias`.
+    alias?: string;
+}
+
+// Read from the last quotas reading the usage fetch cached; undefined when
+// there is no reading yet.
+export function describeAccount(account: MagpieAccount, cacheFile = CACHE_FILE): MagpieAccountDetails | undefined {
+    const body = readCachedBody(Number.POSITIVE_INFINITY, cacheFile);
+    if (!body) {
+        return undefined;
+    }
     try {
-        const ageSeconds = Math.floor((Date.now() - fs.statSync(CACHE_FILE).mtimeMs) / 1000);
-        return ageSeconds < maxAgeSeconds ? fs.readFileSync(CACHE_FILE, 'utf8') : null;
+        const parsed = QuotasResponseSchema.safeParse(JSON.parse(body));
+        if (!parsed.success) {
+            return undefined;
+        }
+        const alias = pickAccount(parsed.data.data, account)?.alias?.trim();
+        return {
+            providerAccountCount: parsed.data.data.filter(entry => entry.provider === account.provider).length,
+            alias: alias === undefined || alias === '' ? undefined : alias
+        };
+    } catch {
+        return undefined;
+    }
+}
+
+function readCachedBody(maxAgeSeconds: number, cacheFile = CACHE_FILE): string | null {
+    try {
+        const ageSeconds = Math.floor((Date.now() - fs.statSync(cacheFile).mtimeMs) / 1000);
+        return ageSeconds < maxAgeSeconds ? fs.readFileSync(cacheFile, 'utf8') : null;
     } catch {
         return null;
     }

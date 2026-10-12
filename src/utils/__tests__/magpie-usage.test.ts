@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 
 import {
+    describeAccount,
     isMagpieUsageContext,
     parseMagpieQuotaResponse,
     resolveSessionAccount
@@ -105,14 +106,14 @@ describe('resolveSessionAccount', () => {
     it('uses the account magpie pinned this session\'s main model to, not a subagent model\'s', () => {
         const { affinityFile, environment } = setup();
 
-        expect(resolveSessionAccount('session-a', 'claude-opus-5-5', environment, affinityFile)).toEqual({ provider: 'claude', email: 'platform2@inhand.com' });
+        expect(resolveSessionAccount('session-a', 'claude-opus-5-5', environment, affinityFile)).toEqual({ provider: 'claude', email: 'platform2@inhand.com', routed: false });
     });
 
     it('follows a routing group to whichever provider served this session', () => {
         const { affinityFile, environment } = setup();
 
-        expect(resolveSessionAccount('session-b', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'codex', email: 'someone@gmail.com' });
-        expect(resolveSessionAccount('session-c', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'claude', email: 'platform1@inhand.com' });
+        expect(resolveSessionAccount('session-b', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'codex', email: 'someone@gmail.com', routed: true });
+        expect(resolveSessionAccount('session-c', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'claude', email: 'platform1@inhand.com', routed: true });
     });
 
     it('uses the Claude Code login for a Claude session that was never pinned', () => {
@@ -125,5 +126,26 @@ describe('resolveSessionAccount', () => {
         const { affinityFile, environment } = setup();
 
         expect(resolveSessionAccount('session-d', 'sonnet-tier', environment, affinityFile)).toBeUndefined();
+    });
+});
+
+describe('describeAccount', () => {
+    it('counts the provider\'s accounts and gives the account\'s alias', () => {
+        const cacheFile = path.join(tempDir(), 'magpie-usage.json');
+        fs.writeFileSync(cacheFile, JSON.stringify({
+            data: [
+                { ...claudeAccount('a@inhand.com · Inhand', 1), alias: 'p1' },
+                { provider: 'claude', user: 'b@gmail.com', windows: [] },
+                { provider: 'codex', user: 'c@gmail.com', windows: [] }
+            ]
+        }));
+
+        expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, cacheFile)).toEqual({ providerAccountCount: 2, alias: 'p1' });
+        expect(describeAccount({ provider: 'claude', email: 'b@gmail.com' }, cacheFile)).toEqual({ providerAccountCount: 2, alias: undefined });
+        expect(describeAccount({ provider: 'codex', email: 'c@gmail.com' }, cacheFile)?.providerAccountCount).toBe(1);
+    });
+
+    it('is undefined without a cached reading', () => {
+        expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, path.join(tempDir(), 'missing.json'))).toBeUndefined();
     });
 });
