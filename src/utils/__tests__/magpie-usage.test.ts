@@ -116,6 +116,12 @@ describe('resolveSessionAccount', () => {
         expect(resolveSessionAccount('session-c', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'claude', email: 'platform1@inhand.com', routed: true });
     });
 
+    it('finds the routing group when Claude Code reports it as group/<name>', () => {
+        const { affinityFile, environment } = setup();
+
+        expect(resolveSessionAccount('session-b', 'group/sonnet-tier', environment, affinityFile)).toEqual({ provider: 'codex', email: 'someone@gmail.com', routed: true });
+    });
+
     it('uses the Claude Code login for a Claude session that was never pinned', () => {
         const { affinityFile, environment } = setup();
 

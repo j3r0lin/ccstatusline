@@ -148,8 +148,10 @@ export function resolveSessionAccount(
 function readPinnedAccount(sessionId: string, modelId: string, affinityFile: string): MagpieAccount | undefined {
     try {
         const entries = Object.entries(JSON.parse(fs.readFileSync(affinityFile, 'utf8')) as Record<string, { who?: string; at?: string }>);
+        // Claude Code reports a routing group as "group/sonnet-tier", which is already the affinity key's prefix and name.
+        const bareModelId = modelId.replace(/^group\//, '');
         const latest = entries
-            .filter(([key, value]) => key === `${key.split('/')[0]}/${modelId}|${sessionId}` && typeof value.who === 'string')
+            .filter(([key, value]) => key === `${key.split('/')[0]}/${bareModelId}|${sessionId}` && typeof value.who === 'string')
             .sort(([, left], [, right]) => Date.parse(right.at ?? '') - Date.parse(left.at ?? ''))[0];
         // `who` looks like "claude@platform2@inhand.com · inhand" or "codex@someone@gmail.com".
         const who = latest?.[1].who ?? '';
