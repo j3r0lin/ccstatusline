@@ -16,6 +16,10 @@ import {
     fetchKimiUsageData,
     isKimiUsageContext
 } from './kimi-usage';
+import {
+    fetchMagpieUsageData,
+    isMagpieUsageContext
+} from './magpie-usage';
 import type { UsageData } from './usage';
 import {
     ANTHROPIC_USAGE_FIELDS,
@@ -259,6 +263,10 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         }
 
         return extractUsageDataFromRateLimits(data?.rate_limits) ?? codexData;
+    }
+
+    if (isMagpieUsageContext(data)) {
+        return fetchMagpieUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field), sessionId: data?.session_id, modelId: typeof data?.model === 'string' ? data.model : data?.model?.id });
     }
 
     const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);
