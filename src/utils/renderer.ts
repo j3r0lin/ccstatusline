@@ -760,7 +760,7 @@ function renderPowerlineStatusLine(
 // Format separator with appropriate spacing
 function formatSeparator(sep: string, compact = false): string {
     if (sep === '|') {
-        return compact ? '|' : ' | ';
+        return compact ? ' ' : ' | ';
     } else if (sep === ' ') {
         return ' ';
     } else if (sep === ',') {
@@ -1398,7 +1398,7 @@ export function renderStatusLine(
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
-            // Tighten ' | ' separators first, then re-render; they cost the most
+            // Collapse ' | ' separators to a single space first, then re-render; they cost the most
             // columns across a line and carry no information.
             if (!context.compactSeparators) {
                 return renderStatusLine(widgets, settings, { ...context, compactSeparators: true }, preRenderedWidgets, preCalculatedMaxWidths);

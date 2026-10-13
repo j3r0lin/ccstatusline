@@ -88,7 +88,7 @@ describe('renderer compact separators', () => {
 
     it('tightens separators instead of truncating when that is enough', () => {
         // 21 columns spaced, 17 tight; usable width is terminalWidth - 6
-        expect(renderAt(23)).toBe('alpha|beta|gamma');
+        expect(renderAt(23)).toBe('alpha beta gamma');
     });
 
     it('still truncates when tight separators do not fit either', () => {
