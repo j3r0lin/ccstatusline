@@ -16,7 +16,8 @@ import {
     getUsageErrorMessage,
     resolveMonthlyUsageWindow,
     resolveWeeklyUsageWindow,
-    shouldPromoteMonthlyUsage
+    shouldPromoteMonthlyUsage,
+    shouldPromoteWeeklyIntoSessionSlot
 } from '../utils/usage';
 
 import { isHidden } from './shared/hideable';
@@ -123,7 +124,7 @@ export class WeeklyUsageWidget implements Widget {
         }
 
         const data = context.usageData ?? {};
-        if (data.weeklyUsage === undefined) {
+        if (data.weeklyUsage === undefined && !shouldPromoteMonthlyUsage(data)) {
             if (data.error) {
                 return isHidden(item, USAGE_NO_DATA_HIDEABLE_STATE.key)
                     ? null
@@ -135,7 +136,7 @@ export class WeeklyUsageWidget implements Widget {
         // SessionUsage promotes weekly into the primary bar when session is
         // absent. Hide this dedicated weekly widget then so the same percent
         // is not shown twice.
-        if (context.hasSessionUsageWidget && data.sessionUsage === undefined) {
+        if (shouldPromoteWeeklyIntoSessionSlot(data, context.hasSessionUsageWidget)) {
             return null;
         }
 
@@ -151,7 +152,7 @@ export class WeeklyUsageWidget implements Widget {
             return data.error ? getUsageErrorMessage(data.error) : null;
         }
 
-        const percent = Math.max(0, Math.min(100, monthlyPromoted ? monthlyValue : data.weeklyUsage));
+        const percent = Math.max(0, Math.min(100, monthlyValue ?? data.weeklyUsage ?? 0));
         const renderedPercent = inverted ? 100 - percent : percent;
         const getCursorOptions = (): { cursorPercent: number } | undefined => {
             if (!showCursor) {

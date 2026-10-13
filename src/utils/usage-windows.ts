@@ -98,12 +98,12 @@ export function resolveWeeklyUsageWindow(usageData: UsageData, nowMs = Date.now(
 }
 
 // The monthly membership pool (Kimi) and the weekly window cap the same
-// budget; when the monthly pool is tighter, weekly widgets render it instead
-// so the slot always shows the binding constraint.
+// budget; when the monthly pool is tighter, or the provider has no weekly
+// window at all (Cursor bills monthly), weekly widgets render it instead so
+// the slot always shows the binding constraint.
 export function shouldPromoteMonthlyUsage(usageData: UsageData): boolean {
     return usageData.monthlyUsage !== undefined
-        && usageData.weeklyUsage !== undefined
-        && usageData.monthlyUsage > usageData.weeklyUsage;
+        && (usageData.weeklyUsage === undefined || usageData.monthlyUsage > usageData.weeklyUsage);
 }
 
 // The session slot promotes weekly when the provider exposes no five-hour

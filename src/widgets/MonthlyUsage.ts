@@ -120,7 +120,7 @@ export class MonthlyUsageWidget implements Widget {
         // When the monthly pool is the tighter cap and a weekly-usage widget is
         // configured, the weekly slot renders it (as "M …") instead. Hide this
         // dedicated widget then so the same percent is not shown twice.
-        if (context.hasWeeklyUsageWidget && data.weeklyUsage !== undefined && shouldPromoteMonthlyUsage(data)) {
+        if (context.hasWeeklyUsageWidget && shouldPromoteMonthlyUsage(data)) {
             return null;
         }
 

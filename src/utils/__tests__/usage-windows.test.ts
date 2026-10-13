@@ -6,7 +6,8 @@ import {
 
 import {
     getUsageErrorMessage,
-    resolveUsageWindowWithFallback
+    resolveUsageWindowWithFallback,
+    shouldPromoteMonthlyUsage
 } from '../usage-windows';
 
 describe('getUsageErrorMessage', () => {
@@ -24,5 +25,15 @@ describe('resolveUsageWindowWithFallback', () => {
 
     it('falls back to the local block when the provider reported nothing', () => {
         expect(resolveUsageWindowWithFallback({}, blockMetrics)).not.toBeNull();
+    });
+});
+
+describe('shouldPromoteMonthlyUsage', () => {
+    it('promotes the monthly pool when the provider has no weekly window', () => {
+        expect(shouldPromoteMonthlyUsage({ monthlyUsage: 20 })).toBe(true);
+    });
+
+    it('keeps the weekly window when it is the tighter cap', () => {
+        expect(shouldPromoteMonthlyUsage({ monthlyUsage: 20, weeklyUsage: 60 })).toBe(false);
     });
 });
