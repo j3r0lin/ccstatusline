@@ -65,8 +65,6 @@ export interface RenderContext {
     turnInFlight?: boolean;
     lastPrompt?: string | null;
     terminalWidth?: number | null;
-    /** Set by the renderer when a line overflows: ' | ' separators render as '|'. */
-    compactSeparators?: boolean;
     isPreview?: boolean;
     minimalist?: boolean;
     gitCacheTtlSeconds?: number;

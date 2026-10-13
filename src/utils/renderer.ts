@@ -758,9 +758,9 @@ function renderPowerlineStatusLine(
 }
 
 // Format separator with appropriate spacing
-function formatSeparator(sep: string, compact = false): string {
+function formatSeparator(sep: string): string {
     if (sep === '|') {
-        return compact ? '|' : ' | ';
+        return ' | ';
     } else if (sep === ' ') {
         return ' ';
     } else if (sep === ',') {
@@ -1147,7 +1147,7 @@ export function renderStatusLine(
             }
 
             const sepChar = widget.character ?? (settings.defaultSeparator ?? '|');
-            const formattedSep = formatSeparator(sepChar, context.compactSeparators);
+            const formattedSep = formatSeparator(sepChar);
 
             // Check if we should inherit colors from the previous widget
             let separatorColor = widget.color ?? 'gray';
@@ -1264,7 +1264,7 @@ export function renderStatusLine(
     const finalElements: string[] = [];
     const padding = settings.defaultPadding ?? '';
     const { leading: sideLeadingPadding, trailing: sideTrailingPadding } = resolvePaddingSides(padding, settings.defaultPaddingSide);
-    const defaultSep = settings.defaultSeparator ? formatSeparator(settings.defaultSeparator, context.compactSeparators) : '';
+    const defaultSep = settings.defaultSeparator ? formatSeparator(settings.defaultSeparator) : '';
 
     elements.forEach((elem, index) => {
         // Add default separator between any two items (but not before first item, and not around flex separators)
@@ -1398,12 +1398,6 @@ export function renderStatusLine(
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
-            // Tighten ' | ' separators first, then re-render; they cost the most
-            // columns across a line and carry no information.
-            if (!context.compactSeparators) {
-                return renderStatusLine(widgets, settings, { ...context, compactSeparators: true }, preRenderedWidgets, preCalculatedMaxWidths);
-            }
-
             // Try compact variants before truncating: walk widgets right-to-left,
             // swapping in each compact text until the line should fit, then re-render.
             let overflow = plainLength - maxWidth;
