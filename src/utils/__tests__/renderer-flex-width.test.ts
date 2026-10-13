@@ -107,6 +107,13 @@ describe('renderer flex width behavior', () => {
         expect(line.endsWith('...')).toBe(false);
     });
 
+    it('uses full-minus-20 width in preview mode, matching the real render', () => {
+        const line = renderLine([longTextWidget], { flexMode: 'full-minus-20' }, { isPreview: true });
+
+        expect(getVisibleWidth(line)).toBe(30);
+        expect(line.endsWith('...')).toBe(true);
+    });
+
     it('uses full-minus-40 width in preview mode, matching the real render', () => {
         const line = renderLine([longTextWidget], { flexMode: 'full-minus-40' }, { isPreview: true });
 
