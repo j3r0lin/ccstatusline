@@ -779,6 +779,8 @@ export interface PreRenderedWidget {
     content: string;      // The rendered widget text (without padding)
     plainLength: number;  // Length without ANSI codes
     widget: WidgetItem;   // Original widget config
+    compactContent?: string;       // Shorter alternative text for width-constrained rendering
+    compactPlainLength?: number;   // Length of compact text without ANSI codes
 }
 
 export function countPowerlineStartCapSlots(
@@ -915,10 +917,13 @@ export function preRenderAllWidgets(
             // Store the rendered content without padding (padding is applied later)
             // Use stringWidth to properly calculate Unicode character display width
             const plainLength = getVisibleWidth(widgetText);
+            const compactText = widgetImpl.renderCompact?.(effectiveWidget, context, settings) ?? undefined;
             preRenderedLine.push({
                 content: widgetText,
                 plainLength,
-                widget
+                widget,
+                compactContent: compactText,
+                compactPlainLength: compactText !== undefined ? getVisibleWidth(compactText) : undefined
             });
         }
 
@@ -1387,6 +1392,29 @@ export function renderStatusLine(
         const plainLength = getVisibleWidth(statusLine);
 
         if (plainLength > maxWidth) {
+            // Try compact variants before truncating: walk widgets right-to-left,
+            // swapping in each compact text until the line should fit, then re-render.
+            let overflow = plainLength - maxWidth;
+            let degraded = false;
+            for (let i = preRenderedWidgets.length - 1; i >= 0 && overflow > 0; i--) {
+                const pw = preRenderedWidgets[i];
+                if (!pw?.compactContent || pw.compactPlainLength === undefined)
+                    continue;
+                const saved = pw.plainLength - pw.compactPlainLength;
+                if (saved <= 0)
+                    continue;
+                pw.content = pw.compactContent;
+                pw.plainLength = pw.compactPlainLength;
+                pw.compactContent = undefined;
+                pw.compactPlainLength = undefined;
+                overflow -= saved;
+                degraded = true;
+            }
+
+            if (degraded) {
+                return renderStatusLine(widgets, settings, context, preRenderedWidgets, preCalculatedMaxWidths);
+            }
+
             statusLine = truncateStyledText(statusLine, maxWidth, { ellipsis: true });
         }
     }
