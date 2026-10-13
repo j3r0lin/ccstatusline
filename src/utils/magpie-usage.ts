@@ -115,14 +115,20 @@ function accountEmail(user: string | null | undefined): string | undefined {
 
 export interface MagpieAccount {
     provider: string;
-    email: string;
+    // Absent for providers whose accounts magpie identifies by an opaque id, such as kimi-code.
+    email?: string;
     // True when the session's model is a routing group (e.g. sonnet-tier) whose
     // provider varies per session.
     routed?: boolean;
 }
 
 function pickAccount(entries: readonly QuotaEntry[], account: MagpieAccount): QuotaEntry | undefined {
-    return entries.find(entry => entry.provider === account.provider && accountEmail(entry.user) === account.email);
+    const candidates = entries.filter(entry => entry.provider === account.provider);
+    if (account.email) {
+        return candidates.find(entry => accountEmail(entry.user) === account.email);
+    }
+    // Without an email the entry is only certain when the provider has one account.
+    return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 // The provider and account behind a session are per session, not global:
@@ -153,11 +159,14 @@ function readPinnedAccount(sessionId: string, modelId: string, affinityFile: str
         const latest = entries
             .filter(([key, value]) => key === `${key.split('/')[0]}/${bareModelId}|${sessionId}` && typeof value.who === 'string')
             .sort(([, left], [, right]) => Date.parse(right.at ?? '') - Date.parse(left.at ?? ''))[0];
-        // `who` looks like "claude@platform2@inhand.com · inhand" or "codex@someone@gmail.com".
-        const who = latest?.[1].who ?? '';
-        const separator = who.indexOf('@');
-        const email = separator > 0 ? accountEmail(who.slice(separator + 1)) : undefined;
-        return email ? { provider: who.slice(0, separator), email, routed: latest?.[0].startsWith('group/') } : undefined;
+        // `who` is "<provider>@<email>" ("claude@platform2@inhand.com · inhand") or "<provider>#<id>" ("kimi-code#670d5e5763").
+        const match = /^([^@#]+)([@#])(.+)$/.exec(latest?.[1].who ?? '');
+        if (!match) {
+            return undefined;
+        }
+        const [, provider, separator, identifier] = match;
+        const email = separator === '@' ? accountEmail(identifier) : undefined;
+        return { provider: provider ?? '', email, routed: latest?.[0].startsWith('group/') };
     } catch {
         return undefined;
     }

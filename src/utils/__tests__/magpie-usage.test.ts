@@ -83,6 +83,13 @@ describe('parseMagpieQuotaResponse', () => {
         expect(parseMagpieQuotaResponse(body, undefined)).toBeNull();
     });
 
+    it('reads an account without an email when its provider has exactly one account', () => {
+        const kimi = { provider: 'kimi-code', user: null, windows: [{ name: '5 hours', used: 12, resetsAt: 'r' }] };
+
+        expect(parseMagpieQuotaResponse(JSON.stringify({ data: [kimi] }), { provider: 'kimi-code' })?.sessionUsage).toBe(12);
+        expect(parseMagpieQuotaResponse(JSON.stringify({ data: [kimi, { ...kimi, windows: [{ name: '5 hours', used: 80 }] }] }), { provider: 'kimi-code' })).toBeNull();
+    });
+
     it('returns null for malformed input', () => {
         expect(parseMagpieQuotaResponse('not json', CHENJIAN)).toBeNull();
         expect(parseMagpieQuotaResponse('{}', CHENJIAN)).toBeNull();
@@ -98,7 +105,8 @@ describe('resolveSessionAccount', () => {
             'claude/claude-opus-5-5|session-a': { who: 'claude@platform2@inhand.com · inhand', at: '2026-10-12T10:00:00+08:00' },
             'claude/claude-haiku-5-5|session-a': { who: 'claude@platform1@inhand.com · inhand', at: '2026-10-12T11:00:00+08:00' },
             'group/sonnet-tier|session-b': { who: 'codex@someone@gmail.com', at: '2026-10-12T10:00:00+08:00' },
-            'group/sonnet-tier|session-c': { who: 'claude@platform1@inhand.com · inhand', at: '2026-10-12T10:00:00+08:00' }
+            'group/sonnet-tier|session-c': { who: 'claude@platform1@inhand.com · inhand', at: '2026-10-12T10:00:00+08:00' },
+            'group/sonnet-tier|session-e': { who: 'kimi-code#670d5e5763', at: '2026-10-12T10:00:00+08:00' }
         }));
         return { affinityFile, environment: { CLAUDE_CONFIG_DIR: dir } };
     }
@@ -114,6 +122,12 @@ describe('resolveSessionAccount', () => {
 
         expect(resolveSessionAccount('session-b', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'codex', email: 'someone@gmail.com', routed: true });
         expect(resolveSessionAccount('session-c', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'claude', email: 'platform1@inhand.com', routed: true });
+    });
+
+    it('resolves a provider whose accounts magpie names by id instead of email', () => {
+        const { affinityFile, environment } = setup();
+
+        expect(resolveSessionAccount('session-e', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'kimi-code', email: undefined, routed: true });
     });
 
     it('finds the routing group when Claude Code reports it as group/<name>', () => {

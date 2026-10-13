@@ -43,7 +43,7 @@ export class MagpieAccountWidget implements Widget {
         // An unknown count is treated as several, so a possibly relevant account is not hidden.
         const hasSeveralAccounts = (details?.providerAccountCount ?? 2) > 1;
         if (hasSeveralAccounts) {
-            const name = details?.alias ?? account.email.split('@')[0] ?? account.email;
+            const name = details?.alias ?? account.email?.split('@')[0] ?? account.provider;
             return formatRawOrLabeledValue(item, this.getLabelPrefix(), name);
         }
         // With one account, the name only matters when a routing group could have picked another provider.
