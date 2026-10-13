@@ -6,6 +6,7 @@ import type {
 import { removeMetadataKeys } from './metadata';
 
 const LABEL_METADATA_KEY = 'label';
+const PREFIX_METADATA_KEY = 'prefix';
 export const EDIT_LABEL_ACTION = 'edit-label';
 
 // 'l' would be the natural mnemonic, but the reset timers already bind it to
@@ -40,10 +41,15 @@ export function setLabel(item: WidgetItem, value: string): WidgetItem {
 
 export function formatRawOrLabeledValue(item: WidgetItem, labelPrefix: string, value: string): string {
     if (item.rawValue) {
-        const customPrefix = item.metadata?.prefix;
+        const customPrefix = item.metadata?.[PREFIX_METADATA_KEY];
         return customPrefix ? `${customPrefix}${value}` : value;
     }
     return `${getLabel(item, labelPrefix)}${value}`;
+}
+
+/** The item without its raw-value prefix, for compact renders that drop a decorative icon. */
+export function withoutRawValuePrefix(item: WidgetItem): WidgetItem {
+    return removeMetadataKeys(item, [PREFIX_METADATA_KEY]);
 }
 
 export function getLabelKeybind(): CustomKeybind {

@@ -118,6 +118,34 @@ describe('Cache widgets', () => {
         expect(new w.CacheWriteWidget().render(turnItem('cache-write', { rawValue: true }), context, DEFAULT_SETTINGS)).toBe('fmt:2000 (19.0%)');
     });
 
+    it('drops the raw-value prefix icon in compact render', async () => {
+        const w = await loadWidgets();
+        const context: RenderContext = {
+            data: {
+                context_window: {
+                    current_usage: {
+                        input_tokens: 500,
+                        cache_creation_input_tokens: 2000,
+                        cache_read_input_tokens: 8000
+                    }
+                }
+            }
+        };
+        const item = turnItem('cache-hit-rate', { rawValue: true, metadata: { prefix: '󰆼 ' } });
+        const widget = new w.CacheHitRateWidget();
+
+        expect(widget.render(item, context, DEFAULT_SETTINGS)).toBe('󰆼 80.0%');
+        expect(widget.renderCompact(item, context, DEFAULT_SETTINGS)).toBe('80.0%');
+    });
+
+    it('has no compact render without a raw-value prefix to strip', async () => {
+        const w = await loadWidgets();
+        const widget = new w.CacheHitRateWidget();
+
+        expect(widget.renderCompact(turnItem('cache-hit-rate'), {}, DEFAULT_SETTINGS)).toBeNull();
+        expect(widget.renderCompact(turnItem('cache-hit-rate', { rawValue: true }), {}, DEFAULT_SETTINGS)).toBeNull();
+    });
+
     it('renders n/a when the turn data source is missing by default', async () => {
         const w = await loadWidgets();
         const context: RenderContext = {};

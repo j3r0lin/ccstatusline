@@ -4,10 +4,12 @@ import {
     it
 } from 'vitest';
 
+import { getColorLevelString } from '../../types/ColorLevel';
 import type { RenderContext } from '../../types/RenderContext';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
 import { getVisibleText } from '../../utils/ansi';
+import { applyColors } from '../../utils/colors';
 import { IdleWidget } from '../Idle';
 
 function render(widget: IdleWidget, item: WidgetItem, context: RenderContext = {}): string | null {
@@ -77,6 +79,38 @@ describe('IdleWidget', () => {
         const widget = new IdleWidget();
         const rawItem = { ...baseItem, rawValue: true };
         expect(visible(render(widget, rawItem, { lastCompletionMs: Date.now() - 90_000 }))).toBe('󰔛 1m');
+    });
+
+    describe('renderCompact', () => {
+        it('drops the icon but keeps the elapsed time and its color', () => {
+            const widget = new IdleWidget();
+            const rawItem = { ...baseItem, rawValue: true };
+            const output = widget.renderCompact(rawItem, { lastCompletionMs: Date.now() - 30_000 }, DEFAULT_SETTINGS);
+
+            expect(visible(output)).toBe('30s');
+            // The widget colors itself, and the color must survive compaction.
+            expect(output).toBe(applyColors('30s', 'brightGreen', undefined, false, getColorLevelString(DEFAULT_SETTINGS.colorLevel)));
+        });
+
+        it('drops the icon but keeps the label in labeled mode', () => {
+            const widget = new IdleWidget();
+            const output = widget.renderCompact(baseItem, { lastCompletionMs: Date.now() - 30_000 }, DEFAULT_SETTINGS);
+
+            expect(visible(output)).toBe('Idle: 30s');
+        });
+
+        it('drops the icon in preview', () => {
+            const widget = new IdleWidget();
+            expect(visible(widget.renderCompact({ ...baseItem, rawValue: true }, { isPreview: true }, DEFAULT_SETTINGS))).toBe('2m');
+        });
+
+        it('renders nothing while a turn is in flight', () => {
+            const widget = new IdleWidget();
+            expect(widget.renderCompact(baseItem, {
+                turnInFlight: true,
+                lastCompletionMs: Date.now() - 5_000
+            }, DEFAULT_SETTINGS)).toBeNull();
+        });
     });
 
     it('has correct metadata', () => {

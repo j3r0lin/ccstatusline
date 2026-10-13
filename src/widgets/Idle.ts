@@ -61,10 +61,19 @@ export class IdleWidget implements Widget {
     }
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        return this.renderIdle(item, context, settings, true);
+    }
+
+    renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        return this.renderIdle(item, context, settings, false);
+    }
+
+    private renderIdle(item: WidgetItem, context: RenderContext, settings: Settings, includeIcon: boolean): string | null {
         const colorLevel = getColorLevelString(settings.colorLevel);
+        const iconPrefix = includeIcon ? `${IDLE_ICON} ` : '';
 
         if (context.isPreview) {
-            const text = applyColors(`${IDLE_ICON} 2m`, 'brightGreen', undefined, false, colorLevel);
+            const text = applyColors(`${iconPrefix}2m`, 'brightGreen', undefined, false, colorLevel);
             return formatRawOrLabeledValue(item, 'Idle: ', text);
         }
 
@@ -81,7 +90,7 @@ export class IdleWidget implements Widget {
 
         const elapsedMs = Date.now() - lastMs;
         const color = getIdleColor(elapsedMs);
-        const text = applyColors(`${IDLE_ICON} ${formatElapsed(elapsedMs)}`, color, undefined, false, colorLevel);
+        const text = applyColors(`${iconPrefix}${formatElapsed(elapsedMs)}`, color, undefined, false, colorLevel);
         return formatRawOrLabeledValue(item, 'Idle: ', text);
     }
 

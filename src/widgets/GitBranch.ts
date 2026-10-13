@@ -136,6 +136,16 @@ export class GitBranchWidget implements Widget {
         return runGit('symbolic-ref --short HEAD', context);
     }
 
+    renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        // rawValue already renders without the symbol, so there is nothing to strip.
+        if (item.rawValue) {
+            return null;
+        }
+
+        // An empty character override collapses the symbol and its joining space.
+        return this.render({ ...item, character: '' }, context, settings);
+    }
+
     getCustomKeybinds(): CustomKeybind[] {
         return [
             { key: 'l', label: '(l)ink to repo', action: TOGGLE_LINK_ACTION },

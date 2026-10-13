@@ -214,6 +214,56 @@ describe('GitBranchWidget', () => {
         });
     });
 
+    describe('renderCompact', () => {
+        function renderCompact(options: Parameters<typeof render>[0] = {}) {
+            const widget = new GitBranchWidget();
+            const context: RenderContext = {
+                isPreview: options.isPreview,
+                data: options.cwd ? { cwd: options.cwd } : undefined
+            };
+            const metadata = {
+                ...options.metadata,
+                ...(options.hideNoGit ? { hide: 'no-git' } : {}),
+                ...(options.linkToRepo ? { linkToRepo: 'true' } : {})
+            };
+            const item: WidgetItem = {
+                id: 'git-branch',
+                type: 'git-branch',
+                rawValue: options.rawValue,
+                maxWidth: options.maxWidth,
+                metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+            };
+
+            return widget.renderCompact(item, context, DEFAULT_SETTINGS);
+        }
+
+        it('drops the branch symbol but keeps the branch name', () => {
+            mockExecFileSync.mockReturnValueOnce('true\n');
+            mockExecFileSync.mockReturnValueOnce('feature/worktree');
+
+            expect(renderCompact({ cwd: '/tmp/worktree' })).toBe('feature/worktree');
+        });
+
+        it('drops the symbol in preview', () => {
+            expect(renderCompact({ isPreview: true })).toBe('main');
+        });
+
+        it('keeps the repo link while dropping the symbol', () => {
+            mockExecFileSync.mockReturnValueOnce('true\n');
+            mockExecFileSync.mockReturnValueOnce('main');
+            mockExecFileSync.mockReturnValueOnce('git@github.com:owner/repo.git');
+
+            expect(renderCompact({ linkToRepo: true })).toBe(renderOsc8Link(
+                'https://github.com/owner/repo/tree/main',
+                'main'
+            ));
+        });
+
+        it('returns null in raw mode since there is no symbol to strip', () => {
+            expect(renderCompact({ rawValue: true, isPreview: true })).toBeNull();
+        });
+    });
+
     describe('toggle action', () => {
         const widget = new GitBranchWidget();
 

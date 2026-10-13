@@ -24,7 +24,10 @@ import {
     isCacheSessionScope
 } from './shared/cache-scope';
 import { isHidden } from './shared/hideable';
-import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
+import {
+    formatRawOrLabeledValue,
+    withoutRawValuePrefix
+} from './shared/raw-or-labeled';
 
 const LABEL = 'Cache Hit: ';
 
@@ -68,6 +71,15 @@ export class CacheHitRateWidget implements Widget {
         }
 
         return formatRawOrLabeledValue(item, this.getLabelPrefix(), formatPercent(hitRate, format));
+    }
+
+    renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        // The prefix only renders in raw-value mode; a labeled render has no icon to strip.
+        if (!item.rawValue || item.metadata?.prefix === undefined) {
+            return null;
+        }
+
+        return this.render(withoutRawValuePrefix(item), context, settings);
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {
