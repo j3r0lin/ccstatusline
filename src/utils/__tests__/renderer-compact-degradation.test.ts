@@ -65,3 +65,33 @@ describe('renderer compact degradation', () => {
         expect(render(10)).toContain('...');
     });
 });
+
+describe('renderer compact separators', () => {
+    const items: WidgetItem[] = [
+        { id: 'a', type: 'custom-text', customText: 'alpha' },
+        { id: 's1', type: 'separator', character: '|' },
+        { id: 'b', type: 'custom-text', customText: 'beta' },
+        { id: 's2', type: 'separator', character: '|' },
+        { id: 'c', type: 'custom-text', customText: 'gamma' }
+    ];
+
+    function renderAt(terminalWidth: number): string {
+        const context: RenderContext = { isPreview: false, terminalWidth };
+        const preRendered = preRenderAllWidgets([items], settings, context);
+        const maxWidths = calculateMaxWidthsFromPreRendered(preRendered, settings);
+        return stripSgrCodes(renderStatusLine(items, settings, context, preRendered[0] ?? [], maxWidths));
+    }
+
+    it('keeps spaced separators when the line fits', () => {
+        expect(renderAt(100)).toBe('alpha | beta | gamma');
+    });
+
+    it('tightens separators instead of truncating when that is enough', () => {
+        // 21 columns spaced, 17 tight; usable width is terminalWidth - 6
+        expect(renderAt(23)).toBe('alpha|beta|gamma');
+    });
+
+    it('still truncates when tight separators do not fit either', () => {
+        expect(renderAt(14)).toContain('...');
+    });
+});
