@@ -94,6 +94,34 @@ describe('parseMagpieQuotaResponse', () => {
         expect(parseMagpieQuotaResponse('not json', CHENJIAN)).toBeNull();
         expect(parseMagpieQuotaResponse('{}', CHENJIAN)).toBeNull();
     });
+
+    it('fills the monthly pool from the Cursor Models window and no session or weekly window', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'cursor',
+                user: 'j3r0lin@gmail.com',
+                windows: [
+                    { name: 'Cursor Models', used: 18.48, resetsAt: '2026-11-01T00:00:00+08:00' },
+                    { name: 'Other Models', used: 0, resetsAt: '2026-11-01T00:00:00+08:00' },
+                    { name: 'On-demand', used: 0, resetsAt: '2026-11-01T00:00:00+08:00' },
+                    { name: 'Total', used: 18.48, resetsAt: '2026-11-01T00:00:00+08:00' }
+                ]
+            }]
+        });
+
+        const usage = parseMagpieQuotaResponse(body, { provider: 'cursor', email: 'j3r0lin@gmail.com' });
+
+        expect(usage).toEqual({ monthlyUsage: 18.48, monthlyResetAt: '2026-11-01T00:00:00+08:00' });
+        expect(usage?.sessionUsage).toBeUndefined();
+        expect(usage?.weeklyUsage).toBeUndefined();
+    });
+
+    it('returns no data for a provider whose windows are not mapped', () => {
+        const grok = { provider: 'grok', user: 'j3r0lin@gmail.com', windows: [{ name: '7 days', used: 40, resetsAt: 'r' }] };
+        const body = JSON.stringify({ data: [grok] });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'grok', email: 'j3r0lin@gmail.com' })).toBeNull();
+    });
 });
 
 describe('resolveSessionAccount', () => {

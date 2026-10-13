@@ -18,7 +18,9 @@ import {
 } from './kimi-usage';
 import {
     fetchMagpieUsageData,
-    isMagpieUsageContext
+    isMagpieGateway,
+    isMagpieUsageContext,
+    resolveSessionAccount
 } from './magpie-usage';
 import type { UsageData } from './usage';
 import {
@@ -247,9 +249,29 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
 
     const requirements = getUsageFieldRequirements(lines);
-    // The monthly pool fields are only served by the Kimi web gateway; other
-    // providers' fetchers ignore them, so don't even ask.
+    // The monthly pool fields are only served by the Kimi web gateway and, through
+    // magpie, by providers whose quota is a monthly billing cycle. Other fetchers
+    // ignore them, so don't even ask.
     const nonMonthlyRequirements = requirements.filter(requirement => requirement.field !== 'monthlyUsage' && requirement.field !== 'monthlyResetAt');
+    const modelId = typeof data?.model === 'string' ? data.model : data?.model?.id;
+
+    // Through the local gateway the provider is per session, recorded in magpie's
+    // affinity file, so a grok-named model can be served by Cursor. The direct
+    // Grok, Kimi and Codex fetchers only apply when not behind the gateway.
+    if (isMagpieGateway() && isMagpieUsageContext(data)) {
+        const magpieFields = requirements.map(requirement => requirement.field);
+        const magpieData = await fetchMagpieUsageData({ requiredFields: magpieFields, sessionId: data?.session_id, modelId });
+        // Kimi's membership monthly pool only exists on the Kimi web endpoint;
+        // magpie's kimi-code quota has the 5h and 7d windows but not the pool.
+        const needsMonthly = requirements.some(requirement => requirement.field === 'monthlyUsage' || requirement.field === 'monthlyResetAt');
+        if (needsMonthly && resolveSessionAccount(data?.session_id, modelId)?.provider === 'kimi-code') {
+            const monthlyData = await fetchKimiUsageData({ requiredFields: ['monthlyUsage', 'monthlyResetAt'] });
+            // magpie's defined fields win; the web pool fills the monthly fields magpie has none of.
+            return { ...monthlyData, ...pickDefinedUsageFields(magpieData), ...(magpieData.error ? { error: magpieData.error } : {}) };
+        }
+        return magpieData;
+    }
+
     if (isGrokUsageContext(data)) {
         return fetchGrokUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field) });
     }
@@ -263,10 +285,6 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         }
 
         return extractUsageDataFromRateLimits(data?.rate_limits) ?? codexData;
-    }
-
-    if (isMagpieUsageContext(data)) {
-        return fetchMagpieUsageData({ requiredFields: nonMonthlyRequirements.map(requirement => requirement.field), sessionId: data?.session_id, modelId: typeof data?.model === 'string' ? data.model : data?.model?.id });
     }
 
     const rateLimitsData = extractUsageDataFromRateLimits(data?.rate_limits);

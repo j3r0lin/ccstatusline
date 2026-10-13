@@ -36,8 +36,19 @@ const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
     'weeklyUsage',
     'weeklyResetAt',
     'fableUsage',
-    'fableResetAt'
+    'fableResetAt',
+    'monthlyUsage',
+    'monthlyResetAt'
 ]);
+
+// magpie's window names differ by provider. A provider absent from this table
+// has no reading: guessing a window name would show another quota as this one.
+const PROVIDER_WINDOWS: Record<string, { session?: string; weekly?: string; fable?: string; monthly?: string }> = {
+    'claude': { session: '5 hours', weekly: '7 days', fable: '7 days · fable' },
+    'codex': { session: '5 hours', weekly: '7 days' },
+    'kimi-code': { session: '5 hours', weekly: '7 days' },
+    'cursor': { monthly: 'Cursor Models' }
+};
 
 const QuotaWindowSchema = z.looseObject({
     name: z.string(),
@@ -94,7 +105,8 @@ export function isMagpieUsageContext(
 }
 
 function findWindow(windows: readonly QuotaWindow[], name: string): QuotaWindow | undefined {
-    return windows.find(window => window.name.trim().toLowerCase() === name);
+    const wanted = name.trim().toLowerCase();
+    return windows.find(window => window.name.trim().toLowerCase() === wanted);
 }
 
 function toUsageFields(window: QuotaWindow | undefined): { usage?: number; resetAt?: string } {
@@ -193,10 +205,16 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
             return null;
         }
 
+        const windowNames = PROVIDER_WINDOWS[account.provider];
+        if (!windowNames) {
+            return null;
+        }
+
         const windows = pickAccount(parsed.data.data, account)?.windows ?? [];
-        const session = toUsageFields(findWindow(windows, '5 hours'));
-        const weekly = toUsageFields(findWindow(windows, '7 days'));
-        const fable = toUsageFields(findWindow(windows, '7 days · fable'));
+        const session = toUsageFields(windowNames.session ? findWindow(windows, windowNames.session) : undefined);
+        const weekly = toUsageFields(windowNames.weekly ? findWindow(windows, windowNames.weekly) : undefined);
+        const fable = toUsageFields(windowNames.fable ? findWindow(windows, windowNames.fable) : undefined);
+        const monthly = toUsageFields(windowNames.monthly ? findWindow(windows, windowNames.monthly) : undefined);
 
         const usageData: UsageData = {
             sessionUsage: session.usage,
@@ -204,7 +222,9 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
             weeklyUsage: weekly.usage,
             weeklyResetAt: weekly.resetAt,
             fableUsage: fable.usage,
-            fableResetAt: fable.resetAt
+            fableResetAt: fable.resetAt,
+            monthlyUsage: monthly.usage,
+            monthlyResetAt: monthly.resetAt
         };
 
         return Object.values(usageData).some(value => value !== undefined) ? usageData : null;

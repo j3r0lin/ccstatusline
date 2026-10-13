@@ -11,6 +11,7 @@ import type { WidgetItem } from '../../types/Widget';
 import * as codexUsage from '../codex-usage';
 import * as grokUsage from '../grok-usage';
 import * as kimiUsage from '../kimi-usage';
+import * as magpieUsage from '../magpie-usage';
 import * as usage from '../usage';
 import {
     extractUsageDataFromRateLimits,
@@ -44,6 +45,10 @@ describe('usage prefetch', () => {
         mock: { calls: unknown[][] };
         mockResolvedValue: (value: UsageData) => void;
     };
+    let mockFetchMagpieUsageData: {
+        mock: { calls: unknown[][] };
+        mockResolvedValue: (value: UsageData) => void;
+    };
     let originalAnthropicModel: string | undefined;
     let originalAnthropicHaikuModel: string | undefined;
     let originalAnthropicSonnetModel: string | undefined;
@@ -67,6 +72,7 @@ describe('usage prefetch', () => {
         mockFetchKimiUsageData = vi.spyOn(kimiUsage, 'fetchKimiUsageData');
         mockFetchGrokUsageData = vi.spyOn(grokUsage, 'fetchGrokUsageData');
         mockFetchCodexUsageData = vi.spyOn(codexUsage, 'fetchCodexUsageData');
+        mockFetchMagpieUsageData = vi.spyOn(magpieUsage, 'fetchMagpieUsageData');
     });
 
     afterEach(() => {
@@ -240,6 +246,60 @@ describe('usage prefetch', () => {
         expect(mockFetchKimiUsageData.mock.calls.length).toBe(0);
         expect(mockFetchCodexUsageData.mock.calls.length).toBe(0);
         expect(mockFetchUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('reads a grok-named model through the magpie gateway from the session account, not the Grok fetcher', async () => {
+        process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
+        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'cursor', email: 'j3r0lin@gmail.com' });
+        mockFetchMagpieUsageData.mockResolvedValue({
+            monthlyUsage: 18.48,
+            monthlyResetAt: '2026-11-01T00:00:00+08:00'
+        });
+        mockFetchGrokUsageData.mockResolvedValue({ weeklyUsage: 99 });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'monthly-usage' }, { id: '2', type: 'weekly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'grok-4.7' },
+            session_id: '665593ab-1462-4dca-94ed-4a678f8faeb7'
+        });
+
+        expect(usageData).toEqual({
+            monthlyUsage: 18.48,
+            monthlyResetAt: '2026-11-01T00:00:00+08:00'
+        });
+        expect(mockFetchMagpieUsageData.mock.calls.length).toBe(1);
+        expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('fills the Kimi monthly pool from the Kimi web endpoint when magpie serves a kimi-code account', async () => {
+        process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
+        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi-code' });
+        mockFetchMagpieUsageData.mockResolvedValue({
+            sessionUsage: 0,
+            weeklyUsage: 2
+        });
+        mockFetchKimiUsageData.mockResolvedValue({
+            monthlyUsage: 6.25,
+            monthlyResetAt: '2026-11-01T00:00:00Z'
+        });
+
+        const lines = makeLines(
+            [{ id: '1', type: 'weekly-usage' }, { id: '2', type: 'monthly-usage' }]
+        );
+        const usageData = await prefetchUsageDataIfNeeded(lines, {
+            model: { id: 'kimi-for-coding' },
+            session_id: 'kimi-session'
+        });
+
+        expect(usageData?.sessionUsage).toBe(0);
+        expect(usageData?.weeklyUsage).toBe(2);
+        expect(usageData?.monthlyUsage).toBe(6.25);
+        expect(usageData?.monthlyResetAt).toBe('2026-11-01T00:00:00Z');
+        expect(mockFetchKimiUsageData.mock.calls).toEqual([
+            [{ requiredFields: ['monthlyUsage', 'monthlyResetAt'] }]
+        ]);
     });
 
     it('uses Codex wham usage when the active model is Codex', async () => {
