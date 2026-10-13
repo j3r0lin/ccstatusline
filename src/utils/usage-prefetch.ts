@@ -19,7 +19,6 @@ import {
 import {
     fetchMagpieUsageData,
     isMagpieGateway,
-    isMagpieUsageContext,
     resolveSessionAccount
 } from './magpie-usage';
 import type { UsageData } from './usage';
@@ -258,7 +257,7 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     // Through the local gateway the provider is per session, recorded in magpie's
     // affinity file, so a grok-named model can be served by Cursor. The direct
     // Grok, Kimi and Codex fetchers only apply when not behind the gateway.
-    if (isMagpieGateway() && isMagpieUsageContext(data)) {
+    if (isMagpieGateway()) {
         const magpieFields = requirements.map(requirement => requirement.field);
         const magpieData = await fetchMagpieUsageData({ requiredFields: magpieFields, sessionId: data?.session_id, modelId });
         // Kimi's membership monthly pool only exists on the Kimi web endpoint;
@@ -267,7 +266,11 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         if (needsMonthly && resolveSessionAccount(data?.session_id, modelId)?.provider === 'kimi-code') {
             const monthlyData = await fetchKimiUsageData({ requiredFields: ['monthlyUsage', 'monthlyResetAt'] });
             // magpie's defined fields win; the web pool fills the monthly fields magpie has none of.
-            return { ...monthlyData, ...pickDefinedUsageFields(magpieData), ...(magpieData.error ? { error: magpieData.error } : {}) };
+            return {
+                ...pickDefinedUsageFields({ monthlyUsage: monthlyData.monthlyUsage, monthlyResetAt: monthlyData.monthlyResetAt }),
+                ...pickDefinedUsageFields(magpieData),
+                ...(magpieData.error ? { error: magpieData.error } : {})
+            };
         }
         return magpieData;
     }

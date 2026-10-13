@@ -95,8 +95,7 @@ export function isMagpieGateway(environment: Record<string, string | undefined> 
 }
 
 // Any model through the local gateway: routing groups such as sonnet-tier name
-// no vendor, so the served provider is resolved per session. Callers check the
-// Grok, Kimi and Codex model names first.
+// no vendor, so the served provider is resolved per session.
 export function isMagpieUsageContext(
     data: StatusJSON | undefined,
     environment: Record<string, string | undefined> = process.env
@@ -331,7 +330,7 @@ export async function fetchMagpieUsageData(options: FetchMagpieUsageDataOptions 
     }
     // A routing group has no account until it serves the session's first request.
     const account = resolveSessionAccount(options.sessionId, options.modelId, environment);
-    if (!account) {
+    if (!account || !Object.hasOwn(PROVIDER_WINDOWS, account.provider)) {
         return {};
     }
 

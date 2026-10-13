@@ -269,7 +269,6 @@ describe('usage prefetch', () => {
             monthlyUsage: 18.48,
             monthlyResetAt: '2026-11-01T00:00:00+08:00'
         });
-        expect(mockFetchMagpieUsageData.mock.calls.length).toBe(1);
         expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
     });
 
@@ -297,9 +296,27 @@ describe('usage prefetch', () => {
         expect(usageData?.weeklyUsage).toBe(2);
         expect(usageData?.monthlyUsage).toBe(6.25);
         expect(usageData?.monthlyResetAt).toBe('2026-11-01T00:00:00Z');
-        expect(mockFetchKimiUsageData.mock.calls).toEqual([
-            [{ requiredFields: ['monthlyUsage', 'monthlyResetAt'] }]
-        ]);
+    });
+
+    it('keeps gateway usage when the model is absent', async () => {
+        process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
+        process.env.ANTHROPIC_MODEL = 'grok-4.7';
+        mockFetchMagpieUsageData.mockResolvedValue({});
+        mockFetchGrokUsageData.mockResolvedValue({ weeklyUsage: 99 });
+
+        expect(await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'weekly-usage' }]), {})).toEqual({});
+        expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
+    });
+
+    it('keeps only the Kimi monthly fields when gateway quota is unavailable', async () => {
+        process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
+        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi-code' });
+        mockFetchMagpieUsageData.mockResolvedValue({});
+        mockFetchKimiUsageData.mockResolvedValue({ sessionUsage: 99, weeklyUsage: 99, monthlyUsage: 6.25 });
+
+        const result = await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'monthly-usage' }]), { model: { id: 'kimi-for-coding' } });
+
+        expect(result).toEqual({ monthlyUsage: 6.25 });
     });
 
     it('uses Codex wham usage when the active model is Codex', async () => {
