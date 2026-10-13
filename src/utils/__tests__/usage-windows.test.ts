@@ -37,3 +37,10 @@ describe('shouldPromoteMonthlyUsage', () => {
         expect(shouldPromoteMonthlyUsage({ monthlyUsage: 20, weeklyUsage: 60 })).toBe(false);
     });
 });
+
+describe('resolveUsageWindowWithFallback with an idle five-hour window', () => {
+    it('falls back to the local block when the five-hour window has no reset time', () => {
+        const blockMetrics = { startTime: new Date(Date.now() - 60 * 60 * 1000), lastActivity: new Date() };
+        expect(resolveUsageWindowWithFallback({ sessionUsage: 0, weeklyUsage: 84 }, blockMetrics)).not.toBeNull();
+    });
+});

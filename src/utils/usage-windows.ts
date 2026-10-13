@@ -66,9 +66,10 @@ export function resolveUsageWindowWithFallback(
     }
 
     // A provider that answered without a five-hour window (Cursor bills monthly)
-    // has none; the local transcript block would invent one.
+    // has none; the local transcript block would invent one. A five-hour window
+    // with no reset time (idle account, nothing started yet) still falls back.
     const providerAnswered = Object.entries(usageData).some(([key, value]) => key !== 'error' && value !== undefined);
-    if (providerAnswered) {
+    if (providerAnswered && usageData.sessionUsage === undefined) {
         return null;
     }
 
