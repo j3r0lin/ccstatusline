@@ -78,28 +78,33 @@ describe('TerminalWidthMenu helpers', () => {
     it('builds terminal width menu items with active and threshold sublabels', () => {
         const items = buildTerminalWidthItems('full-until-compact', 60);
 
-        expect(items).toHaveLength(3);
+        expect(items).toHaveLength(4);
         expect(items[0]).toMatchObject({
             label: 'Full width always',
             value: 'full'
         });
         expect(items[1]).toMatchObject({
+            label: 'Full width minus 20',
+            value: 'full-minus-20'
+        });
+        expect(items[2]).toMatchObject({
             label: 'Full width minus 40',
             sublabel: '(default)',
             value: 'full-minus-40'
         });
-        expect(items[2]).toMatchObject({
+        expect(items[3]).toMatchObject({
             label: 'Full width until compact',
             sublabel: '(threshold 60%, active)',
             value: 'full-until-compact'
         });
-        expect(items[2]?.description).toContain('60%');
+        expect(items[3]?.description).toContain('60%');
     });
 
     it('returns the current option index for list selection', () => {
         expect(getTerminalWidthSelectionIndex('full')).toBe(0);
-        expect(getTerminalWidthSelectionIndex('full-minus-40')).toBe(1);
-        expect(getTerminalWidthSelectionIndex('full-until-compact')).toBe(2);
+        expect(getTerminalWidthSelectionIndex('full-minus-20')).toBe(1);
+        expect(getTerminalWidthSelectionIndex('full-minus-40')).toBe(2);
+        expect(getTerminalWidthSelectionIndex('full-until-compact')).toBe(3);
     });
 
     it('keeps full-until-compact selected after confirming the threshold prompt', async () => {
@@ -131,6 +136,11 @@ describe('TerminalWidthMenu helpers', () => {
         try {
             await waitFor(() => {
                 expect(stdout.getOutput()).toContain('▶  Full width always');
+            });
+            stdout.clearOutput();
+            stdin.write('\u001B[B');
+            await waitFor(() => {
+                expect(stdout.getOutput()).toContain('▶  Full width minus 20');
             });
             stdout.clearOutput();
             stdin.write('\u001B[B');

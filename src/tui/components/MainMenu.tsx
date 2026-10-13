@@ -222,7 +222,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
     // Check if we should show the truncation warning
     const showTruncationWarning
-        = previewIsTruncated && settings?.flexMode === 'full-minus-40';
+        = previewIsTruncated && (settings?.flexMode === 'full-minus-40' || settings?.flexMode === 'full-minus-20');
 
     return (
         <Box flexDirection='column'>

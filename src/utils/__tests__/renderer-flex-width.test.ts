@@ -60,6 +60,13 @@ describe('renderer flex width behavior', () => {
         customText: 'abcdefghijklmnopqrstuvwxyz1234567890'
     };
 
+    it('uses full-minus-20 width in normal mode', () => {
+        const line = renderLine([longTextWidget], { flexMode: 'full-minus-20' });
+
+        expect(getVisibleWidth(line)).toBe(30);
+        expect(line.endsWith('...')).toBe(true);
+    });
+
     it('uses full-minus-40 width in normal mode', () => {
         const line = renderLine([longTextWidget], { flexMode: 'full-minus-40' });
 

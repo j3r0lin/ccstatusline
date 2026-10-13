@@ -113,6 +113,9 @@ function resolveEffectiveTerminalWidth(
         if (flexMode === 'full') {
             return detectedWidth - 6;
         }
+        if (flexMode === 'full-minus-20') {
+            return detectedWidth - 20;
+        }
         if (flexMode === 'full-minus-40') {
             return detectedWidth - 40;
         }
@@ -124,6 +127,9 @@ function resolveEffectiveTerminalWidth(
 
     if (flexMode === 'full') {
         return detectedWidth - 6;
+    }
+    if (flexMode === 'full-minus-20') {
+        return detectedWidth - 20;
     }
     if (flexMode === 'full-minus-40') {
         return detectedWidth - 40;

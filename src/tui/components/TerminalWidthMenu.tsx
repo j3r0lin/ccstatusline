@@ -14,7 +14,7 @@ import {
     type ListEntry
 } from './List';
 
-export const TERMINAL_WIDTH_OPTIONS: FlexMode[] = ['full', 'full-minus-40', 'full-until-compact'];
+export const TERMINAL_WIDTH_OPTIONS: FlexMode[] = ['full', 'full-minus-20', 'full-minus-40', 'full-until-compact'];
 
 export function getTerminalWidthSelectionIndex(selectedOption: FlexMode): number {
     const selectedIndex = TERMINAL_WIDTH_OPTIONS.indexOf(selectedOption);
@@ -46,6 +46,12 @@ export function buildTerminalWidthItems(
             label: 'Full width always',
             sublabel: selectedOption === 'full' ? '(active)' : undefined,
             description: 'Uses the full terminal width minus 4 characters for terminal padding. If the auto-compact message appears, it may cause the line to wrap.\n\nNOTE: If /ide integration is enabled, it is not recommended to use this mode.'
+        },
+        {
+            value: 'full-minus-20',
+            label: 'Full width minus 20',
+            sublabel: selectedOption === 'full-minus-20' ? '(active)' : undefined,
+            description: 'Leaves a smaller gap to the right of the status line than minus 40. Less unused space, but the auto-compact message may still cause the line to wrap on narrow terminals.'
         },
         {
             value: 'full-minus-40',
