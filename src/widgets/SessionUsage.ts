@@ -205,7 +205,9 @@ export class SessionUsageWidget implements Widget {
     renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         const displayMode = getUsageDisplayMode(item);
         const format = resolveNumberFormat('percent', item, settings);
-        if (!isUsageSliderMode(displayMode))
+        // Percent-only mode carries no decoration to strip, so compacting would
+        // just re-render the same text.
+        if (!isUsageSliderMode(displayMode) && !isUsageProgressMode(displayMode))
             return null;
 
         if (context.isPreview) {
@@ -218,16 +220,22 @@ export class SessionUsageWidget implements Widget {
         const source = resolveSessionUsageDisplaySource(data);
         if (!source)
             return null;
-        if (source.promoted) {
-            const window = resolveWeeklyUsageWindow(data);
-            if (!window || window.remainingMs <= 0) {
-                return null;
-            }
+
+        const window = source.promoted
+            ? resolveWeeklyUsageWindow(data)
+            : resolveUsageWindowWithFallback(data, context.blockMetrics);
+        if (source.promoted && (!window || window.remainingMs <= 0)) {
+            return null;
         }
 
         const percent = Math.max(0, Math.min(100, source.percent));
         const renderedPercent = isUsageInverted(item) ? 100 - percent : percent;
-        return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), formatConfiguredUsagePercent(renderedPercent, format));
+        // The pace delta survives compaction: dropping the bar must not drop the
+        // only signal that says whether the pace is ahead or behind the window.
+        const pace = getUsagePaceIndicator(percent, window);
+        const colorLevel = getColorLevelString(settings.colorLevel);
+        const percentText = formatConfiguredUsagePercent(renderedPercent, format);
+        return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), withPaceSuffix(percentText, pace, item, colorLevel));
     }
 
     getCustomKeybinds(item?: WidgetItem): CustomKeybind[] {

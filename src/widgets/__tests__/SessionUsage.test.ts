@@ -156,6 +156,75 @@ describe('SessionUsageWidget', () => {
         });
     });
 
+    describe('renderCompact', () => {
+        const sliderItem: WidgetItem = {
+            id: 'session',
+            type: 'session-usage',
+            metadata: { cursor: 'true', display: 'slider' }
+        };
+
+        it('drops the slider but keeps the pace delta', () => {
+            const widget = new SessionUsageWidget();
+            const context: RenderContext = { usageData: { sessionUsage: 20 } };
+            vi.spyOn(usage, 'resolveUsageWindowWithFallback').mockReturnValue(halfElapsedWindow);
+
+            const pace = applyColors('▾30', 'green', undefined, false, 'ansi256');
+            expect(render(widget, sliderItem, context)).toBe(`Session: ▓▓░░░│░░░░ 20% ${pace}`);
+            expect(widget.renderCompact(sliderItem, context, DEFAULT_SETTINGS)).toBe(`Session: 20% ${pace}`);
+        });
+
+        it('drops the slider but keeps the pace delta in raw-value mode', () => {
+            const widget = new SessionUsageWidget();
+            const context: RenderContext = { usageData: { sessionUsage: 20 } };
+            vi.spyOn(usage, 'resolveUsageWindowWithFallback').mockReturnValue(halfElapsedWindow);
+
+            const rawItem: WidgetItem = { ...sliderItem, rawValue: true };
+            const pace = applyColors('▾30', 'green', undefined, false, 'ansi256');
+            expect(render(widget, rawItem, context)).toBe(`▓▓░░░│░░░░ 20% ${pace}`);
+            expect(widget.renderCompact(rawItem, context, DEFAULT_SETTINGS)).toBe(`20% ${pace}`);
+        });
+
+        it('drops the progress bar but keeps the percent and pace delta', () => {
+            const widget = new SessionUsageWidget();
+            const context: RenderContext = { usageData: { sessionUsage: 20 } };
+            vi.spyOn(usage, 'resolveUsageWindowWithFallback').mockReturnValue(halfElapsedWindow);
+
+            const progressItem: WidgetItem = {
+                id: 'session',
+                type: 'session-usage',
+                metadata: { display: 'progress-short' }
+            };
+            const pace = applyColors('▾30', 'green', undefined, false, 'ansi256');
+            expect(render(widget, progressItem, context)).toBe(`Session: [███░░░░░░░░░░░░░] 20% ${pace}`);
+            expect(widget.renderCompact(progressItem, context, DEFAULT_SETTINGS)).toBe(`Session: 20% ${pace}`);
+        });
+
+        it('keeps the weekly label and pace delta for promoted usage', () => {
+            const widget = new SessionUsageWidget();
+            vi.spyOn(usage, 'resolveWeeklyUsageWindow').mockReturnValue(halfElapsedWindow);
+
+            const context: RenderContext = { usageData: { weeklyUsage: 30, weeklyResetAt: '2030-01-07T00:00:00Z' } };
+            const pace = applyColors('▾20', 'green', undefined, false, 'ansi256');
+            expect(widget.renderCompact(sliderItem, context, DEFAULT_SETTINGS)).toBe(`Weekly: 30% ${pace}`);
+        });
+
+        it('renders no pace delta when the window is unavailable', () => {
+            const widget = new SessionUsageWidget();
+
+            expect(widget.renderCompact(sliderItem, { usageData: { sessionUsage: 20 } }, DEFAULT_SETTINGS))
+                .toBe('Session: 20%');
+        });
+
+        it('returns null in percent-only mode since there is no decoration to strip', () => {
+            const widget = new SessionUsageWidget();
+
+            expect(widget.renderCompact({
+                id: 'session',
+                type: 'session-usage'
+            }, { usageData: { sessionUsage: 20 } }, DEFAULT_SETTINGS)).toBeNull();
+        });
+    });
+
     runUsagePercentWidgetSuite({
         baseItem: { id: 'session', type: 'session-usage' },
         createWidget: () => new SessionUsageWidget(),
