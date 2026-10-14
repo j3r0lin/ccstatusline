@@ -55,17 +55,17 @@ describe('ModelWidget model mismatch marker', () => {
     });
 
     it('marks the returned model when it differs from the requested one', () => {
-        expect(render(ctx('claude-opus-5-5', [assistant('claude-sonnet-5-5')]))).toContain('⚠Sonnet 5.5');
+        expect(render(ctx('claude-opus-5-5', [assistant('claude-sonnet-5-5')]))).toContain('→ Sonnet 5.5');
     });
 
     it('shows no marker when returned and requested match, ignoring suffix and date', () => {
-        expect(render(ctx('claude-opus-5-5[1m]', [assistant('claude-opus-5-5')]))).not.toContain('⚠');
-        expect(render(ctx('claude-sonnet-4-5-20250929', [assistant('claude-sonnet-4-5')]))).not.toContain('⚠');
+        expect(render(ctx('claude-opus-5-5[1m]', [assistant('claude-opus-5-5')]))).not.toContain('→');
+        expect(render(ctx('claude-sonnet-4-5-20250929', [assistant('claude-sonnet-4-5')]))).not.toContain('→');
     });
 
     it('shows no marker for gateway aliases and non-Claude requests', () => {
-        expect(render(ctx('auto-sonnet', [assistant('claude-sonnet-5-5')]))).not.toContain('⚠');
-        expect(render(ctx('grok-4.5', [assistant('claude-sonnet-5-5')]))).not.toContain('⚠');
+        expect(render(ctx('auto-sonnet', [assistant('claude-sonnet-5-5')]))).not.toContain('→');
+        expect(render(ctx('grok-4.5', [assistant('claude-sonnet-5-5')]))).not.toContain('→');
     });
 
     it('ignores sidechain and synthetic messages, using the latest main-thread one', () => {
@@ -75,23 +75,23 @@ describe('ModelWidget model mismatch marker', () => {
             assistant('claude-haiku-5-5', { isSidechain: true }),
             assistant('<synthetic>')
         ];
-        expect(render(ctx('claude-opus-5-5', lines))).not.toContain('⚠');
+        expect(render(ctx('claude-opus-5-5', lines))).not.toContain('→');
     });
 
     it('drops the marker once the session returns to the requested model', () => {
         const lines = [assistant('claude-sonnet-5-5'), assistant('claude-opus-5-5')];
-        expect(render(ctx('claude-opus-5-5', lines))).not.toContain('⚠');
+        expect(render(ctx('claude-opus-5-5', lines))).not.toContain('→');
     });
 
     it('does not crash on a missing transcript', () => {
-        expect(render({ data: { model: { id: 'claude-opus-5-5' }, transcript_path: '/nonexistent/x.jsonl' } })).not.toContain('⚠');
+        expect(render({ data: { model: { id: 'claude-opus-5-5' }, transcript_path: '/nonexistent/x.jsonl' } })).not.toContain('→');
     });
 
     it('colors the marker when colors are on and keeps fast mode', () => {
         const context = ctx('claude-opus-5-5', [assistant('claude-sonnet-5-5')]);
         context.data = { ...context.data, fast_mode: true };
         const out = render(context, 3);
-        expect(out).toMatch(/\x1b\[[0-9;]*m⚠Sonnet 5\.5/);
-        expect(stripSgrCodes(out)).toMatch(/↯ ⚠Sonnet 5\.5$/);
+        expect(out).toMatch(/\x1b\[[0-9;]*m→ Sonnet 5\.5/);
+        expect(stripSgrCodes(out)).toMatch(/↯ → Sonnet 5\.5$/);
     });
 });

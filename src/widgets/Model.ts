@@ -246,7 +246,7 @@ export class ModelWidget implements Widget {
         const returnedModel = typeof model === 'string'
             ? null
             : detectModelMismatch(model.id, context.data?.transcript_path);
-        const mismatch = returnedModel ? `⚠${formatClaudeModelId(returnedModel)}` : null;
+        const mismatch = returnedModel ? `→ ${formatClaudeModelId(returnedModel)}` : null;
 
         if (settings.colorLevel === 0) {
             const parts = [shortName, ...(fast ? ['↯'] : []), ...(mismatch ? [mismatch] : [])];
@@ -258,6 +258,9 @@ export class ModelWidget implements Widget {
 
         const nameColor = getColorAnsiCode(item.color ?? this.getDefaultColor(), colorLevel, false);
         let value = colored ?? `${nameColor}${shortName}\x1b[39m`;
+        if (mismatch) {
+            value = `\x1b[9m${value}\x1b[29m`;
+        }
         if (fast) {
             // 使用 Claude Code 2.1.294 深色主题的 Fast mode 配色。
             const iconColor = getColorAnsiCode(colorLevel === 'truecolor' ? 'hex:FF7814' : colorLevel === 'ansi256' ? 'ansi256:208' : 'brightRed', colorLevel, false);
