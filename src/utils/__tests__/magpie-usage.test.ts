@@ -157,10 +157,10 @@ describe('parseMagpieQuotaResponse', () => {
     });
 
     it('returns no data for a provider whose windows are not mapped', () => {
-        const grok = { provider: 'grok', user: 'j3r0lin@gmail.com', windows: [{ name: '7 days', used: 40, resetsAt: 'r' }] };
+        const grok = { provider: 'copilot', user: 'j3r0lin@gmail.com', windows: [{ name: '7 days', used: 40, resetsAt: 'r' }] };
         const body = JSON.stringify({ data: [grok] });
 
-        expect(parseMagpieQuotaResponse(body, { provider: 'grok', email: 'j3r0lin@gmail.com' })).toBeNull();
+        expect(parseMagpieQuotaResponse(body, { provider: 'copilot', email: 'j3r0lin@gmail.com' })).toBeNull();
     });
 });
 
