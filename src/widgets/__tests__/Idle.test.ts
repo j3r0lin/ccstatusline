@@ -65,6 +65,11 @@ describe('IdleWidget', () => {
         expect(visible(render(widget, baseItem, { lastCompletionMs: Date.now() - 30_000 }))).toBe('Idle: 󰔛 30s');
     });
 
+    it('renders 0s when the last completion is slightly in the future', () => {
+        const widget = new IdleWidget();
+        expect(visible(render(widget, baseItem, { lastCompletionMs: Date.now() + 5_000 }))).toBe('Idle: 󰔛 0s');
+    });
+
     it('renders minutes without seconds', () => {
         const widget = new IdleWidget();
         expect(visible(render(widget, baseItem, { lastCompletionMs: Date.now() - 150_000 }))).toBe('Idle: 󰔛 2m');

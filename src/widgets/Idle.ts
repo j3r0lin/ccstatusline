@@ -88,7 +88,9 @@ export class IdleWidget implements Widget {
             return null;
         }
 
-        const elapsedMs = Date.now() - lastMs;
+        // A completion timestamp a few seconds ahead of the clock is skew, not
+        // idle time; flooring a negative elapsed reports hours in the past.
+        const elapsedMs = Math.max(0, Date.now() - lastMs);
         const color = getIdleColor(elapsedMs);
         const text = applyColors(`${iconPrefix}${formatElapsed(elapsedMs)}`, color, undefined, false, colorLevel);
         return formatRawOrLabeledValue(item, 'Idle: ', text);
