@@ -9,6 +9,10 @@ import type {
 } from '../types/Widget';
 import { getColorAnsiCode } from '../utils/colors';
 import {
+    detectModelMismatch,
+    formatClaudeModelId
+} from '../utils/model-mismatch';
+import {
     colorizeModelName,
     resolveThinkingEffort
 } from '../utils/thinking-effort';
@@ -239,17 +243,31 @@ export class ModelWidget implements Widget {
         const colored = effortColor
             ? colorizeModelName(shortName, resolveThinkingEffort(context), colorLevel)
             : null;
-        if (!fast) {
+        const returnedModel = typeof model === 'string'
+            ? null
+            : detectModelMismatch(model.id, context.data?.transcript_path);
+        const mismatch = returnedModel ? `⚠${formatClaudeModelId(returnedModel)}` : null;
+
+        if (settings.colorLevel === 0) {
+            const parts = [shortName, ...(fast ? ['↯'] : []), ...(mismatch ? [mismatch] : [])];
+            return this.compose(item, parts.join(' '), false, colorLevel);
+        }
+        if (!fast && !mismatch) {
             return this.compose(item, colored ?? shortName, colored !== null, colorLevel);
         }
-        if (settings.colorLevel === 0) {
-            return this.compose(item, `${shortName} ↯`, false, colorLevel);
-        }
+
         const nameColor = getColorAnsiCode(item.color ?? this.getDefaultColor(), colorLevel, false);
-        const name = colored ?? `${nameColor}${shortName}\x1b[39m`;
-        // 使用 Claude Code 2.1.294 深色主题的 Fast mode 配色。
-        const iconColor = getColorAnsiCode(colorLevel === 'truecolor' ? 'hex:FF7814' : colorLevel === 'ansi256' ? 'ansi256:208' : 'brightRed', colorLevel, false);
-        return this.compose(item, `${name} ${iconColor}↯\x1b[39m`, true, colorLevel);
+        let value = colored ?? `${nameColor}${shortName}\x1b[39m`;
+        if (fast) {
+            // 使用 Claude Code 2.1.294 深色主题的 Fast mode 配色。
+            const iconColor = getColorAnsiCode(colorLevel === 'truecolor' ? 'hex:FF7814' : colorLevel === 'ansi256' ? 'ansi256:208' : 'brightRed', colorLevel, false);
+            value += ` ${iconColor}↯\x1b[39m`;
+        }
+        if (mismatch) {
+            const warnColor = getColorAnsiCode(colorLevel === 'truecolor' ? 'hex:FFB000' : colorLevel === 'ansi256' ? 'ansi256:214' : 'yellow', colorLevel, false);
+            value += ` ${warnColor}${mismatch}\x1b[39m`;
+        }
+        return this.compose(item, value, true, colorLevel);
     }
 
     // Builds the final output. When the name carries inline effort colors, the
