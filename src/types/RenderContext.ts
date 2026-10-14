@@ -8,6 +8,7 @@ import type { StatusJSON } from './StatusJSON';
 import type { TokenMetrics } from './TokenMetrics';
 
 export interface RenderUsageData {
+    localBlockFallback?: false;
     sessionUsage?: number;
     sessionResetAt?: string;
     weeklyUsage?: number;

@@ -102,6 +102,10 @@ export class BlockTimerWidget implements Widget {
         const window = resolveUsageWindowWithFallback(usageData, context.blockMetrics);
 
         if (!window) {
+            if (usageData.localBlockFallback === false) {
+                return null;
+            }
+
             if (isHidden(item, NO_DATA_HIDEABLE_STATE.key)) {
                 return null;
             }

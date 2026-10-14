@@ -267,7 +267,8 @@ describe('usage prefetch', () => {
 
         expect(usageData).toEqual({
             monthlyUsage: 18.48,
-            monthlyResetAt: '2026-11-01T00:00:00+08:00'
+            monthlyResetAt: '2026-11-01T00:00:00+08:00',
+            localBlockFallback: false
         });
         expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
     });
@@ -298,13 +299,21 @@ describe('usage prefetch', () => {
         expect(usageData?.monthlyResetAt).toBe('2026-11-01T00:00:00Z');
     });
 
+    it('disables local block fallback for an unresolved gateway account', async () => {
+        process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
+        mockFetchMagpieUsageData.mockResolvedValue({});
+        expect(await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'reset-timer' }]), {
+            model: { id: 'group/auto-sonnet' }, session_id: 'unresolved-session'
+        })).toEqual({ localBlockFallback: false });
+    });
+
     it('keeps gateway usage when the model is absent', async () => {
         process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
         process.env.ANTHROPIC_MODEL = 'grok-4.7';
         mockFetchMagpieUsageData.mockResolvedValue({});
         mockFetchGrokUsageData.mockResolvedValue({ weeklyUsage: 99 });
 
-        expect(await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'weekly-usage' }]), {})).toEqual({});
+        expect(await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'weekly-usage' }]), {})).toEqual({ localBlockFallback: false });
         expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
     });
 
@@ -316,7 +325,7 @@ describe('usage prefetch', () => {
 
         const result = await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'monthly-usage' }]), { model: { id: 'kimi-for-coding' } });
 
-        expect(result).toEqual({ monthlyUsage: 6.25 });
+        expect(result).toEqual({ monthlyUsage: 6.25, localBlockFallback: false });
     });
 
     it('uses Codex wham usage when the active model is Codex', async () => {

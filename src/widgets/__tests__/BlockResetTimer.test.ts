@@ -120,6 +120,15 @@ describe('BlockResetTimerWidget', () => {
         expect(render(widget, { id: 'reset', type: 'reset-timer', metadata: { display: 'progress' } }, { usageData: {} })).toBe('Reset [Loading]');
     });
 
+    it('renders nothing when magpie has no account yet instead of loading', () => {
+        const widget = new BlockResetTimerWidget();
+
+        mockResolveUsageWindowWithFallback.mockReturnValue(null);
+
+        expect(render(widget, { id: 'reset', type: 'reset-timer' }, { usageData: { localBlockFallback: false } })).toBeNull();
+        expect(render(widget, { id: 'reset', type: 'reset-timer', rawValue: true }, { usageData: { localBlockFallback: false } })).toBeNull();
+    });
+
     it('declares the no-data hideable state', () => {
         expect(new BlockResetTimerWidget().getHideableStates().map(state => state.key)).toEqual(['no-data']);
     });

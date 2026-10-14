@@ -164,6 +164,12 @@ export class BlockResetTimerWidget implements Widget {
         }
 
         if (!window) {
+            // No account yet is absence, not a fetch in progress: loading would
+            // sit there until the session's first request pins an account.
+            if (usageData.localBlockFallback === false) {
+                return null;
+            }
+
             if (isHidden(item, USAGE_NO_DATA_HIDEABLE_STATE.key)) {
                 return null;
             }

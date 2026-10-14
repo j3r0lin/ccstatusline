@@ -65,6 +65,11 @@ export function resolveUsageWindowWithFallback(
         return usageWindow;
     }
 
+    // Gateway accounts and local transcripts can belong to different sessions.
+    if (usageData.localBlockFallback === false) {
+        return null;
+    }
+
     // A provider that answered without a five-hour window (Cursor bills monthly)
     // has none; the local transcript block would invent one. A five-hour window
     // with no reset time (idle account, nothing started yet) still falls back.

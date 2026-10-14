@@ -269,10 +269,11 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
             return {
                 ...pickDefinedUsageFields({ monthlyUsage: monthlyData.monthlyUsage, monthlyResetAt: monthlyData.monthlyResetAt }),
                 ...pickDefinedUsageFields(magpieData),
-                ...(magpieData.error ? { error: magpieData.error } : {})
+                ...(magpieData.error ? { error: magpieData.error } : {}),
+                localBlockFallback: false
             };
         }
-        return magpieData;
+        return { ...magpieData, localBlockFallback: false };
     }
 
     if (isGrokUsageContext(data)) {

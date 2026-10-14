@@ -26,6 +26,10 @@ describe('resolveUsageWindowWithFallback', () => {
     it('falls back to the local block when the provider reported nothing', () => {
         expect(resolveUsageWindowWithFallback({}, blockMetrics)).not.toBeNull();
     });
+
+    it('returns null for magpie with no account instead of the local transcript block', () => {
+        expect(resolveUsageWindowWithFallback({ localBlockFallback: false }, blockMetrics)).toBeNull();
+    });
 });
 
 describe('shouldPromoteMonthlyUsage', () => {
