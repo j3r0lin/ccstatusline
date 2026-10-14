@@ -39,15 +39,14 @@ const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
     'fableResetAt'
 ]);
 
-// magpie's window names differ by provider. A provider absent from this table
-// has no reading: guessing a window name would show another quota as this one.
-const PROVIDER_WINDOWS: Record<string, { session?: string; weekly?: string; fable?: string }> = {
-    'claude': { session: '5 hours', weekly: '7 days', fable: '7 days · fable' },
-    'codex': { session: '5 hours', weekly: '7 days' },
-    'kimi-code': { session: '5 hours', weekly: '7 days' },
-    'grok': { weekly: '7 days' },
-    'grok-plugin': { weekly: '7 days' },
-    'cursor': { weekly: 'Cursor Models' }
+// magpie names rolling windows by their length, so "5 hours" and "7 days" mean
+// the same quota for every provider. Only providers that name windows otherwise
+// are listed; any other name is not guessed, as it may be a different quota.
+interface WindowNames { session?: string; weekly?: string; fable?: string }
+const DEFAULT_WINDOWS: WindowNames = { session: '5 hours', weekly: '7 days' };
+const PROVIDER_WINDOWS: Record<string, WindowNames> = {
+    claude: { ...DEFAULT_WINDOWS, fable: '7 days · fable' },
+    cursor: { weekly: 'Cursor Models' }
 };
 
 const QuotaWindowSchema = z.looseObject({
@@ -204,10 +203,7 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
             return null;
         }
 
-        const windowNames = PROVIDER_WINDOWS[account.provider];
-        if (!windowNames) {
-            return null;
-        }
+        const windowNames = PROVIDER_WINDOWS[account.provider] ?? DEFAULT_WINDOWS;
 
         const windows = pickAccount(parsed.data.data, account)?.windows ?? [];
         const session = toUsageFields(windowNames.session ? findWindow(windows, windowNames.session) : undefined);
@@ -226,7 +222,7 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
         if (!Object.values(usageData).some(value => value !== undefined)) {
             return null;
         }
-        return account.provider === 'cursor' ? { ...usageData, sessionWindowUnavailable: true } : usageData;
+        return session.usage === undefined ? { ...usageData, sessionWindowUnavailable: true } : usageData;
     } catch {
         return null;
     }
@@ -330,7 +326,7 @@ export async function fetchMagpieUsageData(options: FetchMagpieUsageDataOptions 
     }
     // A routing group has no account until it serves the session's first request.
     const account = resolveSessionAccount(options.sessionId, options.modelId, environment);
-    if (!account || !Object.hasOwn(PROVIDER_WINDOWS, account.provider)) {
+    if (!account) {
         return {};
     }
 

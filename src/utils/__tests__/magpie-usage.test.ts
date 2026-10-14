@@ -118,7 +118,7 @@ describe('parseMagpieQuotaResponse', () => {
         expect(usage?.monthlyUsage).toBeUndefined();
     });
 
-    it('fills the weekly window from the grok-plugin 7 days window', () => {
+    it('reads an unlisted provider by its 7 days window and marks the session window unavailable', () => {
         const body = JSON.stringify({
             data: [{
                 provider: 'grok-plugin',
@@ -132,6 +132,7 @@ describe('parseMagpieQuotaResponse', () => {
         expect(usage?.weeklyUsage).toBe(30);
         expect(usage?.weeklyResetAt).toBe('2026-10-20T05:10:41.682Z');
         expect(usage?.sessionUsage).toBeUndefined();
+        expect(usage?.sessionWindowUnavailable).toBe(true);
     });
 
     it('paces the Cursor Models window as seven days, not a 30-day cycle', () => {
@@ -156,9 +157,9 @@ describe('parseMagpieQuotaResponse', () => {
         expect(getUsagePaceIndicator(25, window, now)?.text).toBe('▴9');
     });
 
-    it('returns no data for a provider whose windows are not mapped', () => {
-        const grok = { provider: 'copilot', user: 'j3r0lin@gmail.com', windows: [{ name: '7 days', used: 40, resetsAt: 'r' }] };
-        const body = JSON.stringify({ data: [grok] });
+    it('returns no data for an unlisted provider whose windows are not named by length', () => {
+        const copilot = { provider: 'copilot', user: 'j3r0lin@gmail.com', windows: [{ name: 'Chat requests', used: 40, resetsAt: 'r' }, { name: 'Completions', used: 10, resetsAt: 'r' }] };
+        const body = JSON.stringify({ data: [copilot] });
 
         expect(parseMagpieQuotaResponse(body, { provider: 'copilot', email: 'j3r0lin@gmail.com' })).toBeNull();
     });
