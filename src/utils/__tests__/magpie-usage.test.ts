@@ -118,6 +118,22 @@ describe('parseMagpieQuotaResponse', () => {
         expect(usage?.monthlyUsage).toBeUndefined();
     });
 
+    it('fills the weekly window from the grok-plugin 7 days window', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'grok-plugin',
+                user: 'j3r0lin@gmail.com',
+                windows: [{ name: '7 days', used: 30, resetsAt: '2026-10-20T05:10:41.682Z' }]
+            }]
+        });
+
+        const usage = parseMagpieQuotaResponse(body, { provider: 'grok-plugin', email: 'j3r0lin@gmail.com' });
+
+        expect(usage?.weeklyUsage).toBe(30);
+        expect(usage?.weeklyResetAt).toBe('2026-10-20T05:10:41.682Z');
+        expect(usage?.sessionUsage).toBeUndefined();
+    });
+
     it('paces the Cursor Models window as seven days, not a 30-day cycle', () => {
         const body = JSON.stringify({
             data: [{

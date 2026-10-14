@@ -45,6 +45,8 @@ const PROVIDER_WINDOWS: Record<string, { session?: string; weekly?: string; fabl
     'claude': { session: '5 hours', weekly: '7 days', fable: '7 days · fable' },
     'codex': { session: '5 hours', weekly: '7 days' },
     'kimi-code': { session: '5 hours', weekly: '7 days' },
+    'grok': { weekly: '7 days' },
+    'grok-plugin': { weekly: '7 days' },
     'cursor': { weekly: 'Cursor Models' }
 };
 
