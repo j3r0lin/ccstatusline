@@ -4,7 +4,8 @@ import {
     beforeAll,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import type {
@@ -14,6 +15,8 @@ import type {
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import { stripSgrCodes } from '../../utils/ansi';
 import { ModelWidget } from '../Model';
+
+vi.mock('../../utils/magpie-account-label', () => ({ resolveMagpieAccountLabel: () => null, resolveMagpieModel: () => undefined }));
 
 const ITEM: WidgetItem = { id: 'model', type: 'model' };
 const RAW_ITEM: WidgetItem = { id: 'model', type: 'model', rawValue: true };

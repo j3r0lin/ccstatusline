@@ -9,8 +9,14 @@ import type {
 } from '../types/Widget';
 import { getColorAnsiCode } from '../utils/colors';
 import {
+    resolveMagpieAccountLabel,
+    resolveMagpieModel
+} from '../utils/magpie-account-label';
+import {
     detectModelMismatch,
-    formatClaudeModelId
+    formatClaudeModelId,
+    getLastRequestedModel,
+    isSameRequestedModel
 } from '../utils/model-mismatch';
 import {
     colorizeModelName,
@@ -182,6 +188,10 @@ function formatModelDisplayName(model: string | ModelInfo): string {
     return (name ?? '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');
 }
 
+function formatServedModelName(id: string): string {
+    return /^claude-/i.test(id) ? formatClaudeModelId(id) : formatModelDisplayName({ id });
+}
+
 const LABEL = 'Model: ';
 
 export class ModelWidget implements Widget {
@@ -236,23 +246,30 @@ export class ModelWidget implements Widget {
             return null;
         }
 
-        const modelName = formatModelDisplayName(model);
+        const magpieModel = resolveMagpieModel(context);
+        const modelName = magpieModel ? formatServedModelName(magpieModel) : formatModelDisplayName(model);
         const hasFastSuffix = /\s+Fast$/i.test(modelName);
         const fast = context.data?.fast_mode === true || hasFastSuffix;
         const shortName = hasFastSuffix ? modelName.replace(/\s+Fast$/i, '') : modelName;
         const colored = effortColor
             ? colorizeModelName(shortName, resolveThinkingEffort(context), colorLevel)
             : null;
-        const returnedModel = typeof model === 'string'
+        // After a model switch the transcript still describes the previous request,
+        // so a mismatch it shows says nothing about the model now displayed.
+        const lastRequested = typeof model === 'string' ? undefined : getLastRequestedModel(context.data?.transcript_path);
+        const switchedSinceLastRequest = lastRequested !== undefined && !isSameRequestedModel(lastRequested, typeof model === 'string' ? model : (model.id ?? ''));
+        const returnedModel = typeof model === 'string' || switchedSinceLastRequest
             ? null
-            : detectModelMismatch(model.id, context.data?.transcript_path);
+            : detectModelMismatch(magpieModel ?? model.id, context.data?.transcript_path);
         const mismatch = returnedModel ? `→ ${formatClaudeModelId(returnedModel)}` : null;
+        const accountLabel = resolveMagpieAccountLabel(context);
+        const account = accountLabel ? `@${accountLabel}` : null;
 
         if (settings.colorLevel === 0) {
-            const parts = [shortName, ...(fast ? ['↯'] : []), ...(mismatch ? [mismatch] : [])];
+            const parts = [shortName, ...(fast ? ['↯'] : []), ...(mismatch ? [mismatch] : []), ...(account ? [account] : [])];
             return this.compose(item, parts.join(' '), false, colorLevel);
         }
-        if (!fast && !mismatch) {
+        if (!fast && !mismatch && !account) {
             return this.compose(item, colored ?? shortName, colored !== null, colorLevel);
         }
 
@@ -269,6 +286,10 @@ export class ModelWidget implements Widget {
         if (mismatch) {
             const warnColor = getColorAnsiCode(colorLevel === 'truecolor' ? 'hex:FFB000' : colorLevel === 'ansi256' ? 'ansi256:214' : 'yellow', colorLevel, false);
             value += ` ${warnColor}${mismatch}\x1b[39m`;
+        }
+        if (account) {
+            const accountColor = getColorAnsiCode('brightMagenta', colorLevel, false);
+            value += ` ${accountColor}${account}\x1b[39m`;
         }
         return this.compose(item, value, true, colorLevel);
     }

@@ -5,11 +5,7 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import {
-    describeAccount,
-    isMagpieGateway,
-    resolveSessionAccount
-} from '../utils/magpie-usage';
+import { resolveMagpieAccountLabel } from '../utils/magpie-account-label';
 
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
 
@@ -29,25 +25,8 @@ export class MagpieAccountWidget implements Widget {
         if (context.isPreview) {
             return formatRawOrLabeledValue(item, this.getLabelPrefix(), 'you');
         }
-        if (!isMagpieGateway()) {
-            return null;
-        }
-
-        const model = context.data?.model;
-        const account = resolveSessionAccount(context.data?.session_id, typeof model === 'string' ? model : model?.id);
-        if (!account) {
-            return null;
-        }
-
-        const details = describeAccount(account);
-        // An unknown count is treated as several, so a possibly relevant account is not hidden.
-        const hasSeveralAccounts = (details?.providerAccountCount ?? 2) > 1;
-        if (hasSeveralAccounts) {
-            const name = details?.alias ?? account.email?.split('@')[0] ?? account.provider;
-            return formatRawOrLabeledValue(item, this.getLabelPrefix(), name);
-        }
-        // With one account, the name only matters when a routing group could have picked another provider.
-        return account.routed ? formatRawOrLabeledValue(item, this.getLabelPrefix(), account.provider) : null;
+        const label = resolveMagpieAccountLabel(context);
+        return label ? formatRawOrLabeledValue(item, this.getLabelPrefix(), label) : null;
     }
 
     supportsRawValue(): boolean { return true; }
