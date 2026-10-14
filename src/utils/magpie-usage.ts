@@ -34,20 +34,15 @@ const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
     'sessionUsage',
     'sessionResetAt',
     'weeklyUsage',
-    'weeklyResetAt',
-    'fableUsage',
-    'fableResetAt'
+    'weeklyResetAt'
 ]);
 
 // magpie names rolling windows by their length, so "5 hours" and "7 days" mean
 // the same quota for every provider. Only providers that name windows otherwise
 // are listed; any other name is not guessed, as it may be a different quota.
-interface WindowNames { session?: string; weekly?: string; fable?: string }
+interface WindowNames { session?: string; weekly?: string }
 const DEFAULT_WINDOWS: WindowNames = { session: '5 hours', weekly: '7 days' };
-const PROVIDER_WINDOWS: Record<string, WindowNames> = {
-    claude: { ...DEFAULT_WINDOWS, fable: '7 days · fable' },
-    cursor: { weekly: 'Cursor Models' }
-};
+const PROVIDER_WINDOWS: Record<string, WindowNames> = { cursor: { weekly: 'Cursor Models' } };
 
 const QuotaWindowSchema = z.looseObject({
     name: z.string(),
@@ -208,15 +203,12 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
         const windows = pickAccount(parsed.data.data, account)?.windows ?? [];
         const session = toUsageFields(windowNames.session ? findWindow(windows, windowNames.session) : undefined);
         const weekly = toUsageFields(windowNames.weekly ? findWindow(windows, windowNames.weekly) : undefined);
-        const fable = toUsageFields(windowNames.fable ? findWindow(windows, windowNames.fable) : undefined);
 
         const usageData: UsageData = {
             sessionUsage: session.usage,
             sessionResetAt: session.resetAt,
             weeklyUsage: weekly.usage,
-            weeklyResetAt: weekly.resetAt,
-            fableUsage: fable.usage,
-            fableResetAt: fable.resetAt
+            weeklyResetAt: weekly.resetAt
         };
 
         if (!Object.values(usageData).some(value => value !== undefined)) {

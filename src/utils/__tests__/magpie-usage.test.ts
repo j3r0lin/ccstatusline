@@ -60,14 +60,12 @@ describe('parseMagpieQuotaResponse', () => {
         ]
     });
 
-    it('maps the five-hour, seven-day and Fable windows of the requested account', () => {
+    it('maps the five-hour and seven-day windows of the requested account', () => {
         expect(parseMagpieQuotaResponse(body, CHENJIAN)).toEqual({
             sessionUsage: 10,
             sessionResetAt: '2026-10-12T14:40:00+08:00',
             weeklyUsage: 42,
-            weeklyResetAt: '2026-10-16T03:00:00+08:00',
-            fableUsage: 3,
-            fableResetAt: '2026-10-16T03:00:00+08:00'
+            weeklyResetAt: '2026-10-16T03:00:00+08:00'
         });
     });
 
