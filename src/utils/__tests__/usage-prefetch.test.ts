@@ -252,13 +252,13 @@ describe('usage prefetch', () => {
         process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
         vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'cursor', email: 'j3r0lin@gmail.com' });
         mockFetchMagpieUsageData.mockResolvedValue({
-            monthlyUsage: 18.48,
-            monthlyResetAt: '2026-11-01T00:00:00+08:00'
+            weeklyUsage: 18.48,
+            weeklyResetAt: '2026-11-01T00:00:00+08:00'
         });
         mockFetchGrokUsageData.mockResolvedValue({ weeklyUsage: 99 });
 
         const lines = makeLines(
-            [{ id: '1', type: 'monthly-usage' }, { id: '2', type: 'weekly-usage' }]
+            [{ id: '1', type: 'weekly-reset-timer' }, { id: '2', type: 'weekly-usage' }]
         );
         const usageData = await prefetchUsageDataIfNeeded(lines, {
             model: { id: 'grok-4.7' },
@@ -266,8 +266,8 @@ describe('usage prefetch', () => {
         });
 
         expect(usageData).toEqual({
-            monthlyUsage: 18.48,
-            monthlyResetAt: '2026-11-01T00:00:00+08:00',
+            weeklyUsage: 18.48,
+            weeklyResetAt: '2026-11-01T00:00:00+08:00',
             localBlockFallback: false
         });
         expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
@@ -303,7 +303,8 @@ describe('usage prefetch', () => {
         process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
         mockFetchMagpieUsageData.mockResolvedValue({});
         expect(await prefetchUsageDataIfNeeded(makeLines([{ id: '1', type: 'reset-timer' }]), {
-            model: { id: 'group/auto-sonnet' }, session_id: 'unresolved-session'
+            model: { id: 'group/auto-sonnet' },
+            session_id: 'unresolved-session'
         })).toEqual({ localBlockFallback: false });
     });
 

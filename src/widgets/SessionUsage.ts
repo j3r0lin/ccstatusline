@@ -69,7 +69,7 @@ export function resolveSessionUsageDisplaySource(data: UsageData): SessionUsageD
         };
     }
 
-    if (data.weeklyUsage !== undefined) {
+    if (data.weeklyUsage !== undefined && data.sessionWindowUnavailable !== true) {
         return {
             percent: data.weeklyUsage,
             promoted: true

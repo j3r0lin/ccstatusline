@@ -264,3 +264,11 @@ describe('SessionUsageWidget', () => {
         usageValue: 23.45
     });
 });
+
+describe('Cursor weekly quota', () => {
+    it('keeps weekly quota out of the session slot', () => {
+        const data = { weeklyUsage: 25, weeklyResetAt: '2026-10-20T13:10:00+08:00', sessionWindowUnavailable: true as const };
+        expect(resolveSessionUsageDisplaySource(data)).toBeNull();
+        expect(new SessionUsageWidget().render({ id: 'session', type: 'session-usage' }, { usageData: data }, DEFAULT_SETTINGS)).toBeNull();
+    });
+});

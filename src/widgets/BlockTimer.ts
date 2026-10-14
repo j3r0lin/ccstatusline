@@ -102,7 +102,7 @@ export class BlockTimerWidget implements Widget {
         const window = resolveUsageWindowWithFallback(usageData, context.blockMetrics);
 
         if (!window) {
-            if (usageData.localBlockFallback === false) {
+            if (usageData.localBlockFallback === false || usageData.sessionWindowUnavailable) {
                 return null;
             }
 

@@ -7,12 +7,14 @@ import {
     it
 } from 'vitest';
 
+import { getUsagePaceIndicator } from '../../widgets/shared/usage-pace';
 import {
     describeAccount,
     isMagpieUsageContext,
     parseMagpieQuotaResponse,
     resolveSessionAccount
 } from '../magpie-usage';
+import { resolveWeeklyUsageWindow } from '../usage-windows';
 
 const GATEWAY_ENV = { ANTHROPIC_BASE_URL: 'http://127.0.0.1:3425' };
 const CHENJIAN = { provider: 'claude', email: 'chenjian@inhand.com' };
@@ -95,7 +97,7 @@ describe('parseMagpieQuotaResponse', () => {
         expect(parseMagpieQuotaResponse('{}', CHENJIAN)).toBeNull();
     });
 
-    it('fills the monthly pool from the Cursor Models window and no session or weekly window', () => {
+    it('fills the weekly window from the Cursor Models window and no session window', () => {
         const body = JSON.stringify({
             data: [{
                 provider: 'cursor',
@@ -111,9 +113,31 @@ describe('parseMagpieQuotaResponse', () => {
 
         const usage = parseMagpieQuotaResponse(body, { provider: 'cursor', email: 'j3r0lin@gmail.com' });
 
-        expect(usage).toEqual({ monthlyUsage: 18.48, monthlyResetAt: '2026-11-01T00:00:00+08:00' });
+        expect(usage).toEqual({ weeklyUsage: 18.48, weeklyResetAt: '2026-11-01T00:00:00+08:00', sessionWindowUnavailable: true });
         expect(usage?.sessionUsage).toBeUndefined();
-        expect(usage?.weeklyUsage).toBeUndefined();
+        expect(usage?.monthlyUsage).toBeUndefined();
+    });
+
+    it('paces the Cursor Models window as seven days, not a 30-day cycle', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'cursor',
+                user: 'j3r0lin@gmail.com',
+                windows: [{ name: 'Cursor Models', used: 25, resetsAt: '2026-10-20T13:10:00+08:00' }]
+            }]
+        });
+
+        const usage = parseMagpieQuotaResponse(body, { provider: 'cursor', email: 'j3r0lin@gmail.com' });
+        const now = Date.parse('2026-10-14T08:49:00+08:00');
+        const window = resolveWeeklyUsageWindow(usage ?? {}, now);
+        const elapsedPercent = window?.elapsedPercent ?? NaN;
+
+        // 25% used with 11.7% of the week elapsed is 13 ahead. The same numbers
+        // read against a 30-day cycle are 54 behind.
+        expect(usage?.weeklyUsage).toBe(25);
+        expect(elapsedPercent).toBeCloseTo(11.7, 1);
+        expect(Math.round(25 - elapsedPercent)).toBe(13);
+        expect(getUsagePaceIndicator(25, window, now)?.text).toBe('▴9');
     });
 
     it('returns no data for a provider whose windows are not mapped', () => {

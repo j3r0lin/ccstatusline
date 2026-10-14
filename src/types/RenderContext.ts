@@ -9,6 +9,7 @@ import type { TokenMetrics } from './TokenMetrics';
 
 export interface RenderUsageData {
     localBlockFallback?: false;
+    sessionWindowUnavailable?: true;
     sessionUsage?: number;
     sessionResetAt?: string;
     weeklyUsage?: number;

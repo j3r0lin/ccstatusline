@@ -70,7 +70,7 @@ export function resolveUsageWindowWithFallback(
         return null;
     }
 
-    // A provider that answered without a five-hour window (Cursor bills monthly)
+    // A provider that answered without a five-hour window (Cursor has only a weekly window)
     // has none; the local transcript block would invent one. A five-hour window
     // with no reset time (idle account, nothing started yet) still falls back.
     const providerAnswered = Object.entries(usageData).some(([key, value]) => key !== 'error' && value !== undefined);
@@ -104,9 +104,8 @@ export function resolveWeeklyUsageWindow(usageData: UsageData, nowMs = Date.now(
 }
 
 // The monthly membership pool (Kimi) and the weekly window cap the same
-// budget; when the monthly pool is tighter, or the provider has no weekly
-// window at all (Cursor bills monthly), weekly widgets render it instead so
-// the slot always shows the binding constraint.
+// budget; when the monthly pool is tighter, weekly widgets render it instead
+// so the slot shows the binding constraint.
 export function shouldPromoteMonthlyUsage(usageData: UsageData): boolean {
     return usageData.monthlyUsage !== undefined
         && (usageData.weeklyUsage === undefined || usageData.monthlyUsage > usageData.weeklyUsage);
@@ -117,6 +116,7 @@ export function shouldPromoteMonthlyUsage(usageData: UsageData): boolean {
 // to the promoted percent describes the window that percent came from.
 export function shouldPromoteWeeklyIntoSessionSlot(usageData: UsageData, hasSessionUsageWidget?: boolean): boolean {
     return hasSessionUsageWidget === true
+        && usageData.sessionWindowUnavailable !== true
         && usageData.sessionUsage === undefined
         && usageData.weeklyUsage !== undefined;
 }

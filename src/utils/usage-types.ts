@@ -26,6 +26,7 @@ export interface UsageData {
     extraUsageUtilization?: number; // percentage 0-100
     extraUsageCurrency?: string;   // ISO 4217 currency code (e.g. 'USD', 'EUR')
     localBlockFallback?: false;
+    sessionWindowUnavailable?: true;
     error?: UsageError;
 }
 
@@ -37,7 +38,7 @@ export interface UsageWindowMetrics {
     remainingPercent: number;
 }
 
-export type UsageDataField = Exclude<keyof UsageData, 'error' | 'localBlockFallback'>;
+export type UsageDataField = Exclude<keyof UsageData, 'error' | 'localBlockFallback' | 'sessionWindowUnavailable'>;
 
 // TypeScript can't narrow `target[field] = value` when `field` is a plain
 // UsageDataField union at the call site (it can't prove `value`'s type

@@ -36,18 +36,16 @@ const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
     'weeklyUsage',
     'weeklyResetAt',
     'fableUsage',
-    'fableResetAt',
-    'monthlyUsage',
-    'monthlyResetAt'
+    'fableResetAt'
 ]);
 
 // magpie's window names differ by provider. A provider absent from this table
 // has no reading: guessing a window name would show another quota as this one.
-const PROVIDER_WINDOWS: Record<string, { session?: string; weekly?: string; fable?: string; monthly?: string }> = {
+const PROVIDER_WINDOWS: Record<string, { session?: string; weekly?: string; fable?: string }> = {
     'claude': { session: '5 hours', weekly: '7 days', fable: '7 days · fable' },
     'codex': { session: '5 hours', weekly: '7 days' },
     'kimi-code': { session: '5 hours', weekly: '7 days' },
-    'cursor': { monthly: 'Cursor Models' }
+    'cursor': { weekly: 'Cursor Models' }
 };
 
 const QuotaWindowSchema = z.looseObject({
@@ -213,7 +211,6 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
         const session = toUsageFields(windowNames.session ? findWindow(windows, windowNames.session) : undefined);
         const weekly = toUsageFields(windowNames.weekly ? findWindow(windows, windowNames.weekly) : undefined);
         const fable = toUsageFields(windowNames.fable ? findWindow(windows, windowNames.fable) : undefined);
-        const monthly = toUsageFields(windowNames.monthly ? findWindow(windows, windowNames.monthly) : undefined);
 
         const usageData: UsageData = {
             sessionUsage: session.usage,
@@ -221,12 +218,13 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
             weeklyUsage: weekly.usage,
             weeklyResetAt: weekly.resetAt,
             fableUsage: fable.usage,
-            fableResetAt: fable.resetAt,
-            monthlyUsage: monthly.usage,
-            monthlyResetAt: monthly.resetAt
+            fableResetAt: fable.resetAt
         };
 
-        return Object.values(usageData).some(value => value !== undefined) ? usageData : null;
+        if (!Object.values(usageData).some(value => value !== undefined)) {
+            return null;
+        }
+        return account.provider === 'cursor' ? { ...usageData, sessionWindowUnavailable: true } : usageData;
     } catch {
         return null;
     }
