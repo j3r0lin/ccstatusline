@@ -1,7 +1,9 @@
 import chalk from 'chalk';
 import {
     afterAll,
+    afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -14,9 +16,8 @@ import type {
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import { stripSgrCodes } from '../../utils/ansi';
+import * as magpieAccountLabel from '../../utils/magpie-account-label';
 import { ModelWidget } from '../Model';
-
-vi.mock('../../utils/magpie-account-label', () => ({ resolveMagpieAccountLabel: () => null, resolveMagpieModel: () => undefined }));
 
 const ITEM: WidgetItem = { id: 'model', type: 'model' };
 const RAW_ITEM: WidgetItem = { id: 'model', type: 'model', rawValue: true };
@@ -51,6 +52,15 @@ describe('ModelWidget', () => {
     });
     afterAll(() => {
         chalk.level = originalChalkLevel;
+    });
+    // Stub per test rather than with vi.mock: bun's runner keeps one module
+    // registry across files, so a module-level mock leaks into every later file.
+    beforeEach(() => {
+        vi.spyOn(magpieAccountLabel, 'resolveMagpieAccountLabel').mockReturnValue(null);
+        vi.spyOn(magpieAccountLabel, 'resolveMagpieModel').mockReturnValue(undefined);
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     describe('render()', () => {

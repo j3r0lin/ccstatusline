@@ -6,6 +6,7 @@ import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -15,13 +16,10 @@ import {
 import type { RenderContext } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import { stripSgrCodes } from '../../utils/ansi';
+import * as magpieAccountLabel from '../../utils/magpie-account-label';
 import { ModelWidget } from '../Model';
 
-const magpie = vi.hoisted(() => ({ model: undefined as string | undefined }));
-vi.mock('../../utils/magpie-account-label', () => ({
-    resolveMagpieAccountLabel: () => null,
-    resolveMagpieModel: () => magpie.model
-}));
+const magpie = { model: undefined as string | undefined };
 
 const RAW = { id: 'model', type: 'model', rawValue: true } as const;
 const dirs: string[] = [];
@@ -59,8 +57,15 @@ describe('ModelWidget model mismatch marker', () => {
     afterAll(() => {
         chalk.level = level;
     });
+    // Stub per test rather than with vi.mock: bun's runner keeps one module
+    // registry across files, so a module-level mock leaks into every later file.
+    beforeEach(() => {
+        vi.spyOn(magpieAccountLabel, 'resolveMagpieAccountLabel').mockReturnValue(null);
+        vi.spyOn(magpieAccountLabel, 'resolveMagpieModel').mockImplementation(() => magpie.model);
+    });
     afterEach(() => {
         magpie.model = undefined;
+        vi.restoreAllMocks();
         for (const d of dirs.splice(0)) {
             fs.rmSync(d, { recursive: true, force: true });
         }

@@ -1,7 +1,9 @@
 import chalk from 'chalk';
 import {
     afterAll,
+    afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -15,12 +17,11 @@ import {
 } from '../../types/Settings';
 import type { WidgetItem } from '../../types/Widget';
 import { stripSgrCodes } from '../ansi';
+import * as magpieAccountLabel from '../magpie-account-label';
 import {
     preRenderAllWidgets,
     renderStatusLine
 } from '../renderer';
-
-vi.mock('../magpie-account-label', () => ({ resolveMagpieAccountLabel: () => null, resolveMagpieModel: () => undefined }));
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
     return {
@@ -53,6 +54,15 @@ describe('renderer inline-color preservation', () => {
     });
     afterAll(() => {
         chalk.level = originalChalkLevel;
+    });
+    // Stub per test rather than with vi.mock: bun's runner keeps one module
+    // registry across files, so a module-level mock leaks into every later file.
+    beforeEach(() => {
+        vi.spyOn(magpieAccountLabel, 'resolveMagpieAccountLabel').mockReturnValue(null);
+        vi.spyOn(magpieAccountLabel, 'resolveMagpieModel').mockReturnValue(undefined);
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('preserves a widget\'s inline colors when usesInlineColors is on and content has SGR', () => {
