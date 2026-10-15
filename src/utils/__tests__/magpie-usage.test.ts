@@ -120,6 +120,25 @@ describe('parseMagpieQuotaResponse', () => {
         expect(usage?.sessionWindowUnavailable).toBeUndefined();
     });
 
+    it('keeps a Month window at 0% with no reset time, which magpie leaves out', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'opencode-go',
+                user: null,
+                windows: [
+                    { name: '5 hours', used: 0 },
+                    { name: '7 days', used: 0 },
+                    { name: 'Month', used: 0 }
+                ]
+            }]
+        });
+
+        const usage = parseMagpieQuotaResponse(body, { provider: 'opencode-go' });
+
+        expect(usage?.monthlyUsage).toBe(0);
+        expect(usage?.monthlyResetAt).toBeUndefined();
+    });
+
     it('fills the weekly window from the Cursor Models window and no session window', () => {
         const body = JSON.stringify({
             data: [{

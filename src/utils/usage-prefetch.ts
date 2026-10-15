@@ -248,8 +248,9 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
 
     const requirements = getUsageFieldRequirements(lines);
-    // The monthly pool fields are only served by the Kimi web gateway. Other
-    // fetchers ignore them, so don't even ask.
+    // Among the fetchers below, only the Kimi web gateway serves the monthly
+    // fields (magpie supplies them in its own branch). The rest ignore them,
+    // so don't even ask.
     const nonMonthlyRequirements = requirements.filter(requirement => requirement.field !== 'monthlyUsage' && requirement.field !== 'monthlyResetAt');
     const modelId = typeof data?.model === 'string' ? data.model : data?.model?.id;
 

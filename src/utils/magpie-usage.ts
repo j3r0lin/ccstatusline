@@ -204,9 +204,10 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
         const windowNames = PROVIDER_WINDOWS[account.provider] ?? DEFAULT_WINDOWS;
 
         const windows = pickAccount(parsed.data.data, account)?.windows ?? [];
-        const session = toUsageFields(windowNames.session ? findWindow(windows, windowNames.session) : undefined);
-        const weekly = toUsageFields(windowNames.weekly ? findWindow(windows, windowNames.weekly) : undefined);
-        const monthly = toUsageFields(windowNames.monthly ? findWindow(windows, windowNames.monthly) : undefined);
+        const usageOfWindow = (name: string | undefined) => toUsageFields(name ? findWindow(windows, name) : undefined);
+        const session = usageOfWindow(windowNames.session);
+        const weekly = usageOfWindow(windowNames.weekly);
+        const monthly = usageOfWindow(windowNames.monthly);
 
         const usageData: UsageData = {
             sessionUsage: session.usage,
