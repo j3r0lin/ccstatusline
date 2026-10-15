@@ -50,7 +50,7 @@ function formatConfiguredUsagePercent(value: number, format: ReturnType<typeof r
 
 export class MonthlyUsageWidget implements Widget {
     getDefaultColor(): string { return 'brightMagenta'; }
-    getDescription(): string { return 'Shows monthly membership pool usage percentage (Kimi)'; }
+    getDescription(): string { return 'Shows the monthly usage percentage: a membership pool (Kimi) or a plan\'s monthly window read through magpie'; }
     getDisplayName(): string { return 'Monthly Usage'; }
     getCategory(): string { return 'Usage'; }
 

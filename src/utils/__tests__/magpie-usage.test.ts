@@ -95,6 +95,31 @@ describe('parseMagpieQuotaResponse', () => {
         expect(parseMagpieQuotaResponse('{}', CHENJIAN)).toBeNull();
     });
 
+    it('reads a plan\'s Month window into the monthly fields beside its 5 hours and 7 days', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'opencode-go',
+                user: null,
+                windows: [
+                    { name: '5 hours', used: 1, resetsAt: '2026-10-15T11:18:51Z' },
+                    { name: '7 days', used: 0 },
+                    { name: 'Month', used: 24, resetsAt: '2026-11-11T04:24:00Z' }
+                ]
+            }]
+        });
+
+        const usage = parseMagpieQuotaResponse(body, { provider: 'opencode-go' });
+
+        expect(usage).toEqual({
+            sessionUsage: 1,
+            sessionResetAt: '2026-10-15T11:18:51Z',
+            weeklyUsage: 0,
+            monthlyUsage: 24,
+            monthlyResetAt: '2026-11-11T04:24:00Z'
+        });
+        expect(usage?.sessionWindowUnavailable).toBeUndefined();
+    });
+
     it('fills the weekly window from the Cursor Models window and no session window', () => {
         const body = JSON.stringify({
             data: [{

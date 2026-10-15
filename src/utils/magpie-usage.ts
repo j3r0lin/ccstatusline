@@ -34,14 +34,17 @@ const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
     'sessionUsage',
     'sessionResetAt',
     'weeklyUsage',
-    'weeklyResetAt'
+    'weeklyResetAt',
+    'monthlyUsage',
+    'monthlyResetAt'
 ]);
 
 // magpie names rolling windows by their length, so "5 hours" and "7 days" mean
-// the same quota for every provider. Only providers that name windows otherwise
-// are listed; any other name is not guessed, as it may be a different quota.
-interface WindowNames { session?: string; weekly?: string }
-const DEFAULT_WINDOWS: WindowNames = { session: '5 hours', weekly: '7 days' };
+// the same quota for every provider, and a plan's monthly window is "Month".
+// Only providers that name windows otherwise are listed; any other name is not
+// guessed, as it may be a different quota.
+interface WindowNames { session?: string; weekly?: string; monthly?: string }
+const DEFAULT_WINDOWS: WindowNames = { session: '5 hours', weekly: '7 days', monthly: 'Month' };
 const PROVIDER_WINDOWS: Record<string, WindowNames> = { cursor: { weekly: 'Cursor Models' } };
 
 const QuotaWindowSchema = z.looseObject({
@@ -203,12 +206,15 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
         const windows = pickAccount(parsed.data.data, account)?.windows ?? [];
         const session = toUsageFields(windowNames.session ? findWindow(windows, windowNames.session) : undefined);
         const weekly = toUsageFields(windowNames.weekly ? findWindow(windows, windowNames.weekly) : undefined);
+        const monthly = toUsageFields(windowNames.monthly ? findWindow(windows, windowNames.monthly) : undefined);
 
         const usageData: UsageData = {
             sessionUsage: session.usage,
             sessionResetAt: session.resetAt,
             weeklyUsage: weekly.usage,
-            weeklyResetAt: weekly.resetAt
+            weeklyResetAt: weekly.resetAt,
+            monthlyUsage: monthly.usage,
+            monthlyResetAt: monthly.resetAt
         };
 
         if (!Object.values(usageData).some(value => value !== undefined)) {
