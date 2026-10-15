@@ -22,7 +22,9 @@ export function resolveMagpieModel(context: RenderContext): string | undefined {
 
 // Behind the magpie gateway, names the account serving the session when its
 // provider has several, or the provider a routing group picked; null elsewhere.
-export function resolveMagpieAccountLabel(context: RenderContext): string | null {
+// A caller that already surfaces the served model name can hide the provider
+// label via showProvider, which only affects the routing-group case.
+export function resolveMagpieAccountLabel(context: RenderContext, options?: { showProvider?: boolean }): string | null {
     const account = resolveBehindMagpie(context);
     if (!account) {
         return null;
@@ -35,5 +37,5 @@ export function resolveMagpieAccountLabel(context: RenderContext): string | null
         return details?.alias ?? account.email?.split('@')[0] ?? account.provider;
     }
     // With one account, the name only matters when a routing group could have picked another provider.
-    return account.routed ? account.provider : null;
+    return account.routed && options?.showProvider !== false ? account.provider : null;
 }

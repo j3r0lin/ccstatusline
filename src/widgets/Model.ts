@@ -31,6 +31,12 @@ function isEffortColor(item: WidgetItem): boolean {
     return item.metadata?.effortColor === 'true';
 }
 
+// The magpie provider label a routing group picked defaults to on; only an
+// explicit 'false' hides it.
+function showsProviderLabel(item: WidgetItem): boolean {
+    return item.metadata?.showProvider !== 'false';
+}
+
 interface ModelInfo {
     id?: string;
     display_name?: string;
@@ -201,24 +207,36 @@ export class ModelWidget implements Widget {
     getCategory(): string { return 'Core'; }
     getLabelPrefix(): string { return LABEL; }
     getEditorDisplay(item: WidgetItem): WidgetEditorDisplay {
+        const modifiers = [
+            isEffortColor(item) ? 'effort color' : null,
+            showsProviderLabel(item) ? null : 'provider label off'
+        ].filter((modifier): modifier is string => modifier !== null);
         return {
             displayText: this.getDisplayName(),
-            modifierText: isEffortColor(item) ? '(effort color)' : undefined
+            modifierText: modifiers.length > 0 ? `(${modifiers.join(', ')})` : undefined
         };
     }
 
     handleEditorAction(action: string, item: WidgetItem): WidgetItem | null {
-        if (action !== 'toggle-effort-color') {
-            return null;
+        if (action === 'toggle-effort-color') {
+            return {
+                ...item,
+                metadata: {
+                    ...(item.metadata ?? {}),
+                    effortColor: isEffortColor(item) ? 'false' : 'true'
+                }
+            };
         }
-
-        return {
-            ...item,
-            metadata: {
-                ...(item.metadata ?? {}),
-                effortColor: isEffortColor(item) ? 'false' : 'true'
-            }
-        };
+        if (action === 'toggle-provider-label') {
+            return {
+                ...item,
+                metadata: {
+                    ...(item.metadata ?? {}),
+                    showProvider: showsProviderLabel(item) ? 'false' : 'true'
+                }
+            };
+        }
+        return null;
     }
 
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
@@ -262,7 +280,7 @@ export class ModelWidget implements Widget {
             ? null
             : detectModelMismatch(magpieModel ?? model.id, context.data?.transcript_path);
         const mismatch = returnedModel ? `→ ${formatClaudeModelId(returnedModel)}` : null;
-        const accountLabel = resolveMagpieAccountLabel(context);
+        const accountLabel = resolveMagpieAccountLabel(context, { showProvider: showsProviderLabel(item) });
         const account = accountLabel ? `@${accountLabel}` : null;
 
         if (settings.colorLevel === 0) {
@@ -310,7 +328,8 @@ export class ModelWidget implements Widget {
 
     getCustomKeybinds(): CustomKeybind[] {
         return [
-            { key: 'e', label: '(e)ffort color toggle', action: 'toggle-effort-color' }
+            { key: 'e', label: '(e)ffort color toggle', action: 'toggle-effort-color' },
+            { key: 'p', label: '(p)rovider label toggle', action: 'toggle-provider-label' }
         ];
     }
 
