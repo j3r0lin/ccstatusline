@@ -128,6 +128,8 @@ export interface MagpieAccount {
     // True when the session's model is a routing group (e.g. sonnet-tier) whose
     // provider varies per session.
     routed?: boolean;
+    // The model magpie sent the session's latest turn to, as it recorded in affinity.json.
+    model?: string;
 }
 
 function pickAccount(entries: readonly QuotaEntry[], account: MagpieAccount): QuotaEntry | undefined {
@@ -161,7 +163,7 @@ export function resolveSessionAccount(
 
 function readPinnedAccount(sessionId: string, modelId: string, affinityFile: string): MagpieAccount | undefined {
     try {
-        const entries = Object.entries(JSON.parse(fs.readFileSync(affinityFile, 'utf8')) as Record<string, { who?: string; at?: string }>);
+        const entries = Object.entries(JSON.parse(fs.readFileSync(affinityFile, 'utf8')) as Record<string, { who?: string; at?: string; model?: string }>);
         // Claude Code reports a routing group as "group/sonnet-tier", which is already the affinity key's prefix and name.
         const bareModelId = modelId.replace(/^group\//, '');
         const latest = entries
@@ -174,7 +176,7 @@ function readPinnedAccount(sessionId: string, modelId: string, affinityFile: str
         }
         const [, provider, separator, identifier] = match;
         const email = separator === '@' ? accountEmail(identifier) : undefined;
-        return { provider: provider ?? '', email, routed: latest?.[0].startsWith('group/') };
+        return { provider: provider ?? '', email, routed: latest?.[0].startsWith('group/'), model: latest?.[1].model };
     } catch {
         return undefined;
     }

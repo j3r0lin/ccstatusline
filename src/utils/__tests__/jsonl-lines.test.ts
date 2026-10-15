@@ -153,6 +153,12 @@ describe('jsonl line streaming', () => {
         ]);
     });
 
+    it('reverse-reads a file that starts with a blank line', () => {
+        const filePath = writeTranscript('reverse-leading-blank.jsonl', '\n{"value":1}\n');
+
+        expect(Array.from(iterateJsonlLinesReverseSync(filePath))).toEqual(['{"value":1}']);
+    });
+
     it('reverse-reads a UTF-8 record spanning multiple chunks', () => {
         const opening = '{"value":"';
         const longLine = `${opening}${'x'.repeat((2 * JSONL_READ_CHUNK_BYTES) - Buffer.byteLength(opening) - 2)}😀"}`;

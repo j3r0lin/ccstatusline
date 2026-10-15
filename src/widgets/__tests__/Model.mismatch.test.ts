@@ -8,13 +8,20 @@ import {
     beforeAll,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import type { RenderContext } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import { stripSgrCodes } from '../../utils/ansi';
 import { ModelWidget } from '../Model';
+
+const magpie = vi.hoisted(() => ({ model: undefined as string | undefined }));
+vi.mock('../../utils/magpie-account-label', () => ({
+    resolveMagpieAccountLabel: () => null,
+    resolveMagpieModel: () => magpie.model
+}));
 
 const RAW = { id: 'model', type: 'model', rawValue: true } as const;
 const dirs: string[] = [];
@@ -29,6 +36,10 @@ function transcript(lines: object[]): string {
 
 function assistant(model: string, extra: object = {}): object {
     return { type: 'assistant', message: { model }, ...extra };
+}
+
+function modelAttachment(modelId: string): object {
+    return { type: 'attachment', attachment: { type: 'model', identity: { modelId } } };
 }
 
 function ctx(id: string, lines: object[]): RenderContext {
@@ -49,6 +60,7 @@ describe('ModelWidget model mismatch marker', () => {
         chalk.level = level;
     });
     afterEach(() => {
+        magpie.model = undefined;
         for (const d of dirs.splice(0)) {
             fs.rmSync(d, { recursive: true, force: true });
         }
@@ -63,8 +75,43 @@ describe('ModelWidget model mismatch marker', () => {
         expect(render(ctx('claude-sonnet-4-5-20250929', [assistant('claude-sonnet-4-5')]))).not.toContain('→');
     });
 
-    it('shows no marker for gateway aliases and non-Claude requests', () => {
-        expect(render(ctx('auto-sonnet', [assistant('claude-sonnet-5-5')]))).not.toContain('→');
+    it('names the model magpie recorded instead of the routing group name', () => {
+        magpie.model = 'claude-sonnet-5-5';
+        const out = render(ctx('auto-sonnet', [assistant('claude-sonnet-5-5')]));
+        expect(out).toContain('Sonnet 5.5');
+        expect(out).not.toContain('auto-sonnet');
+        expect(out).not.toContain('→');
+    });
+
+    it('marks the returned model when it differs from the one magpie recorded', () => {
+        magpie.model = 'claude-sonnet-5-5';
+        const out = render(ctx('auto-sonnet', [assistant('claude-opus-5-5')]));
+        expect(out).toContain('Sonnet 5.5');
+        expect(out).toContain('→ Opus 5.5');
+    });
+
+    it('keeps the group name until magpie has recorded a model', () => {
+        expect(render(ctx('auto-sonnet', []))).toContain('auto-sonnet');
+    });
+
+    it('shows no marker right after a model switch, before a request goes out under the new model', () => {
+        const lines = [modelAttachment('claude-opus-5-5'), assistant('claude-sonnet-5-5')];
+        expect(render(ctx('claude-sonnet-5-5', lines))).not.toContain('→');
+        expect(render(ctx('claude-haiku-5-5', lines))).not.toContain('→');
+    });
+
+    it('marks a mismatch once the last request was made under the displayed model', () => {
+        const lines = [modelAttachment('claude-opus-5-5'), assistant('claude-sonnet-5-5')];
+        expect(render(ctx('claude-opus-5-5', lines))).toContain('→ Sonnet 5.5');
+    });
+
+    it('treats a group/ prefixed status id as the group the attachment names', () => {
+        magpie.model = 'claude-sonnet-5-5';
+        const lines = [modelAttachment('auto-sonnet'), assistant('claude-opus-5-5')];
+        expect(render(ctx('group/auto-sonnet', lines))).toContain('→ Opus 5.5');
+    });
+
+    it('shows no marker for non-Claude requests', () => {
         expect(render(ctx('grok-4.5', [assistant('claude-sonnet-5-5')]))).not.toContain('→');
     });
 

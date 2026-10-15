@@ -4,7 +4,8 @@ import {
     beforeAll,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import type { RenderContext } from '../../types/RenderContext';
@@ -18,6 +19,8 @@ import {
     preRenderAllWidgets,
     renderStatusLine
 } from '../renderer';
+
+vi.mock('../magpie-account-label', () => ({ resolveMagpieAccountLabel: () => null, resolveMagpieModel: () => undefined }));
 
 function createSettings(overrides: Partial<Settings> = {}): Settings {
     return {
