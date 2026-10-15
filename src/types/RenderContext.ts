@@ -79,8 +79,8 @@ export interface RenderContext {
     hasSessionUsageWidget?: boolean;
     /**
      * True when a weekly-usage widget is configured on any line.
-     * MonthlyUsage uses this to hide itself when the weekly slot has promoted
-     * the monthly pool (the tighter cap) into its place.
+     * MonthlyUsage uses this to hide itself when the weekly slot renders the
+     * monthly pool in its place.
      */
     hasWeeklyUsageWidget?: boolean;
     /**

@@ -79,9 +79,9 @@ const EMPTY_USAGE_REQUIREMENTS: UsageFieldRequirement[] = [];
 const USAGE_WIDGET_REQUIREMENTS: Record<string, UsageFieldRequirement[]> = {
     'session-usage': [{ field: 'sessionUsage' }],
     'usage-projection': [{ field: 'sessionUsage' }, { field: 'sessionResetAt', suppressFetchError: true }],
-    // Weekly slots also request the monthly pool so providers with a tighter
-    // monthly cap (Kimi) can promote it into the weekly slot. Providers
-    // without monthly data filter these fields out in their fetchers.
+    // Weekly slots also request the monthly pool, which they render whenever a
+    // provider reports one. Providers without monthly data filter these fields
+    // out in their fetchers.
     'weekly-usage': [{ field: 'weeklyUsage' }, { field: 'monthlyUsage', suppressFetchError: true }],
     'monthly-usage': [{ field: 'monthlyUsage' }],
     ...Object.fromEntries(WEEKLY_MODEL_USAGE_BUCKETS.map(bucket => [bucket.widgetType, [{ field: bucket.usageField }]])),

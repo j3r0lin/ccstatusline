@@ -66,7 +66,7 @@ function withMonthlyPrefix(item: WidgetItem): WidgetItem {
 
 export class WeeklyUsageWidget implements Widget {
     getDefaultColor(): string { return 'brightBlue'; }
-    getDescription(): string { return 'Shows weekly API usage percentage'; }
+    getDescription(): string { return 'Shows the weekly usage percentage, or a provider\'s monthly pool in its place'; }
     getDisplayName(): string { return 'Weekly Usage'; }
     getCategory(): string { return 'Usage'; }
 
