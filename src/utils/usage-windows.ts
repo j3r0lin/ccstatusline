@@ -103,12 +103,12 @@ export function resolveWeeklyUsageWindow(usageData: UsageData, nowMs = Date.now(
     return getWeeklyUsageWindowFromResetAt(usageData.weeklyResetAt, nowMs);
 }
 
-// The monthly membership pool (Kimi) and the weekly window cap the same
-// budget; when the monthly pool is tighter, weekly widgets render it instead
-// so the slot shows the binding constraint.
+// A provider that reports a monthly pool (Kimi's membership, a magpie plan's
+// Month window) has that pool as its binding cap, so a weekly slot renders the
+// monthly percent instead - even when the weekly percent is higher and would
+// look worse. Providers with only a weekly window render it as before.
 export function shouldPromoteMonthlyUsage(usageData: UsageData): boolean {
-    return usageData.monthlyUsage !== undefined
-        && (usageData.weeklyUsage === undefined || usageData.monthlyUsage > usageData.weeklyUsage);
+    return usageData.monthlyUsage !== undefined;
 }
 
 // The session slot promotes weekly when the provider exposes no five-hour

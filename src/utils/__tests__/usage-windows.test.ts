@@ -37,8 +37,12 @@ describe('shouldPromoteMonthlyUsage', () => {
         expect(shouldPromoteMonthlyUsage({ monthlyUsage: 20 })).toBe(true);
     });
 
-    it('keeps the weekly window when it is the tighter cap', () => {
-        expect(shouldPromoteMonthlyUsage({ monthlyUsage: 20, weeklyUsage: 60 })).toBe(false);
+    it('promotes the monthly pool even when the weekly percent is higher', () => {
+        expect(shouldPromoteMonthlyUsage({ monthlyUsage: 20, weeklyUsage: 60 })).toBe(true);
+    });
+
+    it('does not promote when the provider reports no monthly pool', () => {
+        expect(shouldPromoteMonthlyUsage({ weeklyUsage: 60 })).toBe(false);
     });
 });
 

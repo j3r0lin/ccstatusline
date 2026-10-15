@@ -143,7 +143,7 @@ describe('MonthlyUsageWidget', () => {
         }, { usageData: { weeklyUsage: 30 } })).toBeNull();
     });
 
-    it('hides when the weekly slot has promoted the tighter monthly cap', () => {
+    it('hides when a weekly-usage widget renders the monthly pool in its slot', () => {
         const widget = new MonthlyUsageWidget();
 
         expect(render(widget, {
@@ -153,22 +153,6 @@ describe('MonthlyUsageWidget', () => {
             hasWeeklyUsageWidget: true,
             usageData: { weeklyUsage: 10, monthlyUsage: 55, monthlyResetAt: '2026-09-12T12:24:00.000Z' }
         })).toBeNull();
-    });
-
-    it('still renders alongside weekly when monthly is the looser cap', () => {
-        const widget = new MonthlyUsageWidget();
-
-        // Covers visibility, so drop the window to keep the pace delta out of
-        // the expectation.
-        vi.spyOn(usage, 'resolveMonthlyUsageWindow').mockReturnValue(null);
-
-        expect(render(widget, {
-            id: 'monthly',
-            type: 'monthly-usage'
-        }, {
-            hasWeeklyUsageWidget: true,
-            usageData: { weeklyUsage: 55, monthlyUsage: 10, monthlyResetAt: '2026-09-12T12:24:00.000Z' }
-        })).toBe('Monthly: 10%');
     });
 
     it('still renders when no weekly-usage widget is configured', () => {

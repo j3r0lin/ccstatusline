@@ -316,7 +316,7 @@ describe('WeeklyUsageWidget', () => {
             expect(output).toContain('Monthly: ');
         });
 
-        it('keeps weekly rendering when monthly usage is lower', () => {
+        it('promotes the monthly percent even when it is lower than the weekly one', () => {
             const widget = new WeeklyUsageWidget();
 
             expect(render(widget, {
@@ -324,7 +324,7 @@ describe('WeeklyUsageWidget', () => {
                 type: 'weekly-usage',
                 rawValue: true,
                 metadata: { prefix: 'W ' }
-            }, { usageData: { weeklyUsage: 55, monthlyUsage: 10 } })).toBe('W 55%');
+            }, { usageData: { weeklyUsage: 55, monthlyUsage: 10 } })).toBe('M 10%');
         });
     });
 
