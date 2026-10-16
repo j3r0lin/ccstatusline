@@ -11,8 +11,13 @@ import type {
     WidgetItem
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
+import { stripSgrCodes } from '../../utils/ansi';
 import * as accountLabel from '../../utils/magpie-account-label';
 import * as magpie from '../../utils/magpie-usage';
+import {
+    preRenderAllWidgets,
+    renderStatusLine
+} from '../../utils/renderer';
 import { ModelWidget } from '../Model';
 
 const ITEM: WidgetItem = { id: 'model', type: 'model', rawValue: true };
@@ -66,6 +71,39 @@ describe('ModelWidget provider label toggle', () => {
     it('still shows the account name when the provider has several accounts and the toggle is off', () => {
         const item: WidgetItem = { ...ITEM, metadata: { showProvider: 'false' } };
         expect(renderWithAccount({ provider: 'claude', email: 'platform2@inhand.com', routed: true }, 4, item)).toBe('Sonnet 5.5 @platform2');
+    });
+
+    it('keeps the label prefix and model name in compact output', () => {
+        renderWithAccount({ provider: 'codex', routed: true }, 1);
+        const item = { ...ITEM, rawValue: false };
+        expect(new ModelWidget().renderCompact(item, CONTEXT, NO_COLOR)).toBe('Model: Sonnet 5.5');
+    });
+
+    it('keeps account names in compact output when several accounts need distinguishing', () => {
+        renderWithAccount({ provider: 'claude', email: 'account@example.com', routed: true }, 4);
+        expect(new ModelWidget().renderCompact(ITEM, CONTEXT, NO_COLOR)).toBe('Sonnet 5.5 @account');
+    });
+
+    it('hides the provider only on overflow and restores it when the line fits again', () => {
+        renderWithAccount({ provider: 'codex', routed: true }, 1);
+        const items: WidgetItem[] = [
+            ITEM,
+            { id: 'tail', type: 'custom-text', customText: 'tail' }
+        ];
+        const settings = { ...DEFAULT_SETTINGS, defaultPadding: '', defaultSeparator: ' | ', flexMode: 'full' as const };
+        const renderAt = (terminalWidth: number): string => {
+            const context = { ...CONTEXT, terminalWidth };
+            const preRendered = preRenderAllWidgets([items], settings, context);
+            return stripSgrCodes(renderStatusLine(items, settings, context, preRendered[0] ?? [], []));
+        };
+        const wide = renderAt(80);
+        expect(wide).toContain('Sonnet 5.5 @codex');
+        const narrow = renderAt(24);
+        expect(narrow).toContain('Sonnet 5.5');
+        expect(narrow).toContain('tail');
+        expect(narrow).not.toContain('@codex');
+        expect(narrow).not.toContain('...');
+        expect(renderAt(80)).toBe(wide);
     });
 
     it('toggles the provider label metadata from the editor action', () => {

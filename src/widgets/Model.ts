@@ -312,6 +312,13 @@ export class ModelWidget implements Widget {
         return this.compose(item, value, true, colorLevel);
     }
 
+    renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
+        return this.render({
+            ...item,
+            metadata: { ...item.metadata, showProvider: 'false' }
+        }, context, settings);
+    }
+
     // Builds the final output. When the name carries inline effort colors, the
     // The label keeps the widget's base color so only the value is recolored.
     private compose(item: WidgetItem, value: string, valueIsColored: boolean, colorLevel: ReturnType<typeof getColorLevelString>): string {
