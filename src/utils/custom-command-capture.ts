@@ -2,7 +2,7 @@ import type { spawn } from 'node:child_process';
 
 import type {
     CustomCommandRequest,
-    CustomCommandResult
+    RawCustomCommandResult
 } from './custom-command';
 
 /**
@@ -29,7 +29,7 @@ export function captureCustomCommand(
     let exitMarker: string | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    function finish(marker: string | null, terminate = false): void {
+    function finish(marker: string | null, terminate = false, timedOut = false): void {
         if (finished) {
             return;
         }
@@ -53,9 +53,11 @@ export function captureCustomCommand(
         child.stdin.destroy();
         child.stdout.destroy();
         child.unref();
-        const result: CustomCommandResult = marker === null
-            ? { status: 'ok', stdout: output.toString('utf8', 0, length).slice(0, maxChars).trim() }
-            : { status: 'failed', marker };
+        const result: RawCustomCommandResult = timedOut
+            ? { status: 'timeout' }
+            : marker === null
+                ? { status: 'ok', stdout: output.toString('utf8', 0, length).slice(0, maxChars).trim() }
+                : { status: 'failed', marker };
         process.stdout.write(JSON.stringify(result), () => process.exit(0));
     }
 
@@ -96,7 +98,7 @@ export function captureCustomCommand(
     });
     if (request.timeoutMs > 0) {
         timer = setTimeout(() => {
-            finish(exited ? exitMarker : '[Timeout]', !exited);
+            finish(exited ? exitMarker : null, !exited, !exited);
         }, request.timeoutMs);
     }
     child.stdin.end(request.input);

@@ -241,8 +241,8 @@ describe('runCustomCommand', () => {
             expect(mockSpawnSync.mock.calls).toHaveLength(1);
         });
 
-        it('runs the command on every call and writes nothing when the TTL is zero', () => {
-            const home = useTempHome();
+        it('runs the command on every call when the TTL is zero', () => {
+            useTempHome();
             useFixedCwd();
             alwaysRespond({ stdout: 'live' });
 
@@ -250,13 +250,12 @@ describe('runCustomCommand', () => {
             expect(runCustomCommand(createRequest({ ttlSeconds: 0 }))).toEqual({ status: 'ok', stdout: 'live' });
 
             expect(mockSpawnSync.mock.calls).toHaveLength(2);
-            expect(fs.existsSync(getCacheDir(home))).toBe(false);
         });
 
         // Caching is opt-in, so an absent setting has to behave exactly as it did
         // before the setting existed.
         it('runs the command on every call when no TTL is configured', () => {
-            const home = useTempHome();
+            useTempHome();
             useFixedCwd();
             alwaysRespond({ stdout: 'live' });
 
@@ -264,7 +263,6 @@ describe('runCustomCommand', () => {
             runCustomCommand(createRequest({ ttlSeconds: undefined }));
 
             expect(mockSpawnSync.mock.calls).toHaveLength(2);
-            expect(fs.existsSync(getCacheDir(home))).toBe(false);
         });
 
         it('caches per command, so a different command still runs', () => {
@@ -278,7 +276,7 @@ describe('runCustomCommand', () => {
         });
 
         // Two widgets can run the same command under different timeouts. Without
-        // the timeout in the key the second would inherit the first's [Timeout].
+        // the timeout in the key the second would inherit the first's timeout.
         it('caches per timeout, so a longer-lived widget runs on its own terms', () => {
             useTempHome();
             useFixedCwd();
@@ -287,7 +285,7 @@ describe('runCustomCommand', () => {
                 { stdout: 'finished in time' }
             );
 
-            expect(runCustomCommand(createRequest({ timeoutMs: 100 }))).toEqual({ status: 'failed', marker: '[Timeout]' });
+            expect(runCustomCommand(createRequest({ timeoutMs: 100 }))).toEqual({ status: 'ok', stdout: '' });
             expect(runCustomCommand(createRequest({ timeoutMs: 5000 }))).toEqual({ status: 'ok', stdout: 'finished in time' });
             expect(mockSpawnSync.mock.calls).toHaveLength(2);
         });
@@ -391,7 +389,7 @@ describe('runCustomCommand', () => {
 
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' && result.stdout.length).toBe(16_384);
-            expect(fs.statSync(getOnlyCachePath(home)).size).toBeLessThan(32_768);
+            expect(fs.statSync(getOnlyCachePath(home)).size).toBeLessThan(65_536);
         });
 
         // Session ids rotate, so without pruning the file would gain an entry per
@@ -460,10 +458,68 @@ describe('runCustomCommand', () => {
         });
     });
 
+    describe('timeout', () => {
+        const timedOut: CommandResponse = { result: { error: errnoError('ETIMEDOUT'), signal: 'SIGTERM' } };
+
+        for (const ttlSeconds of [0, 5]) {
+            it(`shows the last successful output after a timeout (ttl ${ttlSeconds})`, () => {
+                useTempHome();
+                useFixedCwd();
+                queueRuns({ stdout: 'good' }, timedOut);
+
+                expect(runCustomCommand(createRequest({ ttlSeconds }))).toEqual({ status: 'ok', stdout: 'good' });
+                // A new status line process starts with no in-memory state.
+                clearCustomCommandCache();
+                vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_600_000);
+                expect(runCustomCommand(createRequest({ ttlSeconds }))).toEqual({ status: 'ok', stdout: 'good' });
+                expect(mockSpawnSync.mock.calls).toHaveLength(2);
+            });
+        }
+
+        it('renders empty when a timeout has no earlier success', () => {
+            useTempHome();
+            useFixedCwd();
+            queueRuns(timedOut);
+
+            expect(runCustomCommand(createRequest())).toEqual({ status: 'ok', stdout: '' });
+        });
+
+        it('keeps showing the earlier output across repeated timeouts', () => {
+            useTempHome();
+            useFixedCwd();
+            queueRuns({ stdout: 'good' }, timedOut, timedOut);
+
+            runCustomCommand(createRequest({ ttlSeconds: 0 }));
+            clearCustomCommandCache();
+            expect(runCustomCommand(createRequest({ ttlSeconds: 0 }))).toEqual({ status: 'ok', stdout: 'good' });
+            clearCustomCommandCache();
+            expect(runCustomCommand(createRequest({ ttlSeconds: 0 }))).toEqual({ status: 'ok', stdout: 'good' });
+        });
+
+        it('does not show the earlier output for a non-timeout failure', () => {
+            useTempHome();
+            useFixedCwd();
+            queueRuns({ stdout: 'good' }, { result: { status: 3 } });
+
+            runCustomCommand(createRequest({ ttlSeconds: 0 }));
+            clearCustomCommandCache();
+            expect(runCustomCommand(createRequest({ ttlSeconds: 0 }))).toEqual({ status: 'failed', marker: '[Exit: 3]' });
+        });
+
+        it('does not show another session earlier output', () => {
+            useTempHome();
+            useFixedCwd();
+            queueRuns({ stdout: 'good' }, timedOut);
+
+            runCustomCommand(createRequest({ sessionId: 's1' }));
+            clearCustomCommandCache();
+            expect(runCustomCommand(createRequest({ sessionId: 's2' }))).toEqual({ status: 'ok', stdout: '' });
+        });
+    });
+
     describe('failure markers', () => {
         const cases: { name: string; result: Partial<SpawnSyncReturns<string>>; marker: string }[] = [
             { name: 'a missing shell', result: { error: errnoError('ENOENT') }, marker: '[Cmd not found]' },
-            { name: 'a timeout', result: { error: errnoError('ETIMEDOUT'), signal: 'SIGTERM' }, marker: '[Timeout]' },
             { name: 'a permission failure', result: { error: errnoError('EACCES') }, marker: '[Permission denied]' },
             { name: 'an unclassified spawn error', result: { error: new Error('boom') }, marker: '[Error]' },
             { name: 'a signalled command', result: { signal: 'SIGKILL', status: null }, marker: '[Signal: SIGKILL]' },

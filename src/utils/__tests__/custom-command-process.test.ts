@@ -101,6 +101,9 @@ for (const runtime of ['bun', 'node']) {
                 encoding: 'utf8',
                 timeout: 5000,
                 maxBuffer: 1024 * 1024,
+                // The last-success store is written even with TTL 0, so keep it
+                // out of the real home directory.
+                env: { ...process.env, HOME: tempRoot, USERPROFILE: tempRoot },
                 stdio: ['ignore', 'pipe', 'pipe']
             });
             return JSON.parse(output) as { result: CustomCommandResult; elapsed: number };
@@ -138,7 +141,7 @@ for (const runtime of ['bun', 'node']) {
 
         it('enforces the timeout without waiting for inherited stdout', () => {
             const result = run('sleep', { timeoutMs: 200 });
-            expect(result.result).toEqual({ status: 'failed', marker: '[Timeout]' });
+            expect(result.result).toEqual({ status: 'ok', stdout: '' });
             expect(result.elapsed).toBeLessThan(1000);
         });
 
@@ -166,7 +169,7 @@ for (const runtime of ['bun', 'node']) {
                 // The overflow, not the timeout, should end overflow-tree, however
                 // slowly the command starts
                 const result = run(mode, { timeoutMs: mode === 'timeout-tree' ? 300 : 5000, argument: sentinelPath });
-                expect(result.result).toEqual({ status: 'failed', marker: mode === 'timeout-tree' ? '[Timeout]' : '[Error]' });
+                expect(result.result).toEqual((mode === 'timeout-tree' ? { status: 'ok', stdout: '' } : { status: 'failed', marker: '[Error]' }));
                 await new Promise(resolve => setTimeout(resolve, 1300));
                 expect(fs.existsSync(sentinelPath)).toBe(false);
             });

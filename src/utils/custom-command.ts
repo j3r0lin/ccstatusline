@@ -12,6 +12,12 @@ export type CustomCommandResult
     = | { status: 'ok'; stdout: string }
         | { status: 'failed'; marker: string };
 
+/**
+ * What one run reports before `runCustomCommand` resolves a timeout. A timeout
+ * has no marker of its own: the caller shows the last good output instead.
+ */
+export type RawCustomCommandResult = CustomCommandResult | { status: 'timeout' };
+
 export interface CustomCommandRequest {
     /** Shell command line to run. */
     command: string;
@@ -36,10 +42,17 @@ interface CustomCommandCacheEntry {
     createdAt: number;
 }
 
+interface LastSuccess {
+    stdout: string;
+    createdAt: number;
+}
+
 interface PersistentCustomCommandCache {
     version: 1;
     cwd: string;
     entries: Record<string, CustomCommandCacheEntry>;
+    /** Last successful output per key, kept past the TTL for timeout fallback. */
+    lastSuccess: Record<string, LastSuccess>;
 }
 
 const DEFAULT_CUSTOM_COMMAND_CACHE_TTL_SECONDS = 0;
@@ -57,6 +70,10 @@ const MAX_STDOUT_BYTES = 1024 * 1024;
 // In-process cache keeps cwd in the key. The persistent cache stores cwd once at
 // the file level and keys entries by command, session and terminal width.
 const customCommandCache = new Map<string, CustomCommandCacheEntry>();
+const lastSuccessCache = new Map<string, LastSuccess>();
+
+// Session ids keep changing, so the last-success store needs its own bound.
+const LAST_SUCCESS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 function getCacheDir(): string {
     return path.join(os.homedir(), '.cache', 'ccstatusline');
@@ -138,10 +155,22 @@ function readPersistentCache(cachePath: string): PersistentCustomCommandCache | 
             }
         }
 
+        const lastSuccess: Record<string, LastSuccess> = {};
+        const rawLast = (data as { lastSuccess?: unknown }).lastSuccess;
+        if (typeof rawLast === 'object' && rawLast !== null) {
+            for (const [key, value] of Object.entries(rawLast)) {
+                const item = value as Partial<LastSuccess> | null;
+                if (item && typeof item.stdout === 'string' && typeof item.createdAt === 'number') {
+                    lastSuccess[key] = { stdout: item.stdout, createdAt: item.createdAt };
+                }
+            }
+        }
+
         return {
             version: CUSTOM_COMMAND_CACHE_SCHEMA_VERSION,
             cwd: data.cwd,
-            entries
+            entries,
+            lastSuccess
         };
     } catch {
         return null;
@@ -198,24 +227,30 @@ function pruneExpiredEntries(
     return kept;
 }
 
-function writePersistentCacheEntry(
+function updatePersistentCache(
     cwd: string,
-    entryKey: string,
-    entry: CustomCommandCacheEntry,
-    now: number
+    now: number,
+    update: (cache: PersistentCustomCommandCache) => void
 ): void {
     const cachePath = getCachePath(cwd);
     const existingCache = readPersistentCache(cachePath);
-    const entries = existingCache?.cwd === cwd
-        ? pruneExpiredEntries(existingCache.entries, now)
-        : {};
+    const cache: PersistentCustomCommandCache = existingCache?.cwd === cwd
+        ? {
+            ...existingCache,
+            entries: pruneExpiredEntries(existingCache.entries, now),
+            lastSuccess: Object.fromEntries(
+                Object.entries(existingCache.lastSuccess).filter(([, item]) => now - item.createdAt <= LAST_SUCCESS_RETENTION_MS)
+            )
+        }
+        : { version: CUSTOM_COMMAND_CACHE_SCHEMA_VERSION, cwd, entries: {}, lastSuccess: {} };
 
-    entries[entryKey] = entry;
-    writePersistentCache(cachePath, {
-        version: CUSTOM_COMMAND_CACHE_SCHEMA_VERSION,
-        cwd,
-        entries
-    });
+    update(cache);
+    writePersistentCache(cachePath, cache);
+}
+
+function readPersistentLastSuccess(cwd: string, entryKey: string): LastSuccess | null {
+    const cache = readPersistentCache(getCachePath(cwd));
+    return cache?.cwd === cwd ? cache.lastSuccess[entryKey] ?? null : null;
 }
 
 /** Reads the errno string off a spawn error, which the Error type does not carry. */
@@ -232,8 +267,6 @@ function getFailureMarker(result: SpawnSyncReturns<string>): string | null {
 
     if (errorCode === 'ENOENT') {
         return '[Cmd not found]';
-    } else if (errorCode === 'ETIMEDOUT') {
-        return '[Timeout]';
     } else if (errorCode === 'EACCES') {
         return '[Permission denied]';
     } else if (result.error) {
@@ -249,7 +282,7 @@ function getFailureMarker(result: SpawnSyncReturns<string>): string | null {
     return null;
 }
 
-function executeCommand(request: CustomCommandRequest): CustomCommandResult {
+function executeCommand(request: CustomCommandRequest): RawCustomCommandResult {
     try {
         // Only the capture runtime owns this pipe. The command's descendants
         // cannot inherit it and keep spawnSync waiting after their shell exits.
@@ -276,11 +309,14 @@ function executeCommand(request: CustomCommandRequest): CustomCommandResult {
             env: { ...process.env, BUN_BE_BUN: '1' },
             windowsHide: true
         });
+        if (getErrorCode(result.error) === 'ETIMEDOUT') {
+            return { status: 'timeout' };
+        }
         const marker = getFailureMarker(result);
         if (marker !== null) {
             return { status: 'failed', marker };
         }
-        return JSON.parse(result.stdout) as CustomCommandResult;
+        return JSON.parse(result.stdout) as RawCustomCommandResult;
     } catch {
         return { status: 'failed', marker: '[Error]' };
     }
@@ -304,39 +340,60 @@ function executeCommand(request: CustomCommandRequest): CustomCommandResult {
  */
 export function runCustomCommand(request: CustomCommandRequest): CustomCommandResult {
     const ttlMs = getCacheTtlMs(request.ttlSeconds);
-    if (ttlMs === 0) {
-        return executeCommand(request);
-    }
-
     const cwd = process.cwd();
     const entryKey = getEntryKey(request);
     const memoryCacheKey = `${entryKey}\0${cwd}`;
     const canShareAcrossProcesses = typeof request.sessionId === 'string' && request.sessionId.length > 0;
     const now = Date.now();
 
-    const memoryEntry = customCommandCache.get(memoryCacheKey);
-    if (memoryEntry && isCacheEntryFresh(memoryEntry, ttlMs, now)) {
-        return memoryEntry.result;
-    }
+    if (ttlMs > 0) {
+        const memoryEntry = customCommandCache.get(memoryCacheKey);
+        if (memoryEntry && isCacheEntryFresh(memoryEntry, ttlMs, now)) {
+            return memoryEntry.result;
+        }
 
-    if (canShareAcrossProcesses) {
-        const persistentEntry = readPersistentCacheEntry(cwd, entryKey, ttlMs, now);
-        if (persistentEntry) {
-            customCommandCache.set(memoryCacheKey, persistentEntry);
-            return persistentEntry.result;
+        if (canShareAcrossProcesses) {
+            const persistentEntry = readPersistentCacheEntry(cwd, entryKey, ttlMs, now);
+            if (persistentEntry) {
+                customCommandCache.set(memoryCacheKey, persistentEntry);
+                return persistentEntry.result;
+            }
         }
     }
 
-    const result = executeCommand(request);
+    const raw = executeCommand(request);
+    const createdAt = Date.now();
+    let result: CustomCommandResult;
+    let success: LastSuccess | null = null;
+
+    if (raw.status === 'timeout') {
+        // Show the last good output rather than a marker; empty when there is none.
+        const previous = lastSuccessCache.get(memoryCacheKey)
+            ?? (canShareAcrossProcesses ? readPersistentLastSuccess(cwd, entryKey) : null);
+        result = { status: 'ok', stdout: previous?.stdout ?? '' };
+    } else {
+        result = raw;
+        if (raw.status === 'ok') {
+            success = { stdout: raw.stdout, createdAt };
+            lastSuccessCache.set(memoryCacheKey, success);
+        }
+    }
+
     // Stamped after the run, so a command slower than the TTL still gets the
     // full TTL of reuse rather than expiring the moment it returns.
-    const entry: CustomCommandCacheEntry = {
-        result,
-        createdAt: Date.now()
-    };
-    customCommandCache.set(memoryCacheKey, entry);
-    if (canShareAcrossProcesses) {
-        writePersistentCacheEntry(cwd, entryKey, entry, entry.createdAt);
+    const entry: CustomCommandCacheEntry = { result, createdAt };
+    if (ttlMs > 0) {
+        customCommandCache.set(memoryCacheKey, entry);
+    }
+    if (canShareAcrossProcesses && (ttlMs > 0 || success)) {
+        updatePersistentCache(cwd, createdAt, (cache) => {
+            if (ttlMs > 0) {
+                cache.entries[entryKey] = entry;
+            }
+            if (success) {
+                cache.lastSuccess[entryKey] = success;
+            }
+        });
     }
 
     return result;
@@ -347,4 +404,5 @@ export function runCustomCommand(request: CustomCommandRequest): CustomCommandRe
  */
 export function clearCustomCommandCache(): void {
     customCommandCache.clear();
+    lastSuccessCache.clear();
 }
