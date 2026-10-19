@@ -273,7 +273,7 @@ describe('usage prefetch', () => {
         expect(mockFetchGrokUsageData.mock.calls.length).toBe(0);
     });
 
-    it('fills the Kimi monthly pool from the Kimi web endpoint when magpie serves a kimi-code account', async () => {
+    it('fills missing Kimi monthly usage from the proxied usage endpoint', async () => {
         process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
         vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi-code' });
         mockFetchMagpieUsageData.mockResolvedValue({

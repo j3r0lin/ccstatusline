@@ -248,8 +248,8 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     }
 
     const requirements = getUsageFieldRequirements(lines);
-    // Among the fetchers below, only the Kimi web gateway serves the monthly
-    // fields (magpie supplies them in its own branch). The rest ignore them,
+    // Among the direct fetchers below, only Kimi serves the monthly fields
+    // (magpie supplies them in its own branch). The rest ignore them,
     // so don't even ask.
     const nonMonthlyRequirements = requirements.filter(requirement => requirement.field !== 'monthlyUsage' && requirement.field !== 'monthlyResetAt');
     const modelId = typeof data?.model === 'string' ? data.model : data?.model?.id;
@@ -260,12 +260,12 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
     if (isMagpieGateway()) {
         const magpieFields = requirements.map(requirement => requirement.field);
         const magpieData = await fetchMagpieUsageData({ requiredFields: magpieFields, sessionId: data?.session_id, modelId });
-        // Kimi's membership monthly pool only exists on the Kimi web endpoint;
-        // magpie's kimi-code quota has the 5h and 7d windows but not the pool.
+        // The proxied Kimi usage reply can fill monthly fields missing from
+        // magpie's cached quota.
         const needsMonthly = requirements.some(requirement => requirement.field === 'monthlyUsage' || requirement.field === 'monthlyResetAt');
         if (needsMonthly && resolveSessionAccount(data?.session_id, modelId)?.provider === 'kimi-code') {
             const monthlyData = await fetchKimiUsageData({ requiredFields: ['monthlyUsage', 'monthlyResetAt'] });
-            // magpie's defined fields win; the web pool fills the monthly fields magpie has none of.
+            // Prefer magpie's defined fields over the direct usage reply.
             return {
                 ...pickDefinedUsageFields({ monthlyUsage: monthlyData.monthlyUsage, monthlyResetAt: monthlyData.monthlyResetAt }),
                 ...pickDefinedUsageFields(magpieData),
