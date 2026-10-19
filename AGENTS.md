@@ -28,8 +28,8 @@ bun run example
 # Build for npm distribution
 bun run build   # Creates dist/ccstatusline.js with Node.js 14+ compatibility
 
-# Run tests
-bun test
+# Run tests (from a Claude Code session, unset the gateway variables it exports, or ~36 tests fail)
+env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN bun test
 
 # Run tests in watch mode
 bun test --watch
@@ -70,6 +70,8 @@ Runs on both Bun and Node.js.
 Settings live at `~/.config/ccstatusline/settings.json`; Claude Code integration honors `CLAUDE_CONFIG_DIR`.
 
 Widgets implement the interface in `src/types/Widget.ts` and register in the map in `src/utils/widgets.ts` — read both before adding one.
+
+Kimi's monthly pool is not in Kimi's own `/coding/v1/usages` reply. A local Surge script (`~/.config/magpie/surge/kimi-monthly.js`, setup in the README beside it) appends it as a 30-day `TIME_UNIT_DAY` entry in `limits`, and `kimi-usage.ts` reads that entry. So the monthly value appears only when the request goes through Surge: the status-line command sets `HTTPS_PROXY=http://127.0.0.1:6152`, and `NODE_EXTRA_CA_CERTS` points at the exported Surge CA, because the Bun binary does not trust the macOS keychain. Without that CA the request fails with `SELF_SIGNED_CERT_IN_CHAIN`. Keep the monthly window absent rather than erroring when the entry is missing.
 
 Optional widget methods include `getHideableStates()`, `supportsNumberFormat()`, and `preservesRenderedColors()`.
 
