@@ -77,6 +77,8 @@ Optional widget methods include `getHideableStates()`, `supportsNumberFormat()`,
 
 ## Conventions
 
+- Commit changes directly to `main`; no feature branch is needed. In this repo that counts as the user naming `main` as the target.
+
 - Use `bun <file>`, `bun install`, `bun run <script>`, `bun build` instead of the Node equivalents. Bun loads `.env` on its own.
 - Run checks with `bun run lint`; use `bun run lint:fix` only when you want the auto-fixes. Never invoke `npx eslint`, `eslint`, `tsx`, or `bun tsc` directly.
 - Never disable a lint rule with a comment.
