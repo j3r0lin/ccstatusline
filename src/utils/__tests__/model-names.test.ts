@@ -42,6 +42,12 @@ describe('formatModelName', () => {
         expect(formatModelName(id, file)).toBe(expected);
     });
 
+    it('places the name inside a suffix label holding {name}', () => {
+        fs.writeFileSync(file, JSON.stringify({ ...MODEL_NAMES_FIXTURE, suffixes: { '-free': '🎁 {name}' } }));
+        expect(formatModelName('deepseek-v4.1-flash-free', file)).toBe('🎁 DSF 4.1');
+        expect(formatModelName('glm-5.3-flash-free', file)).toBe('glm-5.3-flash-free');
+    });
+
     it('only cleans the id when the table file is missing', () => {
         const missing = path.join(dir, 'absent.json');
         expect(formatModelName('anthropic/claude-opus-5-5-20260101[1m]', missing)).toBe('claude-opus-5-5');

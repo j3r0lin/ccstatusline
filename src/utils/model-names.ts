@@ -44,6 +44,11 @@ function applyWordsAndRules(table: NameTable, bare: string): string {
     return name;
 }
 
+// A label holding {name} puts the name where it stands, so a mark can lead the name; any other label is appended.
+function withLabel(name: string, label: string): string {
+    return label.includes('{name}') ? label.split('{name}').join(name) : name + label;
+}
+
 /** Display name for a model id: strip provider, `[...]` and date, then look up the shared alias table. */
 export function formatModelName(id: string, file: string = getModelNamesPath()): string {
     const table = loadTable(file);
@@ -60,7 +65,7 @@ export function formatModelName(id: string, file: string = getModelNamesPath()):
         }
         const rest = bare.slice(0, -suffix.length);
         const named = applyWordsAndRules(table, rest);
-        return named === rest ? bare : named + label;
+        return named === rest ? bare : withLabel(named, label);
     }
 
     return applyWordsAndRules(table, bare);
