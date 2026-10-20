@@ -196,7 +196,7 @@ describe('parseMagpieQuotaResponse', () => {
         expect(usage?.weeklyUsage).toBe(25);
         expect(elapsedPercent).toBeCloseTo(11.7, 1);
         expect(Math.round(25 - elapsedPercent)).toBe(13);
-        expect(getUsagePaceIndicator(25, window, now)?.text).toBe('▴11');
+        expect(getUsagePaceIndicator(25, window)?.text).toBe('▴13');
     });
 
     it('returns no data for an unlisted provider whose windows are not named by length', () => {

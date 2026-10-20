@@ -1,10 +1,7 @@
 import type { ColorLevelString } from '../../types/ColorLevel';
 import type { WidgetItem } from '../../types/Widget';
 import { applyColors } from '../../utils/colors';
-import {
-    SEVEN_DAY_WINDOW_MS,
-    type UsageWindowMetrics
-} from '../../utils/usage-types';
+import type { UsageWindowMetrics } from '../../utils/usage-types';
 
 // The indicator answers one question the percent alone cannot: am I spending
 // faster or slower than the window elapses. A positive delta is a deficit (the
@@ -22,8 +19,6 @@ import {
 const PACE_RED_DELTA = 12;
 const PACE_YELLOW_DELTA = 2;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 // A triangle rather than a signed percent: it marks the number as a comparison
 // against the window's own progress, which a second "%" next to the usage
 // percent would read as just another absolute figure.
@@ -39,60 +34,6 @@ export interface UsagePaceIndicator {
     // Left undefined within the on-pace band, where there is nothing to report.
     color?: string;
     text: string;
-}
-
-// Milliseconds between two instants that fall on a Mon-Sat day, in local time.
-function workdayMsBetween(startMs: number, endMs: number): number {
-    if (endMs <= startMs) {
-        return 0;
-    }
-
-    const firstDay = new Date(startMs);
-    firstDay.setHours(0, 0, 0, 0);
-
-    let total = 0;
-    for (let dayStart = firstDay.getTime(); dayStart < endMs; dayStart += DAY_MS) {
-        const weekday = new Date(dayStart).getDay();
-        if (weekday === 0) {
-            continue;
-        }
-
-        const from = Math.max(dayStart, startMs);
-        const to = Math.min(dayStart + DAY_MS, endMs);
-        if (to > from) {
-            total += to - from;
-        }
-    }
-
-    return total;
-}
-
-// A week's budget is not spent evenly across a calendar week, so a straight-
-// line baseline reads a normal Friday as overspending. Only Sunday is left out:
-// this account's weekends take about a seventh of the week, between the 0 a
-// Mon-Fri baseline assumes and the two sevenths a wall clock does. Erring
-// toward Mon-Fri runs the budget out a day and a half early when the weekend
-// does get used; the Mon-Sat baseline caps that at under a day, and at worst
-// strands a sixth of the budget when it does not.
-//
-// Only the weekly window gets this treatment, matching CodexBar: a monthly
-// window spans whole weeks, so weekends average out and the straight line is
-// already right. Falls back to wall-clock progress for windows that contain no
-// workday at all.
-function getExpectedUsedPercent(window: UsageWindowMetrics, nowMs: number): number {
-    if (window.sessionDurationMs !== SEVEN_DAY_WINDOW_MS) {
-        return window.elapsedPercent;
-    }
-
-    const startMs = nowMs - window.elapsedMs;
-    const endMs = nowMs + window.remainingMs;
-
-    const total = workdayMsBetween(startMs, endMs);
-    if (total <= 0) {
-        return window.elapsedPercent;
-    }
-
-    return (workdayMsBetween(startMs, nowMs) / total) * 100;
 }
 
 // Symmetric around the on-pace band, mirroring CodexBar's stages: past 6 is
@@ -121,8 +62,7 @@ function getPaceColor(delta: number): string | undefined {
 // one for the delta to mean anything.
 export function getUsagePaceIndicator(
     percent: number,
-    window?: UsageWindowMetrics | null,
-    nowMs = Date.now()
+    window?: UsageWindowMetrics | null
 ): UsagePaceIndicator | null {
     if (!window) {
         return null;
@@ -134,7 +74,7 @@ export function getUsagePaceIndicator(
         return null;
     }
 
-    const delta = Math.round(percent - getExpectedUsedPercent(window, nowMs));
+    const delta = Math.round(percent - window.elapsedPercent);
     return {
         color: getPaceColor(delta),
         text: `${delta >= 0 ? AHEAD_MARK : BEHIND_MARK}${Math.abs(delta)}`

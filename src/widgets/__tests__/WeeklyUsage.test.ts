@@ -60,8 +60,6 @@ describe('WeeklyUsageWidget', () => {
             id: 'weekly',
             type: 'weekly-usage',
             metadata: { cursor: 'true', display: 'slider' }
-        // The weekly pace baseline counts workdays, so the delta shifts with the
-        // current weekday; this case is about the cursor, not the number.
         }, context) ?? '')).toMatch(/^Weekly: ▓▓░░░│░░░░ 20% ▾\d+$/);
         expect(render(widget, {
             id: 'weekly',
@@ -80,12 +78,6 @@ describe('WeeklyUsageWidget', () => {
         });
         afterAll(() => {
             chalk.level = originalChalkLevel;
-        });
-
-        // The pace baseline counts workdays, so the rendered delta depends on
-        // which weekday "now" is. Pin it to a Wednesday for stable output.
-        beforeEach(() => {
-            vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-19T12:00:00').getTime());
         });
 
         function renderColored(item: WidgetItem, context: RenderContext): string | null {

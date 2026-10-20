@@ -80,12 +80,6 @@ describe('MonthlyUsageWidget', () => {
             chalk.level = originalChalkLevel;
         });
 
-        // The pace baseline counts workdays, so the rendered delta depends on
-        // which weekday "now" is. Pin it to a Wednesday for stable output.
-        beforeEach(() => {
-            vi.spyOn(Date, 'now').mockReturnValue(new Date('2026-08-19T12:00:00').getTime());
-        });
-
         function windowAt(elapsedPercent: number): UsageWindowMetrics {
             return {
                 sessionDurationMs: 2592000000,
