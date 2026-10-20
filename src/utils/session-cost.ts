@@ -46,6 +46,8 @@ interface FileState {
 interface CostCache {
     priceVersion: string;
     files: Record<string, FileState>;
+    /** Digest of the last ledger content written to each path, so a render can skip an unchanged write without reading the file. */
+    ledger?: Record<string, string>;
 }
 
 export interface SessionCostSummary {
@@ -278,29 +280,66 @@ function priceTokens(price: ModelPrice, tierIndex: number, tokens: TierTokens): 
     ) / 1_000_000;
 }
 
-function summarize(files: FileState[], prices: ModelPrices): SessionCostSummary {
-    let total = 0;
-    let allClaude = true;
-    let hasUnknown = false;
+interface ModelCost {
+    /** Null when the model has no known price. */
+    usd: number | null;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+}
 
-    for (const file of files) {
-        for (const [model, byTier] of Object.entries(file.models)) {
-            if (!isClaudeModel(model)) {
-                allClaude = false;
+interface FileCost {
+    /** Priced messages only; an unpriced model adds nothing. */
+    totalUsd: number;
+    allClaude: boolean;
+    hasUnknown: boolean;
+    byModel: Record<string, ModelCost>;
+}
+
+function costFile(file: FileState, prices: ModelPrices): FileCost {
+    const cost: FileCost = { totalUsd: 0, allClaude: true, hasUnknown: false, byModel: {} };
+
+    for (const [model, byTier] of Object.entries(file.models)) {
+        if (!isClaudeModel(model)) {
+            cost.allClaude = false;
+        }
+        const key = resolvePriceKey(model);
+        const price = key === null ? undefined : prices[key];
+        const modelCost: ModelCost = {
+            usd: price ? 0 : null,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0
+        };
+        cost.byModel[model] = modelCost;
+
+        for (const [tierIndex, tokens] of Object.entries(byTier)) {
+            modelCost.inputTokens += tokens.input;
+            modelCost.outputTokens += tokens.output;
+            modelCost.cacheReadTokens += tokens.cacheRead;
+            modelCost.cacheWriteTokens += tokens.write5m + tokens.write1h;
+            if (price) {
+                const usd = priceTokens(price, Number(tierIndex), tokens);
+                modelCost.usd = (modelCost.usd ?? 0) + usd;
+                cost.totalUsd += usd;
             }
-            const key = resolvePriceKey(model);
-            const price = key === null ? undefined : prices[key];
-            if (!price) {
-                hasUnknown = true;
-                continue;
-            }
-            for (const [tierIndex, tokens] of Object.entries(byTier)) {
-                total += priceTokens(price, Number(tierIndex), tokens);
-            }
+        }
+        if (!price) {
+            cost.hasUnknown = true;
         }
     }
 
-    return { total, allClaude, hasUnknown };
+    return cost;
+}
+
+function summarize(files: FileCost[]): SessionCostSummary {
+    return {
+        total: files.reduce((sum, file) => sum + file.totalUsd, 0),
+        allClaude: files.every(file => file.allClaude),
+        hasUnknown: files.some(file => file.hasUnknown)
+    };
 }
 
 /**
@@ -315,25 +354,33 @@ function summarize(files: FileState[], prices: ModelPrices): SessionCostSummary 
  */
 export function getSessionCostSummary(transcriptPath: string, prices: ModelPrices = getModelPrices()): SessionCostSummary | null {
     try {
-        return readSessionCost(transcriptPath, prices);
+        const state = readSessionCost(transcriptPath, prices);
+        return state ? summarize(Object.values(state.costs)) : null;
     } catch {
         return null;
     }
 }
 
-function readSessionCost(transcriptPath: string, prices: ModelPrices): SessionCostSummary | null {
+interface SessionCostState {
+    cache: CostCache;
+    cachePath: string;
+    /** Per transcript file, main transcript first. */
+    costs: Record<string, FileCost>;
+}
+
+function readSessionCost(transcriptPath: string, prices: ModelPrices): SessionCostState | null {
     if (!fs.existsSync(transcriptPath)) {
         return null;
     }
 
     const cachePath = getCachePath(transcriptPath);
     const priceVersion = getPriceVersion(prices);
-    const cache = loadCache(cachePath, priceVersion);
+    const loaded = loadCache(cachePath, priceVersion);
     const nextFiles: Record<string, FileState> = {};
     let changed = false;
 
     for (const filePath of [transcriptPath, ...getSubagentFiles(transcriptPath)]) {
-        const previous = cache.files[filePath];
+        const previous = loaded.files[filePath];
         const previousOffset = previous?.offset;
         const state = refreshFile(filePath, previous, prices);
         if (state === null) {
@@ -345,12 +392,155 @@ function readSessionCost(transcriptPath: string, prices: ModelPrices): SessionCo
         }
     }
 
-    if (Object.keys(nextFiles).length !== Object.keys(cache.files).length) {
+    if (Object.keys(nextFiles).length !== Object.keys(loaded.files).length) {
         changed = true;
     }
+    const cache: CostCache = { priceVersion, files: nextFiles, ledger: loaded.ledger };
     if (changed) {
-        saveCache(cachePath, { priceVersion, files: nextFiles });
+        saveCache(cachePath, cache);
     }
 
-    return summarize(Object.values(nextFiles), prices);
+    const costs: Record<string, FileCost> = {};
+    for (const [filePath, state] of Object.entries(nextFiles)) {
+        costs[filePath] = costFile(state, prices);
+    }
+    return { cache, cachePath, costs };
+}
+
+export interface SessionCostResult {
+    /** What the widget shows; undefined when there is nothing to show. */
+    totalUsd: number | undefined;
+    /** True when the shown total is Claude Code's number for a session holding an unpriced model. */
+    approximate: boolean;
+    source: 'computed' | 'claude-code';
+}
+
+function sortedByModel(byModel: Record<string, ModelCost>): Record<string, ModelCost> {
+    return Object.fromEntries(Object.entries(byModel).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function digest(content: object): string {
+    return createHash('sha1').update(JSON.stringify(content)).digest('hex');
+}
+
+/**
+ * Writes `content` (stamped with `updatedAt`) to `target` unless its digest matches the last
+ * write and the file is still there. Returns whether the digest map changed.
+ */
+function writeLedgerFile(ledger: Record<string, string>, target: string, content: object): boolean {
+    const hash = digest(content);
+    if (ledger[target] === hash && fs.existsSync(target)) {
+        return false;
+    }
+    try {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        const tmpPath = `${target}.${process.pid}.tmp`;
+        fs.writeFileSync(tmpPath, `${JSON.stringify({ ...content, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf-8');
+        fs.renameSync(tmpPath, target);
+    } catch {
+        // Best-effort: the next render retries, and the widget output does not depend on it
+        return false;
+    }
+    ledger[target] = hash;
+    return true;
+}
+
+function recordLedger(transcriptPath: string, state: SessionCostState, result: SessionCostResult): void {
+    const { costs, cache } = state;
+    const sessionDir = path.join(path.dirname(transcriptPath), path.basename(transcriptPath, '.jsonl'));
+    const ledger = cache.ledger ??= {};
+    const before = JSON.stringify(ledger);
+
+    const subagents: Record<string, { totalUsd: number; approximate: boolean }> = {};
+    const byModel: Record<string, ModelCost> = {};
+    const agentTargets: [string, string][] = [];
+    for (const [filePath, cost] of Object.entries(costs)) {
+        if (filePath !== transcriptPath) {
+            const agentId = path.basename(filePath, '.jsonl').replace(/^agent-/, '');
+            subagents[agentId] = { totalUsd: cost.totalUsd, approximate: cost.hasUnknown };
+            agentTargets.push([agentId, filePath]);
+        }
+        for (const [model, modelCost] of Object.entries(cost.byModel)) {
+            const sum = byModel[model] ??= { usd: modelCost.usd === null ? null : 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+            sum.usd = sum.usd === null || modelCost.usd === null ? null : sum.usd + modelCost.usd;
+            sum.inputTokens += modelCost.inputTokens;
+            sum.outputTokens += modelCost.outputTokens;
+            sum.cacheReadTokens += modelCost.cacheReadTokens;
+            sum.cacheWriteTokens += modelCost.cacheWriteTokens;
+        }
+    }
+
+    const summary = summarize(Object.values(costs));
+    const shown = result.totalUsd !== undefined;
+    writeLedgerFile(ledger, path.join(sessionDir, 'cost.json'), {
+        sessionId: path.basename(transcriptPath, '.jsonl'),
+        totalUsd: result.totalUsd ?? summary.total,
+        approximate: shown ? result.approximate : summary.hasUnknown,
+        source: shown ? result.source : 'computed',
+        byModel: sortedByModel(byModel),
+        subagents
+    });
+
+    for (const [agentId, filePath] of agentTargets) {
+        const cost = costs[filePath];
+        if (!cost) {
+            continue;
+        }
+        writeLedgerFile(ledger, path.join(path.dirname(filePath), `agent-${agentId}.cost.json`), {
+            agentId,
+            totalUsd: cost.totalUsd,
+            approximate: cost.hasUnknown,
+            byModel: sortedByModel(cost.byModel)
+        });
+    }
+
+    if (JSON.stringify(ledger) !== before) {
+        saveCache(state.cachePath, cache);
+    }
+}
+
+/**
+ * Decides the session cost to show and records it beside Claude Code's own session files.
+ *
+ * @remarks
+ * Claude Code prices every message at Anthropic list prices, which is wrong once the
+ * gateway routes to other models. All-Claude sessions keep its number, which also covers
+ * calls the transcript never records. The record is `<session dir>/cost.json` plus
+ * `subagents/agent-<id>.cost.json` per subagent, written only when their content changed.
+ *
+ * @param claudeCodeTotal - `cost.total_cost_usd` from Claude Code's status payload
+ */
+export function resolveSessionCost(
+    transcriptPath: string | undefined,
+    claudeCodeTotal: number | undefined,
+    prices: ModelPrices = getModelPrices()
+): SessionCostResult {
+    let result: SessionCostResult = { totalUsd: claudeCodeTotal, approximate: false, source: 'claude-code' };
+    if (!transcriptPath) {
+        return result;
+    }
+
+    let state: SessionCostState | null;
+    try {
+        state = readSessionCost(transcriptPath, prices);
+    } catch {
+        return result;
+    }
+    if (!state) {
+        return result;
+    }
+
+    const summary = summarize(Object.values(state.costs));
+    if (!summary.allClaude) {
+        result = summary.hasUnknown
+            ? { totalUsd: claudeCodeTotal, approximate: true, source: 'claude-code' }
+            : { totalUsd: summary.total, approximate: false, source: 'computed' };
+    }
+
+    try {
+        recordLedger(transcriptPath, state, result);
+    } catch {
+        // The record is a side channel; it never hides the widget output
+    }
+    return result;
 }

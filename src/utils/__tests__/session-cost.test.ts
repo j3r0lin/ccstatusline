@@ -14,7 +14,10 @@ import modelPrices from '../../data/model-prices.json';
 import type { ModelPrices } from '../../types/ModelPrice';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
 import { SessionCostWidget } from '../../widgets/SessionCost';
-import { getSessionCostSummary } from '../session-cost';
+import {
+    getSessionCostSummary,
+    resolveSessionCost
+} from '../session-cost';
 
 /** Round prices under real alias keys, so a refresh of the committed table cannot move these expectations. */
 const FIXTURE_PRICES: ModelPrices = {
@@ -316,5 +319,174 @@ describe('session cost widget', () => {
     it('keeps the reported cost when the transcript is unreadable or not given', () => {
         expect(render(2.5)).toBe('$2.50');
         expect(render(2.5, undefined)).toBe('$2.50');
+    });
+});
+
+describe('session cost record', () => {
+    const close = (n: number) => expect.closeTo(n, 6) as number;
+
+    let tempDir: string;
+    let transcript: string;
+    let sessionDir: string;
+    let agentsDir: string;
+
+    const costPath = () => path.join(sessionDir, 'cost.json');
+    const agentCostPath = (id: string) => path.join(agentsDir, `agent-${id}.cost.json`);
+    const readJson = (file: string) => JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, unknown>;
+
+    function write(file: string, lines: string[]): void {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, `${lines.join('\n')}\n`, 'utf-8');
+    }
+
+    function resolve(claudeCodeTotal = 99, transcriptPath: string | undefined = transcript) {
+        return resolveSessionCost(transcriptPath, claudeCodeTotal, FIXTURE_PRICES);
+    }
+
+    beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-session-cost-record-'));
+        vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        seedFreshPriceCache(tempDir);
+        transcript = path.join(tempDir, 'proj', 'sess.jsonl');
+        sessionDir = path.join(tempDir, 'proj', 'sess');
+        agentsDir = path.join(sessionDir, 'subagents');
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    function writeMixedSession(): void {
+        write(transcript, [
+            assistantLine('a', 'k3-256k', { input: MILLION, output: 100_000, cacheRead: MILLION }),
+            assistantLine('b', 'glm-5.3', { input: MILLION })
+        ]);
+        write(path.join(agentsDir, 'agent-aaa.jsonl'), [assistantLine('c', 'k3-256k', { input: MILLION })]);
+        write(path.join(agentsDir, 'agent-bbb.jsonl'), [assistantLine('d', 'glm-5.3', { output: MILLION })]);
+    }
+
+    it('records the per-model session total and each subagent for a mixed-model session', () => {
+        writeMixedSession();
+
+        expect(resolve().totalUsd).toBeCloseTo(1 + 1 + 0.5 + 2 + 1 + 4, 6);
+
+        const session = readJson(costPath());
+        expect(session.sessionId).toBe('sess');
+        expect(session.source).toBe('computed');
+        expect(session.approximate).toBe(false);
+        expect(session.totalUsd).toBeCloseTo(9.5, 6);
+        expect(session.byModel).toMatchObject({
+            'k3-256k': { usd: close(3.5), inputTokens: 2 * MILLION, outputTokens: 100_000, cacheReadTokens: MILLION },
+            'glm-5.3': { usd: close(6), inputTokens: MILLION, outputTokens: MILLION }
+        });
+        expect(session.subagents).toMatchObject({
+            aaa: { totalUsd: close(1), approximate: false },
+            bbb: { totalUsd: close(4), approximate: false }
+        });
+
+        expect(readJson(agentCostPath('aaa'))).toMatchObject({
+            agentId: 'aaa',
+            totalUsd: close(1),
+            approximate: false,
+            byModel: { 'k3-256k': { inputTokens: MILLION } }
+        });
+        expect(readJson(agentCostPath('bbb')).totalUsd).toBeCloseTo(4, 6);
+    });
+
+    it('records the Claude Code total for an all-Claude session', () => {
+        write(transcript, [assistantLine('a', 'claude-sonnet-5-5', { input: MILLION })]);
+
+        expect(resolve(7.5).totalUsd).toBe(7.5);
+        expect(readJson(costPath())).toMatchObject({ totalUsd: 7.5, source: 'claude-code', approximate: false });
+    });
+
+    it('marks the record approximate when a model has no known price', () => {
+        write(transcript, [
+            assistantLine('a', 'k3-256k', { input: MILLION }),
+            assistantLine('b', 'mystery-model', { input: MILLION })
+        ]);
+        write(path.join(agentsDir, 'agent-aaa.jsonl'), [assistantLine('c', 'mystery-model', { input: MILLION })]);
+
+        expect(resolve(7.5)).toMatchObject({ totalUsd: 7.5, approximate: true });
+        expect(readJson(costPath())).toMatchObject({
+            totalUsd: 7.5,
+            source: 'claude-code',
+            approximate: true,
+            byModel: { 'mystery-model': { usd: null }, 'k3-256k': { usd: close(1) } },
+            subagents: { aaa: { totalUsd: 0, approximate: true } }
+        });
+        expect(readJson(agentCostPath('aaa'))).toMatchObject({ totalUsd: 0, approximate: true });
+    });
+
+    it('leaves every file untouched when nothing changed', () => {
+        writeMixedSession();
+        resolve();
+        const files = [costPath(), agentCostPath('aaa'), agentCostPath('bbb')];
+        const old = new Date(Date.now() - 60_000);
+        for (const file of files) {
+            fs.utimesSync(file, old, old);
+        }
+        const before = files.map(file => fs.readFileSync(file, 'utf-8'));
+
+        resolve();
+
+        expect(files.map(file => fs.readFileSync(file, 'utf-8'))).toEqual(before);
+        for (const file of files) {
+            expect(fs.statSync(file).mtimeMs).toBe(old.getTime());
+        }
+    });
+
+    it('rewrites the session and only the subagent that gained lines', () => {
+        writeMixedSession();
+        resolve();
+        const old = new Date(Date.now() - 60_000);
+        for (const file of [costPath(), agentCostPath('aaa'), agentCostPath('bbb')]) {
+            fs.utimesSync(file, old, old);
+        }
+
+        fs.appendFileSync(path.join(agentsDir, 'agent-aaa.jsonl'), `${assistantLine('e', 'k3-256k', { input: MILLION })}\n`);
+        resolve();
+
+        expect(readJson(costPath()).totalUsd).toBeCloseTo(10.5, 6);
+        expect(readJson(agentCostPath('aaa')).totalUsd).toBeCloseTo(2, 6);
+        expect(fs.statSync(agentCostPath('bbb')).mtimeMs).toBe(old.getTime());
+    });
+
+    it('restores a deleted record on the next render', () => {
+        writeMixedSession();
+        resolve();
+        fs.rmSync(costPath());
+
+        resolve();
+
+        expect(readJson(costPath()).totalUsd).toBeCloseTo(9.5, 6);
+    });
+
+    it('still returns the cost when the record cannot be written', () => {
+        write(transcript, [assistantLine('a', 'k3-256k', { input: MILLION })]);
+        // A file where the session directory belongs makes every write fail
+        fs.writeFileSync(sessionDir, 'in the way', 'utf-8');
+
+        expect(resolve().totalUsd).toBeCloseTo(1, 6);
+        expect(fs.readFileSync(sessionDir, 'utf-8')).toBe('in the way');
+    });
+
+    it('writes nothing without a transcript path or for a transcript that does not exist', () => {
+        expect(resolve(3, undefined)).toMatchObject({ totalUsd: 3, approximate: false });
+        expect(resolve(3)).toMatchObject({ totalUsd: 3 });
+        expect(fs.existsSync(sessionDir)).toBe(false);
+    });
+
+    it('writes nothing in preview mode', () => {
+        write(transcript, [assistantLine('a', 'k3-256k', { input: MILLION })]);
+
+        new SessionCostWidget().render(
+            { id: 'cost', type: 'session-cost' },
+            { isPreview: true, data: { transcript_path: transcript } },
+            DEFAULT_SETTINGS
+        );
+
+        expect(fs.existsSync(sessionDir)).toBe(false);
     });
 });
