@@ -358,9 +358,9 @@ async function handleModelPricesRefresh(): Promise<boolean> {
         return false;
     }
 
-    const lockPath = process.argv[flagIndex + 1];
-    if (lockPath) {
-        await refreshModelPrices(lockPath);
+    const token = process.argv[flagIndex + 1];
+    if (token) {
+        await refreshModelPrices(token);
     }
     return true;
 }
@@ -377,7 +377,8 @@ async function main() {
     }
 
     if (await handleModelPricesRefresh()) {
-        return;
+        // An aborted download can leave sockets open that would keep this process alive.
+        process.exit(0);
     }
 
     // Print version and exit (#461). Standard CLI behavior, runs before any other mode.

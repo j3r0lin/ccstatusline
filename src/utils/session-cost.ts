@@ -67,8 +67,18 @@ function getCachePath(transcriptPath: string): string {
 /** Bump when the cached state's shape changes, so older caches are discarded. */
 const CACHE_FORMAT = 2;
 
+/**
+ * Cached state stores tokens, not dollars, and the price table is applied on every
+ * render, so a changed price needs no recompute. Only the tier boundaries are baked
+ * in (each message's tier index), so only they version the cache; this keeps
+ * processes holding different price tables from discarding each other's state.
+ */
 function getPriceVersion(prices: ModelPrices): string {
-    const hash = createHash('sha256').update(JSON.stringify(prices)).digest('hex').slice(0, 12);
+    const boundaries = Object.keys(prices).sort().flatMap((key) => {
+        const tiers = prices[key]?.tiers;
+        return tiers ? [[key, tiers.map(t => t.tier.size)]] : [];
+    });
+    const hash = createHash('sha256').update(JSON.stringify(boundaries)).digest('hex').slice(0, 12);
     return `${CACHE_FORMAT}:${hash}`;
 }
 

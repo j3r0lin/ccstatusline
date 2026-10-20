@@ -1,13 +1,16 @@
 import { spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import {
     closeSync,
+    linkSync,
     mkdirSync,
     openSync,
     readFileSync,
     renameSync,
     statSync,
     unlinkSync,
-    writeFileSync
+    writeFileSync,
+    writeSync
 } from 'fs';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as https from 'node:https';
@@ -32,8 +35,8 @@ const bundledPrices: ModelPrices = bundledJson;
 // falls back to its bundled entry for keys an older cache lacks.
 const PRICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const RETRY_BACKOFF_MS = 60 * 60 * 1000;
-const REFRESH_LOCK_STALE_MS = 60_000;
-const FETCH_TIMEOUT_MS = 30_000;
+const REFRESH_LOCK_STALE_MS = 3 * 60 * 1000;
+const FETCH_DEADLINE_MS = 30_000;
 export const MODEL_PRICES_REFRESH_FLAG = '--internal-refresh-model-prices';
 
 export interface ModelPricesDeps {
@@ -42,14 +45,17 @@ export interface ModelPricesDeps {
     getExecPath: () => string;
     getScriptPath: () => string | undefined;
     spawn: typeof spawn;
-    fetchSource: () => Promise<ModelsDev>;
+    /** Aborting `signal` must cancel the download. */
+    fetchSource: (signal: AbortSignal) => Promise<ModelsDev>;
+    /** Wall-clock budget for the whole download, however the connection stalls. */
+    fetchDeadlineMs: number;
 }
 
-function fetchModelsDev(): Promise<ModelsDev> {
+function fetchModelsDev(signal: AbortSignal): Promise<ModelsDev> {
     return new Promise((resolve, reject) => {
         const proxyUrl = process.env.HTTPS_PROXY?.trim();
         const request = https.get(MODELS_DEV_URL, {
-            timeout: FETCH_TIMEOUT_MS,
+            signal,
             ...(proxyUrl ? { agent: new HttpsProxyAgent(proxyUrl) } : {})
         }, (response) => {
             if (response.statusCode !== 200) {
@@ -71,9 +77,6 @@ function fetchModelsDev(): Promise<ModelsDev> {
             });
             response.on('error', reject);
         });
-        request.on('timeout', () => {
-            request.destroy(new Error('models.dev request timed out'));
-        });
         request.on('error', reject);
     });
 }
@@ -84,7 +87,8 @@ const DEFAULT_DEPS: ModelPricesDeps = {
     getExecPath: () => process.execPath,
     getScriptPath: () => process.argv[1],
     spawn,
-    fetchSource: fetchModelsDev
+    fetchSource: fetchModelsDev,
+    fetchDeadlineMs: FETCH_DEADLINE_MS
 };
 
 function getCacheDir(deps: ModelPricesDeps): string {
@@ -135,23 +139,70 @@ function ageOf(filePath: string, deps: ModelPricesDeps): number {
     }
 }
 
-function claimLock(lockPath: string, deps: ModelPricesDeps): boolean {
-    for (let attempt = 0; attempt < 2; attempt++) {
+function tryCreateLock(lockPath: string, token: string, deps: ModelPricesDeps): boolean {
+    try {
+        const descriptor = openSync(lockPath, 'wx');
         try {
-            closeSync(openSync(lockPath, 'wx'));
-            return true;
+            writeSync(descriptor, `${process.pid} ${deps.now()} ${token}`);
+        } finally {
+            closeSync(descriptor);
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** At most one process holds the lock; an abandoned one is taken over once it is stale. */
+function claimLock(lockPath: string, token: string, deps: ModelPricesDeps): boolean {
+    if (tryCreateLock(lockPath, token, deps)) {
+        return true;
+    }
+    if (ageOf(lockPath, deps) <= REFRESH_LOCK_STALE_MS) {
+        return false;
+    }
+    // rename is atomic, so only one process moves a given stale lock away.
+    // It keeps its mtime, which shows whether a live lock was swapped in
+    // between our stat and the rename.
+    const moved = `${lockPath}.${process.pid}.stale`;
+    try {
+        renameSync(lockPath, moved);
+    } catch {
+        return false;
+    }
+    const wasStale = ageOf(moved, deps) > REFRESH_LOCK_STALE_MS;
+    if (!wasStale) {
+        try {
+            linkSync(moved, lockPath);
         } catch {
-            if (ageOf(lockPath, deps) <= REFRESH_LOCK_STALE_MS) {
-                return false;
-            }
-            try {
-                unlinkSync(lockPath);
-            } catch {
-                return false;
-            }
+            // Someone already created a new lock; theirs stands.
         }
     }
-    return false;
+    try {
+        unlinkSync(moved);
+    } catch {
+        // Nothing left to clean.
+    }
+    return wasStale && tryCreateLock(lockPath, token, deps);
+}
+
+function releaseLock(lockPath: string, token: string): void {
+    try {
+        if (readFileSync(lockPath, 'utf-8').endsWith(token)) {
+            unlinkSync(lockPath);
+        }
+    } catch {
+        // Already taken over or removed.
+    }
+}
+
+/** Stamps the shared retry-after marker; every process reads its mtime. */
+function stampAttempt(attemptPath: string): void {
+    try {
+        writeFileSync(attemptPath, '', 'utf-8');
+    } catch {
+        // Without a stamp a later render may retry sooner than the backoff.
+    }
 }
 
 function scheduleRefresh(deps: ModelPricesDeps): void {
@@ -165,22 +216,28 @@ function scheduleRefresh(deps: ModelPricesDeps): void {
     } catch {
         return;
     }
-    if (ageOf(paths.attempt, deps) < RETRY_BACKOFF_MS || !claimLock(paths.lock, deps)) {
+    if (ageOf(paths.attempt, deps) < RETRY_BACKOFF_MS) {
         return;
     }
+    const token = randomBytes(8).toString('hex');
+    if (!claimLock(paths.lock, token, deps)) {
+        return;
+    }
+    // The previous holder may have finished between the check above and the claim.
+    if (ageOf(paths.attempt, deps) < RETRY_BACKOFF_MS) {
+        releaseLock(paths.lock, token);
+        return;
+    }
+    stampAttempt(paths.attempt);
     try {
         const child = deps.spawn(
             deps.getExecPath(),
-            [scriptPath, MODEL_PRICES_REFRESH_FLAG, paths.lock],
+            [scriptPath, MODEL_PRICES_REFRESH_FLAG, token],
             { detached: true, stdio: 'ignore', windowsHide: true }
         );
         child.unref();
     } catch {
-        try {
-            unlinkSync(paths.lock);
-        } catch {
-            // A stale lock is reclaimed after REFRESH_LOCK_STALE_MS.
-        }
+        releaseLock(paths.lock, token);
     }
 }
 
@@ -211,32 +268,33 @@ export function getModelPrices(deps: ModelPricesDeps = DEFAULT_DEPS): ModelPrice
 
 /** Body of the detached child: download, extract, replace the cache atomically, and stamp the attempt. */
 export async function refreshModelPrices(
-    lockPath: string,
+    token: string,
     deps: ModelPricesDeps = DEFAULT_DEPS
 ): Promise<void> {
     const paths = getPaths(deps);
-    // Only touch the lock path derived from the cache dir, so the internal
-    // flag can't be abused into an arbitrary file delete.
-    if (lockPath !== paths.lock) {
-        return;
-    }
+    const tmpPath = `${paths.cache}.${process.pid}.tmp`;
+    const controller = new AbortController();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-        const prices = extractModelPrices(await deps.fetchSource());
-        const tmpPath = `${paths.cache}.${process.pid}.tmp`;
+        const timedOut = new Promise<never>((_resolve, reject) => {
+            deadline = setTimeout(() => {
+                controller.abort();
+                reject(new Error('models.dev download timed out'));
+            }, deps.fetchDeadlineMs);
+        });
+        const prices = extractModelPrices(await Promise.race([deps.fetchSource(controller.signal), timedOut]));
         writeFileSync(tmpPath, JSON.stringify(prices), 'utf-8');
         renameSync(tmpPath, paths.cache);
     } catch {
-        // Keep the previous file; the attempt stamp below delays the next try.
+        // Keep the previous file; the stamp below delays the next try.
+        try {
+            unlinkSync(tmpPath);
+        } catch {
+            // No partial file was written.
+        }
     } finally {
-        try {
-            writeFileSync(paths.attempt, '', 'utf-8');
-        } catch {
-            // Without a stamp the next render may retry sooner than the backoff.
-        }
-        try {
-            unlinkSync(paths.lock);
-        } catch {
-            // Already reclaimed as stale.
-        }
+        clearTimeout(deadline);
+        stampAttempt(paths.attempt);
+        releaseLock(paths.lock, token);
     }
 }

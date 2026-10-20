@@ -64,7 +64,8 @@ describe('model prices', () => {
             fetchSource: () => {
                 fetchCalls++;
                 return fetchResult();
-            }
+            },
+            fetchDeadlineMs: 5000
         };
     });
 
@@ -178,14 +179,107 @@ describe('model prices', () => {
         expect(getModelPrices(deps)['zai/glm-5.3']).toEqual((bundledPrices as ModelPrices)['zai/glm-5.3']);
     });
 
-    it('does not release a lock path it did not claim', async () => {
-        const stray = path.join(home, 'stray');
-        fs.writeFileSync(stray, '');
+    it('leaves another refresher\'s lock alone when the token does not match', async () => {
+        getModelPrices(deps);
+        const lock = path.join(cacheDir, 'model-prices.lock');
 
-        await refreshModelPrices(stray, deps);
+        await refreshModelPrices('someone-else', deps);
 
-        expect(fs.existsSync(stray)).toBe(true);
-        expect(fetchCalls).toBe(0);
+        expect(fs.existsSync(lock)).toBe(true);
+    });
+
+    it('takes over a lock left by a crashed refresher', () => {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        const lock = path.join(cacheDir, 'model-prices.lock');
+        fs.writeFileSync(lock, '1 0 dead');
+        const old = new Date(Date.now() - 10 * 60 * 1000);
+        fs.utimesSync(lock, old, old);
+
+        getModelPrices(deps);
+
+        expect(spawned).toHaveLength(1);
+    });
+
+    it('does not take over a lock that is still fresh', () => {
+        fs.mkdirSync(cacheDir, { recursive: true });
+        fs.writeFileSync(path.join(cacheDir, 'model-prices.lock'), '1 0 busy');
+
+        getModelPrices(deps);
+
+        expect(spawned).toHaveLength(0);
+    });
+
+    it('does not refresh again right after a refresh was started, even before it finishes', () => {
+        getModelPrices(deps);
+        fs.rmSync(path.join(cacheDir, 'model-prices.lock'));
+
+        getModelPrices(deps);
+
+        expect(spawned).toHaveLength(1);
+    });
+
+    it('does not start refreshes for a corrupt cache while backing off', () => {
+        writeCache('{not json');
+        fs.writeFileSync(path.join(cacheDir, 'model-prices.attempt'), '');
+
+        for (let i = 0; i < 10; i++) {
+            expect(getModelPrices(deps)).toEqual(bundledPrices);
+        }
+
+        expect(spawned).toHaveLength(0);
+    });
+
+    it('gives up on a download that never finishes and frees the lock', async () => {
+        const old = JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } });
+        writeCache(old, 25 * HOUR);
+        let aborted = false;
+        deps = {
+            ...deps,
+            fetchDeadlineMs: 50,
+            fetchSource: signal => new Promise<ModelsDev>(() => {
+                signal.addEventListener('abort', () => {
+                    aborted = true;
+                });
+            })
+        };
+
+        getModelPrices(deps);
+        await runSpawnedRefresh();
+
+        expect(aborted).toBe(true);
+        expect(fs.readFileSync(cachePath, 'utf-8')).toBe(old);
+        expect(fs.existsSync(path.join(cacheDir, 'model-prices.lock'))).toBe(false);
+        expect(fs.readdirSync(cacheDir).filter(f => f.endsWith('.tmp'))).toEqual([]);
+    });
+
+    it('keeps one session cache version when only prices change', () => {
+        const transcript = path.join(home, 't.jsonl');
+        const line = (id: string): string => `${JSON.stringify({
+            type: 'assistant',
+            message: { id, model: 'glm-5.3', usage: { input_tokens: 1_000_000, output_tokens: 0 } }
+        })}\n`;
+        fs.writeFileSync(transcript, line('m1'));
+        const homedir = os.homedir;
+        os.homedir = () => home;
+        try {
+            const readVersion = (): string => {
+                const file = fs.readdirSync(cacheDir).find(f => f.startsWith('session-cost-')) ?? '';
+                return (JSON.parse(fs.readFileSync(path.join(cacheDir, file), 'utf-8')) as { priceVersion: string }).priceVersion;
+            };
+            const first = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
+            const versionBefore = readVersion();
+            fs.appendFileSync(transcript, line('m2'));
+            // A process holding the refreshed table and one still holding the old table interleave
+            const refreshed = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 5, output: 4 } });
+            const stale = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
+
+            expect(first?.total).toBeCloseTo(2);
+            expect(refreshed?.total).toBeCloseTo(10);
+            expect(stale?.total).toBeCloseTo(4);
+            expect(readVersion()).toBe(versionBefore);
+        } finally {
+            os.homedir = homedir;
+        }
     });
 
     it('changes the session cost when a refresh changes the prices', () => {
