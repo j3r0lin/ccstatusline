@@ -419,18 +419,18 @@ describe('fetchUsageData error handling', () => {
         }
     });
 
-    it('preserves root errors within a process and keeps existing proxy and cache behavior', () => {
+    const successUsage = {
+        sessionUsage: 42,
+        sessionResetAt: '2030-01-01T00:00:00.000Z',
+        weeklyUsage: 17,
+        weeklyResetAt: '2030-01-07T00:00:00.000Z'
+    };
+
+    it('reports no-credentials without requesting or caching', () => {
         const harness = createProbeHarness();
 
         try {
             const noCredentialsHome = harness.createEmptyHome('no-credentials');
-            const apiErrorHome = harness.createTokenHome('api-error');
-            const successHome = harness.createTokenHome('success');
-            const invalidProxyHome = harness.createTokenHome('invalid-proxy');
-            const proxyHome = harness.createTokenHome('proxy');
-            const blankProxyHome = harness.createTokenHome('blank-proxy');
-            const lowercaseProxyHome = harness.createTokenHome('lowercase-proxy');
-
             const noCredentialsResult = harness.runProbe({
                 home: noCredentialsHome.home,
                 mode: 'unexpected',
@@ -443,7 +443,16 @@ describe('fetchUsageData error handling', () => {
             expect(noCredentialsResult.cacheExists).toBe(false);
             expect(noCredentialsResult.requestCount).toBe(0);
             expect(noCredentialsResult.proxyAgentConfigured).toBe(false);
+        } finally {
+            harness.cleanup();
+        }
+    });
 
+    it('preserves an API error within a process and blocks the next process with a timeout lock', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const apiErrorHome = harness.createTokenHome('api-error');
             const apiErrorResult = harness.runProbe({
                 claudeConfigDir: apiErrorHome.claudeConfig,
                 home: apiErrorHome.home,
@@ -474,7 +483,16 @@ describe('fetchUsageData error handling', () => {
             expect(genericLockResult.first).toEqual({ error: 'timeout' });
             expect(genericLockResult.second).toEqual({ error: 'timeout' });
             expect(genericLockResult.requestCount).toBe(0);
+        } finally {
+            harness.cleanup();
+        }
+    });
 
+    it('caches a successful response and serves it to later processes, even with a bad proxy once stale', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const successHome = harness.createTokenHome('success');
             const successResult = harness.runProbe({
                 claudeConfigDir: successHome.claudeConfig,
                 home: successHome.home,
@@ -484,18 +502,50 @@ describe('fetchUsageData error handling', () => {
                 responseBody: successResponseBody
             });
 
-            expect(successResult.first).toEqual({
-                sessionUsage: 42,
-                sessionResetAt: '2030-01-01T00:00:00.000Z',
-                weeklyUsage: 17,
-                weeklyResetAt: '2030-01-07T00:00:00.000Z'
-            });
-            expect(successResult.second).toEqual(successResult.first);
+            expect(successResult.first).toEqual(successUsage);
+            expect(successResult.second).toEqual(successUsage);
             expect(successResult.cacheExists).toBe(true);
             expect(successResult.requestCount).toBe(1);
             expect(successResult.proxyAgentConfigured).toBe(false);
             expect(successResult.requestHost).toBe('api.anthropic.com');
 
+            const staleProxyResult = harness.runProbe({
+                claudeConfigDir: successHome.claudeConfig,
+                home: successHome.home,
+                httpsProxy: '://bad-proxy',
+                mode: 'success',
+                nowMs: nowMs + 181000,
+                pathDir: successHome.bin,
+                responseBody: successResponseBody
+            });
+
+            expect(staleProxyResult.first).toEqual(successUsage);
+            expect(staleProxyResult.second).toEqual(successUsage);
+            expect(staleProxyResult.requestCount).toBe(0);
+            expect(staleProxyResult.proxyAgentConfigured).toBe(false);
+
+            const cachedSuccessResult = harness.runProbe({
+                claudeConfigDir: successHome.claudeConfig,
+                home: successHome.home,
+                mode: 'unexpected',
+                nowMs,
+                pathDir: successHome.bin
+            });
+
+            expect(cachedSuccessResult.first).toEqual(successUsage);
+            expect(cachedSuccessResult.second).toEqual(successUsage);
+            expect(cachedSuccessResult.cacheExists).toBe(true);
+            expect(cachedSuccessResult.requestCount).toBe(0);
+        } finally {
+            harness.cleanup();
+        }
+    });
+
+    it('routes the request through HTTPS_PROXY', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const proxyHome = harness.createTokenHome('proxy');
             const httpsProxyResult = harness.runProbe({
                 claudeConfigDir: proxyHome.claudeConfig,
                 home: proxyHome.home,
@@ -506,12 +556,21 @@ describe('fetchUsageData error handling', () => {
                 responseBody: successResponseBody
             });
 
-            expect(httpsProxyResult.first).toEqual(successResult.first);
-            expect(httpsProxyResult.second).toEqual(successResult.first);
+            expect(httpsProxyResult.first).toEqual(successUsage);
+            expect(httpsProxyResult.second).toEqual(successUsage);
             expect(httpsProxyResult.requestCount).toBe(1);
             expect(httpsProxyResult.proxyAgentConfigured).toBe(true);
             expect(httpsProxyResult.requestHost).toBe('api.anthropic.com');
+        } finally {
+            harness.cleanup();
+        }
+    });
 
+    it('ignores a lowercase https_proxy outside Windows', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const lowercaseProxyHome = harness.createTokenHome('lowercase-proxy');
             const lowercaseProxyResult = harness.runProbe({
                 claudeConfigDir: lowercaseProxyHome.claudeConfig,
                 home: lowercaseProxyHome.home,
@@ -522,13 +581,22 @@ describe('fetchUsageData error handling', () => {
                 responseBody: successResponseBody
             });
 
-            expect(lowercaseProxyResult.first).toEqual(successResult.first);
-            expect(lowercaseProxyResult.second).toEqual(successResult.first);
+            expect(lowercaseProxyResult.first).toEqual(successUsage);
+            expect(lowercaseProxyResult.second).toEqual(successUsage);
             expect(lowercaseProxyResult.requestCount).toBe(1);
             // Windows environment variables are case-insensitive, so a
             // lowercase https_proxy is indistinguishable from HTTPS_PROXY there
             expect(lowercaseProxyResult.proxyAgentConfigured).toBe(process.platform === 'win32');
+        } finally {
+            harness.cleanup();
+        }
+    });
 
+    it('ignores a blank HTTPS_PROXY', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const blankProxyHome = harness.createTokenHome('blank-proxy');
             const blankProxyResult = harness.runProbe({
                 claudeConfigDir: blankProxyHome.claudeConfig,
                 home: blankProxyHome.home,
@@ -539,11 +607,20 @@ describe('fetchUsageData error handling', () => {
                 responseBody: successResponseBody
             });
 
-            expect(blankProxyResult.first).toEqual(successResult.first);
-            expect(blankProxyResult.second).toEqual(successResult.first);
+            expect(blankProxyResult.first).toEqual(successUsage);
+            expect(blankProxyResult.second).toEqual(successUsage);
             expect(blankProxyResult.requestCount).toBe(1);
             expect(blankProxyResult.proxyAgentConfigured).toBe(false);
+        } finally {
+            harness.cleanup();
+        }
+    });
 
+    it('reports an API error without requesting when HTTPS_PROXY is invalid', () => {
+        const harness = createProbeHarness();
+
+        try {
+            const invalidProxyHome = harness.createTokenHome('invalid-proxy');
             const invalidProxyResult = harness.runProbe({
                 claudeConfigDir: invalidProxyHome.claudeConfig,
                 home: invalidProxyHome.home,
@@ -558,34 +635,6 @@ describe('fetchUsageData error handling', () => {
             expect(invalidProxyResult.second).toEqual({ error: 'api-error' });
             expect(invalidProxyResult.requestCount).toBe(0);
             expect(invalidProxyResult.proxyAgentConfigured).toBe(false);
-
-            const staleProxyResult = harness.runProbe({
-                claudeConfigDir: successHome.claudeConfig,
-                home: successHome.home,
-                httpsProxy: '://bad-proxy',
-                mode: 'success',
-                nowMs: nowMs + 181000,
-                pathDir: successHome.bin,
-                responseBody: successResponseBody
-            });
-
-            expect(staleProxyResult.first).toEqual(successResult.first);
-            expect(staleProxyResult.second).toEqual(successResult.first);
-            expect(staleProxyResult.requestCount).toBe(0);
-            expect(staleProxyResult.proxyAgentConfigured).toBe(false);
-
-            const cachedSuccessResult = harness.runProbe({
-                claudeConfigDir: successHome.claudeConfig,
-                home: successHome.home,
-                mode: 'unexpected',
-                nowMs,
-                pathDir: successHome.bin
-            });
-
-            expect(cachedSuccessResult.first).toEqual(successResult.first);
-            expect(cachedSuccessResult.second).toEqual(successResult.first);
-            expect(cachedSuccessResult.cacheExists).toBe(true);
-            expect(cachedSuccessResult.requestCount).toBe(0);
         } finally {
             harness.cleanup();
         }
