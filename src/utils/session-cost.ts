@@ -451,13 +451,11 @@ function recordLedger(transcriptPath: string, state: SessionCostState, result: S
     const ledger = cache.ledger ??= {};
     const before = JSON.stringify(ledger);
 
-    const subagents: Record<string, { totalUsd: number; approximate: boolean }> = {};
     const byModel: Record<string, ModelCost> = {};
     const agentTargets: [string, string][] = [];
     for (const [filePath, cost] of Object.entries(costs)) {
         if (filePath !== transcriptPath) {
             const agentId = path.basename(filePath, '.jsonl').replace(/^agent-/, '');
-            subagents[agentId] = { totalUsd: cost.totalUsd, approximate: cost.hasUnknown };
             agentTargets.push([agentId, filePath]);
         }
         for (const [model, modelCost] of Object.entries(cost.byModel)) {
@@ -477,8 +475,7 @@ function recordLedger(transcriptPath: string, state: SessionCostState, result: S
         totalUsd: result.totalUsd ?? summary.total,
         approximate: shown ? result.approximate : summary.hasUnknown,
         source: shown ? result.source : 'computed',
-        byModel: sortedByModel(byModel),
-        subagents
+        byModel: sortedByModel(byModel)
     });
 
     for (const [agentId, filePath] of agentTargets) {

@@ -380,10 +380,7 @@ describe('session cost record', () => {
             'k3-256k': { usd: close(3.5), inputTokens: 2 * MILLION, outputTokens: 100_000, cacheReadTokens: MILLION },
             'glm-5.3': { usd: close(6), inputTokens: MILLION, outputTokens: MILLION }
         });
-        expect(session.subagents).toMatchObject({
-            aaa: { totalUsd: close(1), approximate: false },
-            bbb: { totalUsd: close(4), approximate: false }
-        });
+        expect(session).not.toHaveProperty('subagents');
 
         expect(readJson(agentCostPath('aaa'))).toMatchObject({
             agentId: 'aaa',
@@ -413,8 +410,7 @@ describe('session cost record', () => {
             totalUsd: 7.5,
             source: 'claude-code',
             approximate: true,
-            byModel: { 'mystery-model': { usd: null }, 'k3-256k': { usd: close(1) } },
-            subagents: { aaa: { totalUsd: 0, approximate: true } }
+            byModel: { 'mystery-model': { usd: null }, 'k3-256k': { usd: close(1) } }
         });
         expect(readJson(agentCostPath('aaa'))).toMatchObject({ totalUsd: 0, approximate: true });
     });
