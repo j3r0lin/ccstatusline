@@ -4,39 +4,42 @@ import os from 'node:os';
 import path from 'node:path';
 
 import modelPrices from '../data/model-prices.json';
+import type {
+    ModelPrice,
+    ModelPrices
+} from '../types/ModelPrice';
 
 import {
     isClaudeModel,
     resolvePriceKey
 } from './model-price-aliases';
 
-interface PriceTier {
+/** Token totals billed at one price tier. */
+interface TierTokens {
     input: number;
     output: number;
-    cache_read?: number;
-    cache_write?: number;
-    tier: { size: number };
+    cacheRead: number;
+    write5m: number;
+    write1h: number;
 }
-
-interface ModelPrice {
-    input: number;
-    output: number;
-    cache_read?: number;
-    cache_write?: number;
-    tiers?: PriceTier[];
-}
-
-/** Token totals of one price tier: input, output, cache read, 5m cache write, 1h cache write. */
-type TierTokens = [number, number, number, number, number];
 
 /** Per model, tokens by price tier; index 0 is the base price, index n the n-th `tiers` entry. */
 type ModelTokens = Record<string, Record<number, TierTokens>>;
+
+/** What one message contributed to `models`, kept so a later line for the same id can replace it. */
+interface CountedMessage {
+    id: string;
+    model: string;
+    tier: number;
+    tokens: TierTokens;
+}
 
 interface FileState {
     ino: number;
     /** Bytes consumed so far, always ending just after a newline. */
     offset: number;
-    ids: string[];
+    /** Lines sharing a message id are adjacent, so only the latest message needs tracking. */
+    last?: CountedMessage;
     models: ModelTokens;
 }
 
@@ -54,8 +57,7 @@ export interface SessionCostSummary {
     hasUnknown: boolean;
 }
 
-const PRICES = modelPrices as Record<string, ModelPrice>;
-const PRICE_VERSION = createHash('sha256').update(JSON.stringify(PRICES)).digest('hex').slice(0, 12);
+const PRICES: ModelPrices = modelPrices;
 const READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 function getCachePath(transcriptPath: string): string {
@@ -63,16 +65,24 @@ function getCachePath(transcriptPath: string): string {
     return path.join(os.homedir(), '.cache', 'ccstatusline', `session-cost-${hash}.json`);
 }
 
-function loadCache(cachePath: string): CostCache {
+/** Bump when the cached state's shape changes, so older caches are discarded. */
+const CACHE_FORMAT = 2;
+
+function getPriceVersion(prices: ModelPrices): string {
+    const hash = createHash('sha256').update(JSON.stringify(prices)).digest('hex').slice(0, 12);
+    return `${CACHE_FORMAT}:${hash}`;
+}
+
+function loadCache(cachePath: string, priceVersion: string): CostCache {
     try {
         const cache = JSON.parse(fs.readFileSync(cachePath, 'utf-8')) as CostCache;
-        if (cache.priceVersion === PRICE_VERSION && typeof cache.files === 'object') {
+        if (cache.priceVersion === priceVersion && typeof cache.files === 'object') {
             return cache;
         }
     } catch {
         // Missing or corrupt cache: start over
     }
-    return { priceVersion: PRICE_VERSION, files: {} };
+    return { priceVersion, files: {} };
 }
 
 function saveCache(cachePath: string, cache: CostCache): void {
@@ -119,9 +129,9 @@ interface UsageLine {
     };
 }
 
-function pickTier(model: string, promptTokens: number): number {
+function pickTier(prices: ModelPrices, model: string, promptTokens: number): number {
     const key = resolvePriceKey(model);
-    const tiers = key === null ? undefined : PRICES[key]?.tiers;
+    const tiers = key === null ? undefined : prices[key]?.tiers;
     let picked = 0;
     tiers?.forEach((tier, index) => {
         if (promptTokens > tier.tier.size) {
@@ -131,7 +141,17 @@ function pickTier(model: string, promptTokens: number): number {
     return picked;
 }
 
-function addLine(state: FileState, seen: Set<string>, line: string): void {
+function addTokens(state: FileState, message: CountedMessage, sign: 1 | -1): void {
+    const byTier = state.models[message.model] ??= {};
+    const total = byTier[message.tier] ??= { input: 0, output: 0, cacheRead: 0, write5m: 0, write1h: 0 };
+    total.input += sign * message.tokens.input;
+    total.output += sign * message.tokens.output;
+    total.cacheRead += sign * message.tokens.cacheRead;
+    total.write5m += sign * message.tokens.write5m;
+    total.write1h += sign * message.tokens.write1h;
+}
+
+function addLine(state: FileState, prices: ModelPrices, line: string): void {
     if (!line.includes('"usage"')) {
         return;
     }
@@ -150,16 +170,6 @@ function addLine(state: FileState, seen: Set<string>, line: string): void {
         return;
     }
 
-    // Claude Code writes one line per content block, all carrying the same usage
-    const id = message.id;
-    if (id !== undefined) {
-        if (seen.has(id)) {
-            return;
-        }
-        seen.add(id);
-        state.ids.push(id);
-    }
-
     const input = usage.input_tokens ?? 0;
     const output = usage.output_tokens ?? 0;
     const cacheRead = usage.cache_read_input_tokens ?? 0;
@@ -170,22 +180,27 @@ function addLine(state: FileState, seen: Set<string>, line: string): void {
 
     const write1h = usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
     const write5m = usage.cache_creation?.ephemeral_5m_input_tokens ?? Math.max(cacheCreated - write1h, 0);
+    const counted: CountedMessage = {
+        id: message.id ?? '',
+        model,
+        tier: pickTier(prices, model, input + cacheRead + cacheCreated),
+        tokens: { input, output, cacheRead, write5m, write1h }
+    };
 
-    const tier = pickTier(model, input + cacheRead + cacheCreated);
-    const byTier = state.models[model] ??= {};
-    const tokens = byTier[tier] ??= [0, 0, 0, 0, 0];
-    tokens[0] += input;
-    tokens[1] += output;
-    tokens[2] += cacheRead;
-    tokens[3] += write5m;
-    tokens[4] += write1h;
+    // Claude Code writes one line per content block, and a later line of the
+    // same message carries the settled usage (output grows, input can move
+    // into the cache read), so the latest line replaces the earlier one.
+    if (counted.id !== '' && state.last?.id === counted.id) {
+        addTokens(state, state.last, -1);
+    }
+    addTokens(state, counted, 1);
+    state.last = counted;
 }
 
 /** Reads bytes appended since `state.offset`, feeding each complete line to `addLine`. */
-function consumeAppended(filePath: string, size: number, state: FileState): void {
+function consumeAppended(filePath: string, size: number, state: FileState, prices: ModelPrices): void {
     const fd = fs.openSync(filePath, 'r');
     try {
-        const seen = new Set(state.ids);
         let position = state.offset;
         let carry = Buffer.alloc(0);
         let consumed = state.offset;
@@ -208,7 +223,7 @@ function consumeAppended(filePath: string, size: number, state: FileState): void
             carry = Buffer.from(buffer.subarray(lastNewline + 1));
             buffer = buffer.subarray(0, lastNewline);
             for (const line of buffer.toString('utf-8').split('\n')) {
-                addLine(state, seen, line);
+                addLine(state, prices, line);
             }
             consumed = position - carry.length;
         }
@@ -220,7 +235,7 @@ function consumeAppended(filePath: string, size: number, state: FileState): void
     }
 }
 
-function refreshFile(filePath: string, previous: FileState | undefined): FileState | null {
+function refreshFile(filePath: string, previous: FileState | undefined, prices: ModelPrices): FileState | null {
     let stat: fs.Stats;
     try {
         stat = fs.statSync(filePath);
@@ -230,32 +245,31 @@ function refreshFile(filePath: string, previous: FileState | undefined): FileSta
 
     const state: FileState = previous?.ino === stat.ino && previous.offset <= stat.size
         ? previous
-        : { ino: stat.ino, offset: 0, ids: [], models: {} };
+        : { ino: stat.ino, offset: 0, models: {} };
 
     if (state.offset < stat.size) {
-        consumeAppended(filePath, stat.size, state);
+        consumeAppended(filePath, stat.size, state, prices);
     }
     return state;
 }
 
 function priceTokens(price: ModelPrice, tierIndex: number, tokens: TierTokens): number {
-    const tier = tierIndex > 0 ? price.tiers?.[tierIndex - 1] : undefined;
-    const input = tier?.input ?? price.input;
-    const output = tier?.output ?? price.output;
-    const cacheRead = tier ? (tier.cache_read ?? price.cache_read ?? input) : (price.cache_read ?? input);
-    const cacheWrite = tier ? (tier.cache_write ?? price.cache_write ?? input) : (price.cache_write ?? input);
+    // A tier replaces the base prices whole, so its omissions fall back to its own input price
+    const rates = (tierIndex > 0 ? price.tiers?.[tierIndex - 1] : undefined) ?? price;
+    const cacheRead = rates.cache_read ?? rates.input;
+    const cacheWrite = rates.cache_write ?? rates.input;
 
     // Anthropic bills 1h cache writes at twice the input price
     return (
-        tokens[0] * input
-        + tokens[1] * output
-        + tokens[2] * cacheRead
-        + tokens[3] * cacheWrite
-        + tokens[4] * 2 * input
+        tokens.input * rates.input
+        + tokens.output * rates.output
+        + tokens.cacheRead * cacheRead
+        + tokens.write5m * cacheWrite
+        + tokens.write1h * 2 * rates.input
     ) / 1_000_000;
 }
 
-function summarize(files: FileState[]): SessionCostSummary {
+function summarize(files: FileState[], prices: ModelPrices): SessionCostSummary {
     let total = 0;
     let allClaude = true;
     let hasUnknown = false;
@@ -266,7 +280,7 @@ function summarize(files: FileState[]): SessionCostSummary {
                 allClaude = false;
             }
             const key = resolvePriceKey(model);
-            const price = key === null ? undefined : PRICES[key];
+            const price = key === null ? undefined : prices[key];
             if (!price) {
                 hasUnknown = true;
                 continue;
@@ -287,30 +301,32 @@ function summarize(files: FileState[]): SessionCostSummary {
  * Per-file progress persists under `~/.cache/ccstatusline`, so a render reads
  * only the bytes appended since the previous one; transcripts reach tens of MB.
  *
+ * @param prices - Price table keyed by models.dev `provider/key`; tests inject a small one
  * @returns null when the transcript cannot be read
  */
-export function getSessionCostSummary(transcriptPath: string): SessionCostSummary | null {
+export function getSessionCostSummary(transcriptPath: string, prices: ModelPrices = PRICES): SessionCostSummary | null {
     try {
-        return readSessionCost(transcriptPath);
+        return readSessionCost(transcriptPath, prices);
     } catch {
         return null;
     }
 }
 
-function readSessionCost(transcriptPath: string): SessionCostSummary | null {
+function readSessionCost(transcriptPath: string, prices: ModelPrices): SessionCostSummary | null {
     if (!fs.existsSync(transcriptPath)) {
         return null;
     }
 
     const cachePath = getCachePath(transcriptPath);
-    const cache = loadCache(cachePath);
+    const priceVersion = getPriceVersion(prices);
+    const cache = loadCache(cachePath, priceVersion);
     const nextFiles: Record<string, FileState> = {};
     let changed = false;
 
     for (const filePath of [transcriptPath, ...getSubagentFiles(transcriptPath)]) {
         const previous = cache.files[filePath];
         const previousOffset = previous?.offset;
-        const state = refreshFile(filePath, previous);
+        const state = refreshFile(filePath, previous, prices);
         if (state === null) {
             continue;
         }
@@ -324,8 +340,8 @@ function readSessionCost(transcriptPath: string): SessionCostSummary | null {
         changed = true;
     }
     if (changed) {
-        saveCache(cachePath, { priceVersion: PRICE_VERSION, files: nextFiles });
+        saveCache(cachePath, { priceVersion, files: nextFiles });
     }
 
-    return summarize(Object.values(nextFiles));
+    return summarize(Object.values(nextFiles), prices);
 }

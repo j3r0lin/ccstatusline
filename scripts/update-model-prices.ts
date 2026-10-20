@@ -6,25 +6,13 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 
+import type {
+    ModelPrice,
+    ModelPrices
+} from '../src/types/ModelPrice';
 import { getReferencedPriceKeys } from '../src/utils/model-price-aliases';
 
-interface PriceTier {
-    input: number;
-    output: number;
-    cache_read?: number;
-    cache_write?: number;
-    tier: { type: string; size: number };
-}
-
-interface ModelsDevCost {
-    input: number;
-    output: number;
-    cache_read?: number;
-    cache_write?: number;
-    tiers?: PriceTier[];
-}
-
-type ModelsDev = Record<string, { models?: Record<string, { cost?: ModelsDevCost }> } | undefined>;
+type ModelsDev = Record<string, { models?: Record<string, { cost?: ModelPrice }> } | undefined>;
 
 const SOURCE_URL = 'https://models.dev/api.json';
 const OUTPUT_PATH = join(import.meta.dir, '..', 'src', 'data', 'model-prices.json');
@@ -41,8 +29,8 @@ async function loadSource(arg: string | undefined): Promise<ModelsDev> {
     return await response.json() as ModelsDev;
 }
 
-function pickCost(cost: ModelsDevCost): ModelsDevCost {
-    const picked: ModelsDevCost = { input: cost.input, output: cost.output };
+function pickCost(cost: ModelPrice): ModelPrice {
+    const picked: ModelPrice = { input: cost.input, output: cost.output };
     if (cost.cache_read !== undefined) {
         picked.cache_read = cost.cache_read;
     }
@@ -63,7 +51,7 @@ function pickCost(cost: ModelsDevCost): ModelsDevCost {
 }
 
 const source = await loadSource(process.argv[2]);
-const prices: Record<string, ModelsDevCost> = {};
+const prices: ModelPrices = {};
 const missing: string[] = [];
 
 for (const key of getReferencedPriceKeys()) {
