@@ -41,7 +41,7 @@ export interface UsagePaceIndicator {
     text: string;
 }
 
-// Milliseconds between two instants that fall on a Mon-Fri day, in local time.
+// Milliseconds between two instants that fall on a Mon-Sat day, in local time.
 function workdayMsBetween(startMs: number, endMs: number): number {
     if (endMs <= startMs) {
         return 0;
@@ -53,7 +53,7 @@ function workdayMsBetween(startMs: number, endMs: number): number {
     let total = 0;
     for (let dayStart = firstDay.getTime(); dayStart < endMs; dayStart += DAY_MS) {
         const weekday = new Date(dayStart).getDay();
-        if (weekday === 0 || weekday === 6) {
+        if (weekday === 0) {
             continue;
         }
 
@@ -67,10 +67,13 @@ function workdayMsBetween(startMs: number, endMs: number): number {
     return total;
 }
 
-// A week's budget is not spent evenly across a calendar week — the weekend is
-// dead time for most people, so a straight-line baseline reads a normal Friday
-// as overspending. Measuring progress in workdays instead keeps the baseline
-// aligned with when the budget actually gets used.
+// A week's budget is not spent evenly across a calendar week, so a straight-
+// line baseline reads a normal Friday as overspending. Only Sunday is left out:
+// this account's weekends take about a seventh of the week, between the 0 a
+// Mon-Fri baseline assumes and the two sevenths a wall clock does. Erring
+// toward Mon-Fri runs the budget out a day and a half early when the weekend
+// does get used; the Mon-Sat baseline caps that at under a day, and at worst
+// strands a sixth of the budget when it does not.
 //
 // Only the weekly window gets this treatment, matching CodexBar: a monthly
 // window spans whole weeks, so weekends average out and the straight line is

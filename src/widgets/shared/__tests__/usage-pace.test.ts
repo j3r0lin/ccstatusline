@@ -36,51 +36,58 @@ describe('getUsagePaceIndicator', () => {
         expect(getUsagePaceIndicator(96, null)).toBeNull();
     });
 
-    it('measures progress in workdays, not wall clock', () => {
-        // Window opens Friday 03:00, now is Monday 13:00: 34 of the window's
-        // 120 workday hours have passed (28%), while 49% of the week has.
+    it('measures progress in Mon-Sat hours, not wall clock', () => {
+        // Window opens Friday 03:00, now is Monday 13:00: 58 of the window's
+        // 144 Mon-Sat hours have passed (40%), while 49% of the week has.
         const now = '2026-08-17T13:00:00';
         const window = weeklyWindowAt('2026-08-21T03:00:00', now);
 
         expect(window.elapsedPercent).toBeCloseTo(48.8, 0);
-        expect(getUsagePaceIndicator(21, window, at(now))).toEqual({ color: 'brightGreen', text: '▾7' });
+        expect(getUsagePaceIndicator(33, window, at(now))).toEqual({ color: 'brightGreen', text: '▾7' });
     });
 
-    it('does not count the weekend against you', () => {
-        // The window opens Friday; Saturday and Sunday add no workday time, so
-        // a day of not working does not move the delta.
+    it('does not count Sunday against you', () => {
         const reset = '2026-08-21T03:00:00';
-        const saturday = '2026-08-15T13:00:00';
-        const sunday = '2026-08-16T13:00:00';
+        const sundayMorning = '2026-08-16T01:00:00';
+        const sundayNight = '2026-08-16T23:00:00';
 
-        expect(getUsagePaceIndicator(21, weeklyWindowAt(reset, sunday), at(sunday)))
-            .toEqual(getUsagePaceIndicator(21, weeklyWindowAt(reset, saturday), at(saturday)));
+        expect(getUsagePaceIndicator(21, weeklyWindowAt(reset, sundayNight), at(sundayNight)))
+            .toEqual(getUsagePaceIndicator(21, weeklyWindowAt(reset, sundayMorning), at(sundayMorning)));
+    });
+
+    it('counts Saturday as a day the budget is spent', () => {
+        const reset = '2026-08-21T03:00:00';
+        const saturdayMorning = '2026-08-15T01:00:00';
+        const saturdayNight = '2026-08-15T23:00:00';
+
+        expect(getUsagePaceIndicator(21, weeklyWindowAt(reset, saturdayNight), at(saturdayNight)))
+            .not.toEqual(getUsagePaceIndicator(21, weeklyWindowAt(reset, saturdayMorning), at(saturdayMorning)));
     });
 
     it('colors reserve, deepening the further behind pace', () => {
-        const now = '2026-08-19T12:00:00'; // Wednesday, 67% of workdays elapsed
+        const now = '2026-08-19T12:00:00'; // Wednesday, 73% of Mon-Sat hours elapsed
         const window = weeklyWindowAt('2026-08-21T03:00:00', now);
 
-        expect(getUsagePaceIndicator(65, window, at(now))).toEqual({ color: undefined, text: '▾2' });
-        expect(getUsagePaceIndicator(58, window, at(now))).toEqual({ color: 'brightGreen', text: '▾9' });
-        expect(getUsagePaceIndicator(10, window, at(now))).toEqual({ color: 'green', text: '▾57' });
+        expect(getUsagePaceIndicator(71, window, at(now))).toEqual({ color: undefined, text: '▾2' });
+        expect(getUsagePaceIndicator(64, window, at(now))).toEqual({ color: 'brightGreen', text: '▾9' });
+        expect(getUsagePaceIndicator(10, window, at(now))).toEqual({ color: 'green', text: '▾63' });
     });
 
     it('leaves the narrow on-pace band uncolored', () => {
-        const now = '2026-08-17T13:00:00'; // Monday, 28% of workdays elapsed
+        const now = '2026-08-17T13:00:00'; // Monday, 40% of Mon-Sat hours elapsed
         const window = weeklyWindowAt('2026-08-21T03:00:00', now);
 
-        expect(getUsagePaceIndicator(30, window, at(now))).toEqual({ color: undefined, text: '▴2' });
-        expect(getUsagePaceIndicator(31, window, at(now))).toEqual({ color: 'yellow', text: '▴3' });
+        expect(getUsagePaceIndicator(42, window, at(now))).toEqual({ color: undefined, text: '▴2' });
+        expect(getUsagePaceIndicator(43, window, at(now))).toEqual({ color: 'yellow', text: '▴3' });
     });
 
     it('colors the deficit once spending runs meaningfully ahead', () => {
-        const now = '2026-08-17T13:00:00'; // Monday, 28% of workdays elapsed
+        const now = '2026-08-17T13:00:00'; // Monday, 40% of Mon-Sat hours elapsed
         const window = weeklyWindowAt('2026-08-21T03:00:00', now);
 
-        expect(getUsagePaceIndicator(38, window, at(now))).toEqual({ color: 'yellow', text: '▴10' });
-        expect(getUsagePaceIndicator(40, window, at(now))).toEqual({ color: 'yellow', text: '▴12' });
-        expect(getUsagePaceIndicator(41, window, at(now))).toEqual({ color: 'brightRed', text: '▴13' });
+        expect(getUsagePaceIndicator(50, window, at(now))).toEqual({ color: 'yellow', text: '▴10' });
+        expect(getUsagePaceIndicator(52, window, at(now))).toEqual({ color: 'yellow', text: '▴12' });
+        expect(getUsagePaceIndicator(53, window, at(now))).toEqual({ color: 'brightRed', text: '▴13' });
     });
 
     it('says nothing when usage predates the window it is paced against', () => {
