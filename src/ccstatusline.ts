@@ -25,6 +25,10 @@ import {
     refreshJiraIssueCacheFromCli
 } from './utils/jira-issue-cache';
 import { getTranscriptAnalysis } from './utils/jsonl';
+import {
+    MODEL_PRICES_REFRESH_FLAG,
+    refreshModelPrices
+} from './utils/model-prices';
 import { advanceGlobalPowerlineThemeIndex } from './utils/powerline-theme-index';
 import {
     buildConfigWarningBadge,
@@ -348,6 +352,19 @@ function handleJiraIssueRefresh(): boolean {
     return true;
 }
 
+async function handleModelPricesRefresh(): Promise<boolean> {
+    const flagIndex = process.argv.indexOf(MODEL_PRICES_REFRESH_FLAG);
+    if (flagIndex === -1) {
+        return false;
+    }
+
+    const lockPath = process.argv[flagIndex + 1];
+    if (lockPath) {
+        await refreshModelPrices(lockPath);
+    }
+    return true;
+}
+
 async function main() {
     // Detached cache refreshes re-enter this executable without reading stdin
     // or loading user settings. This mode intentionally emits no output.
@@ -356,6 +373,10 @@ async function main() {
     }
 
     if (handleJiraIssueRefresh()) {
+        return;
+    }
+
+    if (await handleModelPricesRefresh()) {
         return;
     }
 

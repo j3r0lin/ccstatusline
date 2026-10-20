@@ -3,7 +3,6 @@ import * as fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import modelPrices from '../data/model-prices.json';
 import type {
     ModelPrice,
     ModelPrices
@@ -13,6 +12,7 @@ import {
     isClaudeModel,
     resolvePriceKey
 } from './model-price-aliases';
+import { getModelPrices } from './model-prices';
 
 /** Token totals billed at one price tier. */
 interface TierTokens {
@@ -57,7 +57,6 @@ export interface SessionCostSummary {
     hasUnknown: boolean;
 }
 
-const PRICES: ModelPrices = modelPrices;
 const READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 function getCachePath(transcriptPath: string): string {
@@ -304,7 +303,7 @@ function summarize(files: FileState[], prices: ModelPrices): SessionCostSummary 
  * @param prices - Price table keyed by models.dev `provider/key`; tests inject a small one
  * @returns null when the transcript cannot be read
  */
-export function getSessionCostSummary(transcriptPath: string, prices: ModelPrices = PRICES): SessionCostSummary | null {
+export function getSessionCostSummary(transcriptPath: string, prices: ModelPrices = getModelPrices()): SessionCostSummary | null {
     try {
         return readSessionCost(transcriptPath, prices);
     } catch {

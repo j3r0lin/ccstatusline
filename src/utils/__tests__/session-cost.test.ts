@@ -29,6 +29,13 @@ const FIXTURE_PRICES: ModelPrices = {
     }
 };
 
+/** A fresh price cache keeps the default price lookup from spawning a background refresh. */
+function seedFreshPriceCache(home: string): void {
+    const dir = path.join(home, '.cache', 'ccstatusline');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'model-prices.json'), JSON.stringify(modelPrices));
+}
+
 interface Usage {
     input?: number;
     output?: number;
@@ -84,6 +91,7 @@ describe('session cost at per-model API prices', () => {
     beforeEach(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-session-cost-'));
         vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        seedFreshPriceCache(tempDir);
         transcript = path.join(tempDir, 'sess.jsonl');
     });
 
@@ -270,6 +278,7 @@ describe('session cost widget', () => {
     beforeEach(() => {
         tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-session-cost-widget-'));
         vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        seedFreshPriceCache(tempDir);
         transcript = path.join(tempDir, 'sess.jsonl');
     });
 
