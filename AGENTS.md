@@ -73,6 +73,8 @@ Widgets implement the interface in `src/types/Widget.ts` and register in the map
 
 Kimi's monthly pool is not in Kimi's own `/coding/v1/usages` reply. A local Surge script (`~/.config/magpie/surge/kimi-monthly.js`, setup in the README beside it) appends it as a 30-day `TIME_UNIT_DAY` entry in `limits`, and `kimi-usage.ts` reads that entry. So the monthly value appears only when the request goes through Surge: the status-line command sets `HTTPS_PROXY=http://127.0.0.1:6152`, and `NODE_EXTRA_CA_CERTS` points at the exported Surge CA, because the Bun binary does not trust the macOS keychain. Without that CA the request fails with `SELF_SIGNED_CERT_IN_CHAIN`. Keep the monthly window absent rather than erroring when the entry is missing.
 
+`session-cost` writes `<session-id>/cost.json` and `subagents/agent-<id>.cost.json` beside the transcripts, and the global `~/.claude/CLAUDE.md` tells other projects' sessions to read them. Treat their fields as a public format: when you rename or drop one, update that note too.
+
 Optional widget methods include `getHideableStates()`, `supportsNumberFormat()`, and `preservesRenderedColors()`.
 
 ## Conventions
