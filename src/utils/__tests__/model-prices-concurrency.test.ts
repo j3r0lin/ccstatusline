@@ -48,3 +48,19 @@ it('downloads once across simultaneous renders and never serves a partial file',
         expect(output).toBe('bad=0 glm=7');
     }
 }, 60_000);
+
+it('lets only one of many renders take over a stale lock', async () => {
+    const log = path.join(home, 'events.log');
+    fs.writeFileSync(log, '');
+    const cacheDir = path.join(home, '.cache', 'ccstatusline');
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const lock = path.join(cacheDir, 'model-prices.lock');
+    fs.writeFileSync(lock, '1 0 dead');
+    const old = new Date(Date.now() - 10 * 60 * 1000);
+    fs.utimesSync(lock, old, old);
+
+    await Promise.all(Array.from({ length: 12 }, () => runWorker(log)));
+
+    const events = fs.readFileSync(log, 'utf-8').split('\n').filter(Boolean);
+    expect(events.filter(e => e === 'download')).toHaveLength(1);
+}, 60_000);
