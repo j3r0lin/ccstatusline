@@ -15,6 +15,7 @@ import {
 
 import type { RenderContext } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
+import { useModelNamesFixture } from '../../utils/__tests__/model-names-fixture';
 import { stripSgrCodes } from '../../utils/ansi';
 import * as magpieAccountLabel from '../../utils/magpie-account-label';
 import { ModelWidget } from '../Model';
@@ -49,6 +50,14 @@ function render(context: RenderContext, colorLevel: 0 | 1 | 2 | 3 = 0): string {
 }
 
 describe('ModelWidget model mismatch marker', () => {
+    let restoreNames: () => void;
+    // Per test: the suites' vi.restoreAllMocks() would otherwise undo the homedir stub.
+    beforeEach(() => {
+        restoreNames = useModelNamesFixture();
+    });
+    afterEach(() => {
+        restoreNames();
+    });
     let level: typeof chalk.level;
     beforeAll(() => {
         level = chalk.level;

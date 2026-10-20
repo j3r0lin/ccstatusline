@@ -15,6 +15,7 @@ import type {
     WidgetItem
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
+import { useModelNamesFixture } from '../../utils/__tests__/model-names-fixture';
 import { stripSgrCodes } from '../../utils/ansi';
 import * as magpieAccountLabel from '../../utils/magpie-account-label';
 import { ModelWidget } from '../Model';
@@ -43,6 +44,14 @@ function modelContext(effortLevel?: string | null): RenderContext {
 const EFFORT_RAW: WidgetItem = { id: 'model', type: 'model', rawValue: true, metadata: { effortColor: 'true' } };
 
 describe('ModelWidget', () => {
+    let restoreNames: () => void;
+    // Per test: the suites' vi.restoreAllMocks() would otherwise undo the homedir stub.
+    beforeEach(() => {
+        restoreNames = useModelNamesFixture();
+    });
+    afterEach(() => {
+        restoreNames();
+    });
     // Runtime forces truecolor globally (ccstatusline.ts / tui.tsx); mirror that
     // here so getColorAnsiCode emits SGR codes for named colors.
     let originalChalkLevel: typeof chalk.level;
@@ -77,21 +86,6 @@ describe('ModelWidget', () => {
         it('leaves name unchanged when no parenthetical', () => {
             const ctx = makeContext({ data: { model: { id: 'claude-sonnet-4-6', display_name: 'Sonnet 4.6' } } });
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sonnet 4.6');
-        });
-
-        it('handles model as string (legacy)', () => {
-            const ctx = makeContext({ data: { model: 'Claude Opus 4.6 (1M context)' } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Opus 4.6');
-        });
-
-        it('renders Kimi models as "Kimi" from id', () => {
-            const ctx = makeContext({ data: { model: { id: 'kimi-k2-0711-longcontext' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi');
-        });
-
-        it('renders Kimi models as "Kimi" from display_name', () => {
-            const ctx = makeContext({ data: { model: { id: 'kimi-k2', display_name: 'Kimi K2' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Kimi');
         });
 
         it('renders kimi-for-coding as the K2 family without a pinned version', () => {
@@ -144,35 +138,33 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4');
         });
 
-        it('renders grok-code-fast-1 as "Grok Code Fast"', () => {
-            const ctx = makeContext({ data: { model: { id: 'grok-code-fast-1' } } });
-            expect(stripSgrCodes(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe('Grok Code ↯');
-        });
-
-        it('keeps a human Grok display_name', () => {
-            const ctx = makeContext({ data: { model: { id: 'grok-4.5', display_name: 'Grok 4.5' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
-        });
-
-        it('renders legacy string grok model ids as "Grok 4.5"', () => {
-            const ctx = makeContext({ data: { model: 'grok-4.5' } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Grok 4.5');
-        });
-
         it('renders gpt-5.6-sol as "Sol 5.6"', () => {
             const ctx = makeContext({ data: { model: { id: 'gpt-5.6-sol' } } });
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Sol 5.6');
         });
 
         it.each([
-            ['gpt-6.1-sol-fast', 'Sol 6.1 ↯'],
             ['gpt-6.1-sol', 'Sol 6.1'],
-            ['openai/gpt-6.1-sol-fast', 'Sol 6.1 ↯'],
-            ['gpt-6.1-fast', 'GPT 6.1 ↯']
+            ['openai/gpt-6.1-sol', 'Sol 6.1'],
+            ['grok-4.7-build-fast', 'Grok 4.7 ↯'],
+            ['deepseek-v4.1-flash-free', 'DSF 4.1 Free'],
+            ['glm-5.3-flash-free', 'glm-5.3-flash-free']
         ])('renders %s as %s', (id, expected) => {
             const widget = new ModelWidget();
             expect(stripSgrCodes(widget.render(RAW_ITEM, makeContext({ data: { model: { id } } }), DEFAULT_SETTINGS) ?? '')).toBe(expected);
             expect(stripSgrCodes(widget.render(RAW_ITEM, makeContext({ data: { model: id } }), DEFAULT_SETTINGS) ?? '')).toBe(expected);
+        });
+
+        it('shows a name from the whole-name table', () => {
+            const ctx = makeContext({ data: { model: { id: 'kimi-for-coding-highspeed' } } });
+            expect(stripSgrCodes(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS) ?? '')).toBe('K2 ↯');
+        });
+
+        it('only cleans the id when the table file is missing', () => {
+            restoreNames();
+            restoreNames = useModelNamesFixture(null);
+            const ctx = makeContext({ data: { model: { id: 'deepseek/deepseek-v4.1-flash-free[1m]' } } });
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('deepseek-v4.1-flash-free');
         });
 
         it('renders gpt-5.6-terra as "Terra 5.6"', () => {
@@ -180,35 +172,9 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra 5.6');
         });
 
-        it('renders future GPT versions as variant then version', () => {
-            const widget = new ModelWidget();
-            const sol = makeContext({ data: { model: { id: 'gpt-6-sol' } } });
-            const astra = makeContext({ data: { model: { id: 'gpt-6-astra' } } });
-            const future = makeContext({ data: { model: { id: 'gpt-7-abc' } } });
-
-            expect(widget.render(RAW_ITEM, sol, DEFAULT_SETTINGS)).toBe('Sol 6');
-            expect(widget.render(RAW_ITEM, astra, DEFAULT_SETTINGS)).toBe('Astra 6');
-            expect(widget.render(RAW_ITEM, future, DEFAULT_SETTINGS)).toBe('Abc 7');
-        });
-
-        it('renders bare terra as "Terra"', () => {
-            const ctx = makeContext({ data: { model: { id: 'terra' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Terra');
-        });
-
         it('renders a provider-prefixed GPT model as variant then version', () => {
             const ctx = makeContext({ data: { model: { id: 'openai/gpt-5.6-luna' } } });
             expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Luna 5.6');
-        });
-
-        it('renders gpt-5.3-codex as "Codex 5.3"', () => {
-            const ctx = makeContext({ data: { model: { id: 'gpt-5.3-codex' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Codex 5.3');
-        });
-
-        it('renders codex-mini as "Codex Mini"', () => {
-            const ctx = makeContext({ data: { model: { id: 'openai/codex-mini' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Codex Mini');
         });
 
         it('prefers the versioned model id over a shorter display_name', () => {
@@ -242,9 +208,9 @@ describe('ModelWidget', () => {
             expect(new ModelWidget().render({ ...ITEM, metadata: { label: 'M ' } }, ctx, DEFAULT_SETTINGS)).toBe('M Opus 4.6');
         });
 
-        it('falls back to model id when display_name is absent', () => {
+        it('names the model from its id when display_name is absent', () => {
             const ctx = makeContext({ data: { model: { id: 'claude-opus-4-6[1m]' } } });
-            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('claude-opus-4-6[1m]');
+            expect(new ModelWidget().render(RAW_ITEM, ctx, DEFAULT_SETTINGS)).toBe('Opus 4.6');
         });
     });
 
@@ -253,11 +219,10 @@ describe('ModelWidget', () => {
             ['gpt-6.1-sol', true, 'Sol 6.1 ↯'],
             ['gpt-6.1-sol', false, 'Sol 6.1'],
             ['gpt-6.1-sol', undefined, 'Sol 6.1'],
-            ['gpt-6.1-sol-fast', true, 'Sol 6.1 ↯'],
-            ['gpt-6.1-sol-fast', false, 'Sol 6.1 ↯'],
-            ['gpt-6.1-sol-fast', undefined, 'Sol 6.1 ↯'],
-            ['kimi-for-coding-highspeed', true, 'K2 ↯'],
-            ['grok-code-fast-1', true, 'Grok Code ↯']
+            ['grok-4.7-build-fast', true, 'Grok 4.7 ↯'],
+            ['grok-4.7-build-fast', false, 'Grok 4.7 ↯'],
+            ['grok-4.7-build-fast', undefined, 'Grok 4.7 ↯'],
+            ['kimi-for-coding-highspeed', true, 'K2 ↯']
         ] as const)('renders %s with fast_mode=%s as %s', (id, fastMode, expected) => {
             const widget = new ModelWidget();
             const ctx = makeContext({ data: { model: { id }, fast_mode: fastMode } });

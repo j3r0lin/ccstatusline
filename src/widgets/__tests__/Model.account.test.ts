@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -11,6 +12,7 @@ import type {
     WidgetItem
 } from '../../types';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
+import { useModelNamesFixture } from '../../utils/__tests__/model-names-fixture';
 import { stripSgrCodes } from '../../utils/ansi';
 import * as accountLabel from '../../utils/magpie-account-label';
 import * as magpie from '../../utils/magpie-usage';
@@ -25,8 +27,14 @@ const CONTEXT: RenderContext = { data: { model: { id: 'claude-sonnet-5-5', displ
 const NO_COLOR = { ...DEFAULT_SETTINGS, colorLevel: 0 as const };
 
 describe('ModelWidget account suffix', () => {
+    let restoreNames: () => void;
     beforeEach(() => {
         vi.restoreAllMocks();
+        // After restoreAllMocks, which would otherwise undo the homedir stub.
+        restoreNames = useModelNamesFixture();
+    });
+    afterEach(() => {
+        restoreNames();
     });
 
     it('appends the account name after the model name', () => {
@@ -48,9 +56,14 @@ describe('ModelWidget account suffix', () => {
 });
 
 describe('ModelWidget provider label toggle', () => {
+    let restoreNames: () => void;
     beforeEach(() => {
         vi.restoreAllMocks();
+        restoreNames = useModelNamesFixture();
         vi.spyOn(magpie, 'isMagpieGateway').mockReturnValue(true);
+    });
+    afterEach(() => {
+        restoreNames();
     });
 
     function renderWithAccount(account: magpie.MagpieAccount | undefined, accountCount: number | undefined, item: WidgetItem = ITEM): string | null {

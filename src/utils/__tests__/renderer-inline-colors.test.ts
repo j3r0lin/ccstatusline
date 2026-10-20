@@ -23,6 +23,8 @@ import {
     renderStatusLine
 } from '../renderer';
 
+import { useModelNamesFixture } from './model-names-fixture';
+
 function createSettings(overrides: Partial<Settings> = {}): Settings {
     return {
         ...DEFAULT_SETTINGS,
@@ -45,6 +47,14 @@ function render(widget: WidgetItem, content: string, settingsOverrides: Partial<
 const INLINE = '\x1b[31mOpus\x1b[0m'; // model name pre-colored by the widget
 
 describe('renderer inline-color preservation', () => {
+    let restoreNames: () => void;
+    // Per test: the suites' vi.restoreAllMocks() would otherwise undo the homedir stub.
+    beforeEach(() => {
+        restoreNames = useModelNamesFixture();
+    });
+    afterEach(() => {
+        restoreNames();
+    });
     // Mirror the runtime truecolor setting so the renderer's normal coloring path
     // actually emits SGR codes (chalk defaults to level 0 in tests).
     let originalChalkLevel: typeof chalk.level;

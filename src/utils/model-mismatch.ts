@@ -108,20 +108,3 @@ export function detectModelMismatch(requestedId: string | undefined, transcriptP
 
     return normalizeModelId(returned) === normalizeModelId(requestedId) ? null : returned;
 }
-
-/** `claude-sonnet-5-5` -> `Sonnet 5.5`, `claude-3-5-haiku-20241022` -> `Haiku 3.5`; unknown shapes fall back to the id. */
-export function formatClaudeModelId(id: string): string {
-    const slug = normalizeModelId(id).replace(/^claude-/, '');
-    const family = /^(opus|sonnet|haiku|fable)(?:-(\d+(?:-\d+)?))?$/.exec(slug);
-    if (family?.[1]) {
-        const name = family[1].charAt(0).toUpperCase() + family[1].slice(1);
-        return family[2] ? `${name} ${family[2].replace('-', '.')}` : name;
-    }
-
-    const legacy = /^(\d+(?:-\d+)?)-(opus|sonnet|haiku)$/.exec(slug);
-    if (legacy?.[1] && legacy[2]) {
-        return `${legacy[2].charAt(0).toUpperCase()}${legacy[2].slice(1)} ${legacy[1].replace('-', '.')}`;
-    }
-
-    return id;
-}

@@ -14,10 +14,10 @@ import {
 } from '../utils/magpie-account-label';
 import {
     detectModelMismatch,
-    formatClaudeModelId,
     getLastRequestedModel,
     isSameRequestedModel
 } from '../utils/model-mismatch';
+import { formatModelName } from '../utils/model-names';
 import {
     colorizeModelName,
     resolveThinkingEffort
@@ -42,160 +42,8 @@ interface ModelInfo {
     display_name?: string;
 }
 
-function formatGrokModelName(id: string | undefined, name: string | undefined): string | null {
-    const haystack = `${id ?? ''} ${name ?? ''}`;
-    if (!/grok/i.test(haystack)) {
-        return null;
-    }
-
-    // Keep an already human-readable display_name (e.g. "Grok 4.5").
-    if (name && /grok/i.test(name) && (/\s/.test(name) || /^[A-Z]/.test(name))) {
-        return name.replace(/\s*\(.*\)$/, '').trim();
-    }
-
-    const slug = (id ?? name ?? '')
-        .replace(/^xai\//i, '')
-        .replace(/\[1m\]$/i, '');
-
-    const versionMatch = /^grok[-_]?(\d+(?:\.\d+)?)$/i.exec(slug);
-    if (versionMatch) {
-        return `Grok ${versionMatch[1]}`;
-    }
-
-    if (/^grok[-_]?code[-_]?fast/i.test(slug)) {
-        return 'Grok Code Fast';
-    }
-
-    if (/^grok[-_]?code/i.test(slug)) {
-        return 'Grok Code';
-    }
-
-    return slug
-        .split(/[-_]+/)
-        .filter(Boolean)
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-        .join(' ');
-}
-
-function titleCaseToken(token: string): string {
-    if (!token) {
-        return token;
-    }
-    return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
-}
-
-function looksHumanCodexDisplayName(name: string): boolean {
-    // Prefer short human labels; reject slug ids like "gpt-5.6-terra".
-    if (/[-_/]/.test(name) && !/\s/.test(name)) {
-        return false;
-    }
-    return /^(?:Sol|Terra|Luna|Codex|GPT)\b/i.test(name) || /\s/.test(name);
-}
-
-/**
- * Short display names for OpenAI / Codex models used with Claude Code status lines.
- * Versioned GPT models put the humanized variant first and retain the version.
- */
-function formatCodexModelName(id: string | undefined, name: string | undefined): string | null {
-    const haystack = `${id ?? ''} ${name ?? ''}`;
-    const looksCodex = /codex|chatgpt-codex|(?:^|[\s/._-])(?:gpt[-_ ]?\d|sol|terra|luna|astra)(?:$|[\s/._-])/i.test(haystack)
-        || /^(?:sol|terra|luna|astra)$/i.test((id ?? name ?? '').trim());
-    if (!looksCodex) {
-        return null;
-    }
-
-    const slug = (id ?? name ?? '')
-        .replace(/^(?:openai|chatgpt)\//i, '')
-        .replace(/\[1m\]$/i, '')
-        .trim();
-
-    const gptModel = /^gpt[-_ ]?(\d+(?:\.\d+)?)(?:[-_ ]+(.+))?$/i.exec(slug);
-    if (gptModel?.[1]) {
-        const tokens = gptModel[2]
-            ?.split(/[-_ ]+/)
-            .filter(Boolean)
-            .map(titleCaseToken) ?? [];
-        const fast = tokens[tokens.length - 1] === 'Fast';
-        if (fast) {
-            tokens.pop();
-        }
-        const variant = tokens.join(' ');
-        const modelName = variant ? `${variant} ${gptModel[1]}` : `GPT ${gptModel[1]}`;
-        return fast ? `${modelName} Fast` : modelName;
-    }
-
-    // Keep a short human display_name (e.g. "Terra", "GPT 5.6 Sol").
-    if (name && /codex|gpt|sol|terra|luna|astra/i.test(name) && looksHumanCodexDisplayName(name)) {
-        const cleaned = name.replace(/\s*\(.*\)$/, '').trim();
-        const bareTierName = /^(sol|terra|luna|astra)$/i.exec(cleaned);
-        if (bareTierName?.[1]) {
-            return titleCaseToken(bareTierName[1]);
-        }
-        return cleaned;
-    }
-
-    const bareTier = /^(sol|terra|luna|astra)$/i.exec(slug);
-    if (bareTier?.[1]) {
-        return titleCaseToken(bareTier[1]);
-    }
-
-    if (/^chatgpt[-_]?codex/i.test(slug) || /^codex$/i.test(slug)) {
-        return 'Codex';
-    }
-
-    if (/^codex[-_]?mini/i.test(slug)) {
-        return 'Codex Mini';
-    }
-
-    if (/codex/i.test(slug)) {
-        return slug
-            .split(/[-_]+/)
-            .filter(Boolean)
-            .map(titleCaseToken)
-            .join(' ');
-    }
-
-    return null;
-}
-
 function formatModelDisplayName(model: string | ModelInfo): string {
-    const id = typeof model === 'string' ? undefined : model.id;
-    const name = typeof model === 'string' ? model : (model.display_name ?? model.id);
-
-    // kimi-for-coding is a stable alias whose backing model upgrades in place
-    // within the K2 family (K2.7 → K2.8 Preview per kimi.com/code/docs), so
-    // show the family name without pinning a version.
-    if (/kimi-for-coding-highspeed/i.test(id ?? '') || /kimi-for-coding-highspeed/i.test(name ?? '')) {
-        return 'K2 Fast';
-    }
-
-    if (/^kimi-for-coding$/i.test(id ?? '')) {
-        return 'K2';
-    }
-
-    if (/^k3(?:-256k)?(?:\[1m\])?$/i.test(id ?? '')) {
-        return 'K3';
-    }
-
-    if (/kimi/i.test(name ?? '')) {
-        return 'Kimi';
-    }
-
-    const grokName = formatGrokModelName(id, name);
-    if (grokName) {
-        return grokName;
-    }
-
-    const codexName = formatCodexModelName(id, name);
-    if (codexName) {
-        return codexName;
-    }
-
-    return (name ?? '').replace(/^Claude\s+/i, '').replace(/\s*\(.*\)$/, '');
-}
-
-function formatServedModelName(id: string): string {
-    return /^claude-/i.test(id) ? formatClaudeModelId(id) : formatModelDisplayName({ id });
+    return formatModelName(typeof model === 'string' ? model : (model.id ?? model.display_name ?? ''));
 }
 
 const LABEL = 'Model: ';
@@ -265,7 +113,7 @@ export class ModelWidget implements Widget {
         }
 
         const magpieModel = resolveMagpieModel(context);
-        const modelName = magpieModel ? formatServedModelName(magpieModel) : formatModelDisplayName(model);
+        const modelName = magpieModel ? formatModelName(magpieModel) : formatModelDisplayName(model);
         const hasFastSuffix = /\s+Fast$/i.test(modelName);
         const fast = context.data?.fast_mode === true || hasFastSuffix;
         const shortName = hasFastSuffix ? modelName.replace(/\s+Fast$/i, '') : modelName;
@@ -279,7 +127,7 @@ export class ModelWidget implements Widget {
         const returnedModel = typeof model === 'string' || switchedSinceLastRequest
             ? null
             : detectModelMismatch(magpieModel ?? model.id, context.data?.transcript_path);
-        const mismatch = returnedModel ? `→ ${formatClaudeModelId(returnedModel)}` : null;
+        const mismatch = returnedModel ? `→ ${formatModelName(returnedModel)}` : null;
         const accountLabel = resolveMagpieAccountLabel(context, { showProvider: showsProviderLabel(item) });
         const account = accountLabel ? `@${accountLabel}` : null;
 
