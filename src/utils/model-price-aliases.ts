@@ -28,12 +28,23 @@ export const NON_CLAUDE_MODEL_ALIASES: Record<string, string> = {
     'kimi-for-coding': 'moonshotai/kimi-k3',
     'kimi-for-coding-highspeed': 'moonshotai/kimi-k3',
     'gpt-6.1-sol': 'openai/gpt-6.1-sol',
+    'gpt-6-astra': 'openai/gpt-6-astra',
+    'gpt-6-sol': 'openai/gpt-6-sol',
+    'gpt-6-luna': 'openai/gpt-6-luna',
+    'gpt-5.6-sol': 'openai/gpt-5.6-sol',
+    'gpt-5.6-terra': 'openai/gpt-5.6-terra',
+    'gpt-5.6-luna': 'openai/gpt-5.6-luna',
     'grok-4.7': 'xai/grok-4.7',
     'grok-4.7-build': 'xai/grok-4.7',
+    'grok-4.6': 'xai/grok-4.6',
+    'grok-4.5': 'xai/grok-4.5',
     'glm-5.3': 'zai/glm-5.3',
+    'glm-5.2': 'zai/glm-5.2',
+    'glm-5.1': 'zai/glm-5.1',
     'glm-5.3-flash': 'zai/glm-5.3-flash',
     'glm-5.3-flash-free': 'zai/glm-5.3-flash',
     'deepseek-v4.1-flash': 'opencode-go/deepseek-v4.1-flash',
+    'deepseek-v4-pro': 'deepseek/deepseek-v4-pro',
     'deepseek-v4.1-flash-free': 'opencode-go/deepseek-v4.1-flash'
 };
 
