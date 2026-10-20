@@ -25,6 +25,7 @@
     "start": "bun run src/ccstatusline.ts",
     "build": "rm -rf dist/* ; bun build src/ccstatusline.ts --target=node --splitting --format=esm --outdir=dist --target-version=14",
     "postbuild": "bun run scripts/replace-version.ts",
+    "update-prices": "bun run scripts/update-model-prices.ts",
     "example": "cat scripts/payload.example.json | bun start",
     "video:studio": "remotion studio remotion/index.ts",
     "video:still": "remotion still remotion/index.ts ccstatusline-tui-demo out/ccstatusline-tui-demo.png --frame=700 --scale=0.5",

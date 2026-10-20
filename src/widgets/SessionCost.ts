@@ -10,6 +10,7 @@ import {
     formatCost,
     resolveNumberFormat
 } from '../utils/number-format';
+import { getSessionCostSummary } from '../utils/session-cost';
 
 import { isHidden } from './shared/hideable';
 import { formatRawOrLabeledValue } from './shared/raw-or-labeled';
@@ -39,7 +40,22 @@ export class SessionCostWidget implements Widget {
             return formatRawOrLabeledValue(item, this.getLabelPrefix(), value);
         }
 
-        const totalCost = context.data?.cost?.total_cost_usd;
+        let totalCost = context.data?.cost?.total_cost_usd;
+        let approximate = false;
+
+        // Claude Code prices every message at Anthropic list prices, which is
+        // wrong once the gateway routes to other models. All-Claude sessions
+        // keep its number, which also covers calls the transcript never records.
+        const transcriptPath = context.data?.transcript_path;
+        const summary = transcriptPath ? getSessionCostSummary(transcriptPath) : null;
+        if (summary && !summary.allClaude) {
+            if (summary.hasUnknown) {
+                approximate = true;
+            } else {
+                totalCost = summary.total;
+            }
+        }
+
         if (totalCost === undefined) {
             return null;
         }
@@ -51,7 +67,7 @@ export class SessionCostWidget implements Widget {
             return null;
         }
 
-        const formattedCost = formatCost(totalCost, format);
+        const formattedCost = `${formatCost(totalCost, format)}${approximate ? '~' : ''}`;
         return formatRawOrLabeledValue(item, this.getLabelPrefix(), formattedCost);
     }
 
