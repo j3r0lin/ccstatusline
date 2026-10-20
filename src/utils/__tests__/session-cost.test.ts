@@ -339,6 +339,10 @@ describe('session cost record', () => {
         fs.writeFileSync(file, `${lines.join('\n')}\n`, 'utf-8');
     }
 
+    function tmpFiles(): string[] {
+        return fs.readdirSync(tempDir, { recursive: true, encoding: 'utf-8' }).filter(name => name.endsWith('.tmp'));
+    }
+
     function resolve(claudeCodeTotal = 99, transcriptPath: string | undefined = transcript) {
         return resolveSessionCost(transcriptPath, claudeCodeTotal, FIXTURE_PRICES);
     }
@@ -466,6 +470,17 @@ describe('session cost record', () => {
 
         expect(resolve().totalUsd).toBeCloseTo(1, 6);
         expect(fs.readFileSync(sessionDir, 'utf-8')).toBe('in the way');
+        expect(tmpFiles()).toEqual([]);
+    });
+
+    it('leaves no tmp file behind when the target path is a directory', () => {
+        write(transcript, [assistantLine('a', 'k3-256k', { input: MILLION })]);
+        fs.mkdirSync(costPath(), { recursive: true });
+
+        expect(resolve().totalUsd).toBeCloseTo(1, 6);
+        expect(resolve().totalUsd).toBeCloseTo(1, 6);
+        expect(fs.statSync(costPath()).isDirectory()).toBe(true);
+        expect(tmpFiles()).toEqual([]);
     });
 
     it('writes nothing without a transcript path or for a transcript that does not exist', () => {

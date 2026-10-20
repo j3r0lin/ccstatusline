@@ -432,13 +432,18 @@ function writeLedgerFile(ledger: Record<string, string>, target: string, content
     if (ledger[target] === hash && fs.existsSync(target)) {
         return false;
     }
+    const tmpPath = `${target}.${process.pid}.tmp`;
     try {
         fs.mkdirSync(path.dirname(target), { recursive: true });
-        const tmpPath = `${target}.${process.pid}.tmp`;
         fs.writeFileSync(tmpPath, `${JSON.stringify({ ...content, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf-8');
         fs.renameSync(tmpPath, target);
     } catch {
         // Best-effort: the next render retries, and the widget output does not depend on it
+        try {
+            fs.rmSync(tmpPath, { force: true });
+        } catch {
+            // Nothing more to do for a tmp file that cannot be removed
+        }
         return false;
     }
     ledger[target] = hash;
