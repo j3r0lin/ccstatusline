@@ -163,7 +163,7 @@ export class WeeklyUsageWidget implements Widget {
         };
 
         const colorLevel = getColorLevelString(settings.colorLevel);
-        const pace = getUsagePaceIndicator(percent, window);
+        const pace = getUsagePaceIndicator(percent, window, settings.weekendDays);
 
         if (isUsageProgressMode(displayMode)) {
             const width = getUsageProgressBarWidth(displayMode);

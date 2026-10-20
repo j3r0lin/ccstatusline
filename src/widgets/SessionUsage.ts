@@ -177,7 +177,7 @@ export class SessionUsageWidget implements Widget {
         };
 
         const colorLevel = getColorLevelString(settings.colorLevel);
-        const pace = getUsagePaceIndicator(percent, window);
+        const pace = getUsagePaceIndicator(percent, window, settings.weekendDays);
 
         if (isUsageProgressMode(displayMode)) {
             const width = getUsageProgressBarWidth(displayMode);
@@ -232,7 +232,7 @@ export class SessionUsageWidget implements Widget {
         const renderedPercent = isUsageInverted(item) ? 100 - percent : percent;
         // The pace delta survives compaction: dropping the bar must not drop the
         // only signal that says whether the pace is ahead or behind the window.
-        const pace = getUsagePaceIndicator(percent, window);
+        const pace = getUsagePaceIndicator(percent, window, settings.weekendDays);
         const colorLevel = getColorLevelString(settings.colorLevel);
         const percentText = formatConfiguredUsagePercent(renderedPercent, format);
         return formatRawOrLabeledValue(item, getSessionUsageLabel(source.promoted), withPaceSuffix(percentText, pace, item, colorLevel));

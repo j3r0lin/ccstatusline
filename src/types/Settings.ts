@@ -82,6 +82,9 @@ export const SettingsSchema = z.object({
     // gitCacheTtlSeconds above, where 0 means "never expire".
     terminalWidthCacheTtlSeconds: z.number().min(0).max(300).default(5),
     customCommandCacheTtlSeconds: z.number().min(0).max(60).default(0),
+    // How many days the weekend counts as in the weekly usage pace: each
+    // Saturday and Sunday hour weighs weekendDays/2 of a weekday hour.
+    weekendDays: z.number().min(0).max(2).catch(1),
     minimalistMode: z.boolean().default(false),
     powerline: PowerlineConfigSchema.default({
         enabled: false,

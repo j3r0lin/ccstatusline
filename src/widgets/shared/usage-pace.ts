@@ -1,7 +1,10 @@
 import type { ColorLevelString } from '../../types/ColorLevel';
 import type { WidgetItem } from '../../types/Widget';
 import { applyColors } from '../../utils/colors';
-import type { UsageWindowMetrics } from '../../utils/usage-types';
+import {
+    SEVEN_DAY_WINDOW_MS,
+    type UsageWindowMetrics
+} from '../../utils/usage-types';
 
 // The indicator answers one question the percent alone cannot: am I spending
 // faster or slower than the window elapses. A positive delta is a deficit (the
@@ -56,13 +59,44 @@ function getPaceColor(delta: number): string | undefined {
     return undefined;
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+// Hours between two instants, a Saturday or Sunday hour (local time) counting
+// as weekendDays/2 of one.
+function weightedHours(startMs: number, endMs: number, weekendDays: number): number {
+    let total = 0;
+    for (let t = startMs; t < endMs;) {
+        const midnight = new Date(t);
+        midnight.setHours(24, 0, 0, 0);
+        const to = Math.min(midnight.getTime(), endMs);
+        const weekday = new Date(t).getDay();
+        total += ((to - t) / HOUR_MS) * (weekday === 0 || weekday === 6 ? weekendDays / 2 : 1);
+        t = to;
+    }
+    return total;
+}
+
+// Weekends get used, but less and not on a fixed day, so the weekly line counts
+// them at a reduced weight instead of skipping a given day. Any 168 hours hold
+// 48 of weekend, so a week always weighs 120 + 24 * weekendDays hours. The
+// 5-hour and monthly windows keep the wall clock.
+function getExpectedPercent(window: UsageWindowMetrics, weekendDays: number, nowMs: number): number {
+    if (window.sessionDurationMs !== SEVEN_DAY_WINDOW_MS) {
+        return window.elapsedPercent;
+    }
+    const elapsed = weightedHours(nowMs - window.elapsedMs, nowMs, weekendDays);
+    return (elapsed / (120 + 24 * weekendDays)) * 100;
+}
+
 // Long windows (weekly, monthly) leave no intuition for whether a given percent
 // is ahead or behind, so this carries that judgement alongside the percent.
 // Returns null only when there is no window to compare against, or too early in
 // one for the delta to mean anything.
 export function getUsagePaceIndicator(
     percent: number,
-    window?: UsageWindowMetrics | null
+    window?: UsageWindowMetrics | null,
+    weekendDays = 2,
+    nowMs = Date.now()
 ): UsagePaceIndicator | null {
     if (!window) {
         return null;
@@ -74,7 +108,7 @@ export function getUsagePaceIndicator(
         return null;
     }
 
-    const delta = Math.round(percent - window.elapsedPercent);
+    const delta = Math.round(percent - getExpectedPercent(window, weekendDays, nowMs));
     return {
         color: getPaceColor(delta),
         text: `${delta >= 0 ? AHEAD_MARK : BEHIND_MARK}${Math.abs(delta)}`

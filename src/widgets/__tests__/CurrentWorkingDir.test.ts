@@ -45,6 +45,7 @@ describe('CurrentWorkingDirWidget', () => {
         gitCacheTtlSeconds: 5,
         terminalWidthCacheTtlSeconds: 5,
         customCommandCacheTtlSeconds: 5,
+        weekendDays: 1,
         minimalistMode: false,
         powerline: {
             enabled: false,

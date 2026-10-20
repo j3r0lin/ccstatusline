@@ -95,6 +95,7 @@ describe('CustomCommandWidget', () => {
         gitCacheTtlSeconds: 5,
         terminalWidthCacheTtlSeconds: 5,
         customCommandCacheTtlSeconds: 0,
+        weekendDays: 1,
         minimalistMode: false,
         powerline: {
             enabled: false,

@@ -4,10 +4,12 @@ import {
     it
 } from 'vitest';
 
+import { SettingsSchema } from '../../../types/Settings';
 import type { UsageWindowMetrics } from '../../../utils/usage-types';
 import { getUsagePaceIndicator } from '../usage-pace';
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const WEEK_MS = 7 * 24 * HOUR_MS;
 
 // Builds the window a reset time implies, the same way resolveWeeklyUsageWindow
 // does, so these cases read as "reset at X, now is Y".
@@ -89,5 +91,50 @@ describe('getUsagePaceIndicator', () => {
         };
 
         expect(getUsagePaceIndicator(40, window)).toEqual({ color: 'brightGreen', text: '▾10' });
+    });
+});
+
+describe('weekend weight', () => {
+    // Window opens Thursday 2026-08-13 20:00 local, resets a week later.
+    const RESET = '2026-08-20T20:00:00';
+    const at = (iso: string) => new Date(iso).getTime();
+    const paceAt = (percent: number, nowIso: string, weekendDays?: number) => getUsagePaceIndicator(percent, weeklyWindowAt(RESET, nowIso), weekendDays, at(nowIso));
+
+    it('moves the baseline half as fast through Saturday and Sunday alike by default', () => {
+        // Weighted hours of 144: Sat 00:00 has 28 (19.4%), Sun 00:00 adds 12
+        // (27.8%), Mon 00:00 another 12 (36.1%).
+        expect(paceAt(19, '2026-08-15T00:00:00', 1)?.text).toBe('▴0');
+        expect(paceAt(28, '2026-08-16T00:00:00', 1)?.text).toBe('▴0');
+        expect(paceAt(36, '2026-08-17T00:00:00', 1)?.text).toBe('▴0');
+    });
+
+    it('reaches 100% at the reset, leaving no buffer', () => {
+        expect(paceAt(100, '2026-08-20T19:59:00', 1)?.text).toBe('▴0');
+    });
+
+    it('matches the wall clock at 2', () => {
+        expect(paceAt(60, '2026-08-16T20:00:00', 2)).toEqual(getUsagePaceIndicator(60, weeklyWindowAt(RESET, '2026-08-16T20:00:00')));
+    });
+
+    it('holds the baseline flat over the weekend at 0', () => {
+        expect(paceAt(20, '2026-08-15T01:00:00', 0)).toEqual(paceAt(20, '2026-08-16T23:00:00', 0));
+    });
+
+    it('leaves 5-hour and monthly windows on the wall clock', () => {
+        const fiveHour = 5 * HOUR_MS;
+        const month = 30 * 24 * HOUR_MS;
+        const half = (d: number): UsageWindowMetrics => ({ sessionDurationMs: d, elapsedMs: d / 2, remainingMs: d / 2, elapsedPercent: 50, remainingPercent: 50 });
+        expect(getUsagePaceIndicator(60, half(fiveHour), 0)?.text).toBe('▴10');
+        expect(getUsagePaceIndicator(60, half(month), 0)?.text).toBe('▴10');
+    });
+});
+
+describe('weekendDays setting', () => {
+    it('defaults to 1 and falls back to 1 for invalid values', () => {
+        expect(SettingsSchema.parse({}).weekendDays).toBe(1);
+        expect(SettingsSchema.parse({ weekendDays: 0.5 }).weekendDays).toBe(0.5);
+        for (const bad of [-1, 3, '1', null]) {
+            expect(SettingsSchema.parse({ weekendDays: bad }).weekendDays).toBe(1);
+        }
     });
 });
