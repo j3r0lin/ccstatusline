@@ -35,6 +35,7 @@ const bundledPrices: ModelPrices = bundledJson;
 // falls back to its bundled entry for keys an older cache lacks.
 const PRICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const RETRY_BACKOFF_MS = 60 * 60 * 1000;
+// Only reachable when stampAttempt failed: the 1h backoff is checked before the lock.
 const REFRESH_LOCK_STALE_MS = 3 * 60 * 1000;
 const FETCH_DEADLINE_MS = 30_000;
 export const MODEL_PRICES_REFRESH_FLAG = '--internal-refresh-model-prices';
@@ -51,7 +52,7 @@ export interface ModelPricesDeps {
     fetchDeadlineMs: number;
 }
 
-function fetchModelsDev(signal: AbortSignal): Promise<ModelsDev> {
+export function fetchModelsDev(signal: AbortSignal): Promise<ModelsDev> {
     return new Promise((resolve, reject) => {
         const proxyUrl = process.env.HTTPS_PROXY?.trim();
         const request = https.get(MODELS_DEV_URL, {
@@ -104,12 +105,37 @@ function getPaths(deps: ModelPricesDeps): { cache: string; attempt: string; lock
     };
 }
 
-function isPrice(value: unknown): boolean {
+function isNumber(value: unknown): boolean {
+    return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasRates(value: unknown): boolean {
     if (typeof value !== 'object' || value === null) {
         return false;
     }
-    const candidate = value as { input?: unknown; output?: unknown };
-    return typeof candidate.input === 'number' && typeof candidate.output === 'number';
+    const rates = value as Record<string, unknown>;
+    return isNumber(rates.input)
+        && isNumber(rates.output)
+        && (rates.cache_read === undefined || isNumber(rates.cache_read))
+        && (rates.cache_write === undefined || isNumber(rates.cache_write));
+}
+
+function isTier(value: unknown): boolean {
+    if (!hasRates(value)) {
+        return false;
+    }
+    const tier = (value as { tier?: unknown }).tier;
+    return typeof tier === 'object' && tier !== null
+        && typeof (tier as { type?: unknown }).type === 'string'
+        && isNumber((tier as { size?: unknown }).size);
+}
+
+function isPrice(value: unknown): boolean {
+    if (!hasRates(value)) {
+        return false;
+    }
+    const tiers = (value as { tiers?: unknown }).tiers;
+    return tiers === undefined || (Array.isArray(tiers) && tiers.every(isTier));
 }
 
 /** Parsed cache entries that look like prices; anything else reads as absent. */

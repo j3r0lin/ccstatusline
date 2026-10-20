@@ -6,12 +6,12 @@ import {
     beforeEach,
     describe,
     expect,
-    it
+    it,
+    vi
 } from 'vitest';
 
 import bundledPrices from '../../data/model-prices.json';
 import type { ModelPrices } from '../../types/ModelPrice';
-import { getReferencedPriceKeys } from '../model-price-aliases';
 import type { ModelsDev } from '../model-price-extract';
 import {
     MODEL_PRICES_REFRESH_FLAG,
@@ -21,20 +21,9 @@ import {
 } from '../model-prices';
 import { getSessionCostSummary } from '../session-cost';
 
-const HOUR = 60 * 60 * 1000;
+import { sourceWithInput } from './fixtures/models-dev-source';
 
-/** A models.dev dump carrying every referenced key at the given input price. */
-function sourceWithInput(input: number): ModelsDev {
-    const source: ModelsDev = {};
-    for (const key of getReferencedPriceKeys()) {
-        const slash = key.indexOf('/');
-        const provider = key.slice(0, slash);
-        source[provider] ??= { models: {} };
-        source[provider].models ??= {};
-        source[provider].models[key.slice(slash + 1)] = { cost: { input, output: input * 2 } };
-    }
-    return source;
-}
+const HOUR = 60 * 60 * 1000;
 
 describe('model prices', () => {
     let home: string;
@@ -70,6 +59,7 @@ describe('model prices', () => {
     });
 
     afterEach(() => {
+        vi.restoreAllMocks();
         fs.rmSync(home, { recursive: true, force: true });
     });
 
@@ -173,6 +163,31 @@ describe('model prices', () => {
         expect(getModelPrices(deps)).toEqual(bundledPrices);
     });
 
+    it('uses the bundled price for one malformed entry and the cache for the rest', () => {
+        const fixed = { input: 99, output: 99 };
+        const malformed: unknown[] = [
+            { input: 1, output: 2, tiers: 'big' },
+            { input: 1, output: 2, tiers: [{ input: 1, output: 2, tier: {} }] },
+            { input: 1, output: 2, cache_read: 'cheap' },
+            { input: 1, output: 2, tiers: [{ output: 2, tier: { type: 'context', size: 1 } }] }
+        ];
+        for (const bad of malformed) {
+            writeCache(JSON.stringify({ 'zai/glm-5.3': bad, 'zai/glm-5.2': fixed }));
+
+            const prices = getModelPrices(deps);
+
+            expect(prices['zai/glm-5.3']).toEqual((bundledPrices as ModelPrices)['zai/glm-5.3']);
+            expect(prices['zai/glm-5.2']).toEqual(fixed);
+        }
+    });
+
+    it('keeps a well-formed tiered entry from the cache', () => {
+        const tiered = { input: 1, output: 2, cache_read: 0.5, tiers: [{ input: 3, output: 4, tier: { type: 'context', size: 200_000 } }] };
+        writeCache(JSON.stringify({ 'zai/glm-5.3': tiered }));
+
+        expect(getModelPrices(deps)['zai/glm-5.3']).toEqual(tiered);
+    });
+
     it('ignores cache entries that are not prices', () => {
         writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 'free' } }));
 
@@ -259,27 +274,22 @@ describe('model prices', () => {
             message: { id, model: 'glm-5.3', usage: { input_tokens: 1_000_000, output_tokens: 0 } }
         })}\n`;
         fs.writeFileSync(transcript, line('m1'));
-        const homedir = os.homedir;
-        os.homedir = () => home;
-        try {
-            const readVersion = (): string => {
-                const file = fs.readdirSync(cacheDir).find(f => f.startsWith('session-cost-')) ?? '';
-                return (JSON.parse(fs.readFileSync(path.join(cacheDir, file), 'utf-8')) as { priceVersion: string }).priceVersion;
-            };
-            const first = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
-            const versionBefore = readVersion();
-            fs.appendFileSync(transcript, line('m2'));
-            // A process holding the refreshed table and one still holding the old table interleave
-            const refreshed = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 5, output: 4 } });
-            const stale = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
+        vi.spyOn(os, 'homedir').mockReturnValue(home);
+        const readVersion = (): string => {
+            const file = fs.readdirSync(cacheDir).find(f => f.startsWith('session-cost-')) ?? '';
+            return (JSON.parse(fs.readFileSync(path.join(cacheDir, file), 'utf-8')) as { priceVersion: string }).priceVersion;
+        };
+        const first = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
+        const versionBefore = readVersion();
+        fs.appendFileSync(transcript, line('m2'));
+        // A process holding the refreshed table and one still holding the old table interleave
+        const refreshed = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 5, output: 4 } });
+        const stale = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
 
-            expect(first?.total).toBeCloseTo(2);
-            expect(refreshed?.total).toBeCloseTo(10);
-            expect(stale?.total).toBeCloseTo(4);
-            expect(readVersion()).toBe(versionBefore);
-        } finally {
-            os.homedir = homedir;
-        }
+        expect(first?.total).toBeCloseTo(2);
+        expect(refreshed?.total).toBeCloseTo(10);
+        expect(stale?.total).toBeCloseTo(4);
+        expect(readVersion()).toBe(versionBefore);
     });
 
     it('changes the session cost when a refresh changes the prices', () => {
@@ -288,18 +298,13 @@ describe('model prices', () => {
             type: 'assistant',
             message: { id: 'm1', model: 'glm-5.3', usage: { input_tokens: 1_000_000, output_tokens: 0 } }
         })}\n`);
-        const homedir = os.homedir;
-        os.homedir = () => home;
-        try {
-            writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 2, output: 4 } }));
-            const before = getSessionCostSummary(transcript, getModelPrices(deps));
-            writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 5, output: 4 } }));
-            const after = getSessionCostSummary(transcript, getModelPrices(deps));
+        vi.spyOn(os, 'homedir').mockReturnValue(home);
+        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 2, output: 4 } }));
+        const before = getSessionCostSummary(transcript, getModelPrices(deps));
+        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 5, output: 4 } }));
+        const after = getSessionCostSummary(transcript, getModelPrices(deps));
 
-            expect(before?.total).toBeCloseTo(2);
-            expect(after?.total).toBeCloseTo(5);
-        } finally {
-            os.homedir = homedir;
-        }
+        expect(before?.total).toBeCloseTo(2);
+        expect(after?.total).toBeCloseTo(5);
     });
 });

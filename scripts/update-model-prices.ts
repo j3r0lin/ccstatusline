@@ -7,10 +7,10 @@ import {
 import { join } from 'node:path';
 
 import {
-    MODELS_DEV_URL,
     extractModelPrices,
     type ModelsDev
 } from '../src/utils/model-price-extract';
+import { fetchModelsDev } from '../src/utils/model-prices';
 
 const OUTPUT_PATH = join(import.meta.dir, '..', 'src', 'data', 'model-prices.json');
 
@@ -18,12 +18,7 @@ async function loadSource(arg: string | undefined): Promise<ModelsDev> {
     if (arg) {
         return JSON.parse(readFileSync(arg, 'utf-8')) as ModelsDev;
     }
-    // Bun's fetch honors HTTPS_PROXY
-    const response = await fetch(MODELS_DEV_URL);
-    if (!response.ok) {
-        throw new Error(`GET ${MODELS_DEV_URL} failed: ${response.status}`);
-    }
-    return await response.json() as ModelsDev;
+    return await fetchModelsDev(AbortSignal.timeout(60_000));
 }
 
 let prices;
