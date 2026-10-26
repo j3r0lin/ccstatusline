@@ -64,7 +64,8 @@ export function isClaudeModel(model: string): boolean {
 
 /** Maps a transcript model name to its models.dev key, or null when it has no price. */
 export function resolvePriceKey(model: string): string | null {
-    const direct = NON_CLAUDE_MODEL_ALIASES[model];
+    // Gateways pass the upstream's casing through, e.g. ZCode reports `GLM-5.3-Flash`.
+    const direct = NON_CLAUDE_MODEL_ALIASES[model.toLowerCase()];
     if (direct !== undefined) {
         return direct;
     }

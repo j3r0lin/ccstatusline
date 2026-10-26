@@ -113,6 +113,12 @@ describe('session cost at per-model API prices', () => {
         expect(total()).toBeCloseTo(8, 6);
     });
 
+    it('prices a model name whatever its casing', () => {
+        write([assistantLine('a', 'GLM-5.3', { input: MILLION, output: MILLION })]);
+
+        expect(total()).toBeCloseTo(6, 6);
+    });
+
     it('counts a message once however many lines carry its id', () => {
         const line = assistantLine('a', 'k3-256k', { input: MILLION });
         write([line, line, line]);
