@@ -9,7 +9,7 @@ import {
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { getReferencedPriceKeys } from '../../model-price-aliases';
+import { extractModelPrices } from '../../model-price-extract';
 import {
     getModelPrices,
     refreshModelPrices,
@@ -22,6 +22,7 @@ const home = process.env.PRICES_TEST_HOME ?? '';
 const log = process.env.PRICES_TEST_LOG ?? '';
 
 const source = sourceWithInput(7);
+const expectedKeys = Object.keys(extractModelPrices(source));
 
 let pending: Promise<void> = Promise.resolve();
 const deps: ModelPricesDeps = {
@@ -53,7 +54,7 @@ while (Date.now() < until) {
     if (existsSync(cachePath)) {
         try {
             const raw = JSON.parse(readFileSync(cachePath, 'utf-8')) as Record<string, unknown>;
-            if (getReferencedPriceKeys().some(key => !(key in raw))) {
+            if (expectedKeys.some(key => !(key in raw))) {
                 bad++;
             }
         } catch {
@@ -63,4 +64,4 @@ while (Date.now() < until) {
     await sleep(2);
 }
 await pending;
-console.log(`bad=${bad} glm=${getModelPrices(deps)['zai/glm-5.3']?.input}`);
+console.log(`bad=${bad} glm=${getModelPrices(deps)['glm-5.3']?.input}`);

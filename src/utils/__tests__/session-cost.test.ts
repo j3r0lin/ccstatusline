@@ -19,12 +19,12 @@ import {
     resolveSessionCost
 } from '../session-cost';
 
-/** Round prices under real alias keys, so a refresh of the committed table cannot move these expectations. */
+/** Round prices under the model ids, so a refresh of the committed table cannot move these expectations. */
 const FIXTURE_PRICES: ModelPrices = {
-    'moonshotai/kimi-k3': { input: 1, output: 10, cache_read: 0.5, cache_write: 2 },
-    'zai/glm-5.3': { input: 2, output: 4 },
-    'anthropic/claude-sonnet-5-5': { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
-    'xai/grok-4.7': {
+    'kimi-k3': { input: 1, output: 10, cache_read: 0.5, cache_write: 2 },
+    'glm-5.3': { input: 2, output: 4 },
+    'claude-sonnet-5-5': { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
+    'grok-4.7': {
         input: 2,
         output: 6,
         cache_read: 0.5,
@@ -117,6 +117,39 @@ describe('session cost at per-model API prices', () => {
         write([assistantLine('a', 'GLM-5.3', { input: MILLION, output: MILLION })]);
 
         expect(total()).toBeCloseTo(6, 6);
+    });
+
+    it('prices a model the shipped table covers without a source change', () => {
+        write([
+            assistantLine('a', 'gpt-6.1-terra', { input: MILLION }),
+            assistantLine('b', 'GLM-5.3-Flash', { input: MILLION }),
+            assistantLine('c', 'deepseek-v4.1-flash-free', { input: MILLION }),
+            assistantLine('d', 'k3', { input: MILLION })
+        ]);
+
+        expect(getSessionCostSummary(transcript, modelPrices as ModelPrices)).toMatchObject({
+            allClaude: false,
+            hasUnknown: false
+        });
+    });
+
+    it('prices a Claude model named with a context or date suffix', () => {
+        write([
+            assistantLine('a', 'claude-sonnet-5-5[1m]', { input: MILLION }),
+            assistantLine('b', 'claude-sonnet-5-5-20260101', { input: MILLION })
+        ]);
+
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ allClaude: true, hasUnknown: false });
+        expect(total()).toBeCloseTo(4, 6);
+    });
+
+    it('reports no price for a name the table does not hold', () => {
+        write([assistantLine('a', 'not-a-real-model', { input: MILLION })]);
+
+        expect(getSessionCostSummary(transcript, modelPrices as ModelPrices)).toMatchObject({
+            allClaude: false,
+            hasUnknown: true
+        });
     });
 
     it('counts a message once however many lines carry its id', () => {
@@ -259,7 +292,7 @@ describe('session cost at per-model API prices', () => {
         write([assistantLine('a', 'k3-256k', { input: MILLION })]);
         expect(total()).toBeCloseTo(1, 6);
 
-        const doubled: ModelPrices = { 'moonshotai/kimi-k3': { input: 2, output: 10 } };
+        const doubled: ModelPrices = { 'kimi-k3': { input: 2, output: 10 } };
         expect(getSessionCostSummary(transcript, doubled)?.total).toBeCloseTo(2, 6);
     });
 
@@ -302,7 +335,7 @@ describe('session cost widget', () => {
             assistantLine('b', 'k3-256k', { output: MILLION })
         ]);
 
-        const price = (modelPrices as ModelPrices)['moonshotai/kimi-k3'];
+        const price = (modelPrices as ModelPrices)['kimi-k3'];
         expect(price).toBeDefined();
         expect(render(99)).toBe(`$${((price?.input ?? 0) + (price?.output ?? 0)).toFixed(2)}`);
     });

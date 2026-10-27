@@ -78,20 +78,29 @@ describe('model prices', () => {
     }
 
     it('uses a fresh cache over the bundled prices without refreshing', () => {
-        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } }));
+        writeCache(JSON.stringify({ 'glm-5.3': { input: 99, output: 99 } }));
 
         const prices = getModelPrices(deps);
 
-        expect(prices['zai/glm-5.3']).toEqual({ input: 99, output: 99 });
+        expect(prices['glm-5.3']).toEqual({ input: 99, output: 99 });
         expect(spawned).toHaveLength(0);
     });
 
-    it('falls back to the bundled entry for keys the cache lacks', () => {
+    it('falls back to the bundled entry for models the cache lacks', () => {
+        writeCache(JSON.stringify({ 'glm-5.3': { input: 99, output: 99 } }));
+
+        const prices = getModelPrices(deps);
+
+        expect(prices['kimi-k3']).toEqual((bundledPrices as ModelPrices)['kimi-k3']);
+    });
+
+    it('treats a cache in the older provider-prefixed format as absent and refreshes', () => {
         writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } }));
 
         const prices = getModelPrices(deps);
 
-        expect(prices['moonshotai/kimi-k3']).toEqual((bundledPrices as ModelPrices)['moonshotai/kimi-k3']);
+        expect(prices['glm-5.3']).toEqual((bundledPrices as ModelPrices)['glm-5.3']);
+        expect(spawned).toHaveLength(1);
     });
 
     it('returns bundled prices at once and starts a refresh when the cache is missing', () => {
@@ -101,9 +110,9 @@ describe('model prices', () => {
     });
 
     it('serves the stale cache while a refresh starts', () => {
-        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } }), 25 * HOUR);
+        writeCache(JSON.stringify({ 'glm-5.3': { input: 99, output: 99 } }), 25 * HOUR);
 
-        expect(getModelPrices(deps)['zai/glm-5.3']).toEqual({ input: 99, output: 99 });
+        expect(getModelPrices(deps)['glm-5.3']).toEqual({ input: 99, output: 99 });
         expect(spawned).toHaveLength(1);
     });
 
@@ -118,12 +127,12 @@ describe('model prices', () => {
         getModelPrices(deps);
         await runSpawnedRefresh();
 
-        expect(getModelPrices(deps)['zai/glm-5.3']).toEqual({ input: 7, output: 14 });
+        expect(getModelPrices(deps)['glm-5.3']).toEqual({ input: 7, output: 14 });
         expect(spawned).toHaveLength(1);
     });
 
     it('keeps the old cache and backs off after a failed refresh', async () => {
-        const old = JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } });
+        const old = JSON.stringify({ 'glm-5.3': { input: 99, output: 99 } });
         writeCache(old, 25 * HOUR);
         fetchResult = () => Promise.reject(new Error('offline'));
 
@@ -131,12 +140,12 @@ describe('model prices', () => {
         await runSpawnedRefresh();
 
         expect(fs.readFileSync(cachePath, 'utf-8')).toBe(old);
-        expect(getModelPrices(deps)['zai/glm-5.3']).toEqual({ input: 99, output: 99 });
+        expect(getModelPrices(deps)['glm-5.3']).toEqual({ input: 99, output: 99 });
         expect(spawned).toHaveLength(1);
     });
 
-    it('keeps the old cache when the download lacks a referenced model', async () => {
-        const old = JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } });
+    it('keeps the old cache when the download carries no priced model', async () => {
+        const old = JSON.stringify({ 'glm-5.3': { input: 99, output: 99 } });
         writeCache(old, 25 * HOUR);
         fetchResult = () => Promise.resolve({});
 
@@ -172,26 +181,33 @@ describe('model prices', () => {
             { input: 1, output: 2, tiers: [{ output: 2, tier: { type: 'context', size: 1 } }] }
         ];
         for (const bad of malformed) {
-            writeCache(JSON.stringify({ 'zai/glm-5.3': bad, 'zai/glm-5.2': fixed }));
+            writeCache(JSON.stringify({ 'glm-5.3': bad, 'glm-5.2': fixed }));
 
             const prices = getModelPrices(deps);
 
-            expect(prices['zai/glm-5.3']).toEqual((bundledPrices as ModelPrices)['zai/glm-5.3']);
-            expect(prices['zai/glm-5.2']).toEqual(fixed);
+            expect(prices['glm-5.3']).toEqual((bundledPrices as ModelPrices)['glm-5.3']);
+            expect(prices['glm-5.2']).toEqual(fixed);
         }
+    });
+
+    it('keeps the cache entries the bundled table already has', () => {
+        const cached = { 'gpt-6.1-terra': { input: 99, output: 99 } };
+        writeCache(JSON.stringify(cached));
+
+        expect(getModelPrices(deps)['gpt-6.1-terra']).toEqual(cached['gpt-6.1-terra']);
     });
 
     it('keeps a well-formed tiered entry from the cache', () => {
         const tiered = { input: 1, output: 2, cache_read: 0.5, tiers: [{ input: 3, output: 4, tier: { type: 'context', size: 200_000 } }] };
-        writeCache(JSON.stringify({ 'zai/glm-5.3': tiered }));
+        writeCache(JSON.stringify({ 'glm-5.3': tiered }));
 
-        expect(getModelPrices(deps)['zai/glm-5.3']).toEqual(tiered);
+        expect(getModelPrices(deps)['glm-5.3']).toEqual(tiered);
     });
 
     it('ignores cache entries that are not prices', () => {
-        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 'free' } }));
+        writeCache(JSON.stringify({ 'glm-5.3': { input: 'free' } }));
 
-        expect(getModelPrices(deps)['zai/glm-5.3']).toEqual((bundledPrices as ModelPrices)['zai/glm-5.3']);
+        expect(getModelPrices(deps)['glm-5.3']).toEqual((bundledPrices as ModelPrices)['glm-5.3']);
     });
 
     it('leaves another refresher\'s lock alone when the token does not match', async () => {
@@ -245,7 +261,7 @@ describe('model prices', () => {
     });
 
     it('gives up on a download that never finishes and frees the lock', async () => {
-        const old = JSON.stringify({ 'zai/glm-5.3': { input: 99, output: 99 } });
+        const old = JSON.stringify({ 'glm-5.3': { input: 99, output: 99 } });
         writeCache(old, 25 * HOUR);
         let aborted = false;
         deps = {
@@ -279,12 +295,12 @@ describe('model prices', () => {
             const file = fs.readdirSync(cacheDir).find(f => f.startsWith('session-cost-')) ?? '';
             return (JSON.parse(fs.readFileSync(path.join(cacheDir, file), 'utf-8')) as { priceVersion: string }).priceVersion;
         };
-        const first = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
+        const first = getSessionCostSummary(transcript, { 'glm-5.3': { input: 2, output: 4 } });
         const versionBefore = readVersion();
         fs.appendFileSync(transcript, line('m2'));
         // A process holding the refreshed table and one still holding the old table interleave
-        const refreshed = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 5, output: 4 } });
-        const stale = getSessionCostSummary(transcript, { 'zai/glm-5.3': { input: 2, output: 4 } });
+        const refreshed = getSessionCostSummary(transcript, { 'glm-5.3': { input: 5, output: 4 } });
+        const stale = getSessionCostSummary(transcript, { 'glm-5.3': { input: 2, output: 4 } });
 
         expect(first?.total).toBeCloseTo(2);
         expect(refreshed?.total).toBeCloseTo(10);
@@ -299,9 +315,9 @@ describe('model prices', () => {
             message: { id: 'm1', model: 'glm-5.3', usage: { input_tokens: 1_000_000, output_tokens: 0 } }
         })}\n`);
         vi.spyOn(os, 'homedir').mockReturnValue(home);
-        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 2, output: 4 } }));
+        writeCache(JSON.stringify({ 'glm-5.3': { input: 2, output: 4 } }));
         const before = getSessionCostSummary(transcript, getModelPrices(deps));
-        writeCache(JSON.stringify({ 'zai/glm-5.3': { input: 5, output: 4 } }));
+        writeCache(JSON.stringify({ 'glm-5.3': { input: 5, output: 4 } }));
         const after = getSessionCostSummary(transcript, getModelPrices(deps));
 
         expect(before?.total).toBeCloseTo(2);

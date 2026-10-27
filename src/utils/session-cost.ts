@@ -9,9 +9,9 @@ import type {
 } from '../types/ModelPrice';
 
 import {
-    isClaudeModel,
-    resolvePriceKey
-} from './model-price-aliases';
+    getModelPrice,
+    isClaudeModel
+} from './model-price-lookup';
 import { getModelPrices } from './model-prices';
 
 /** Token totals billed at one price tier. */
@@ -141,8 +141,7 @@ interface UsageLine {
 }
 
 function pickTier(prices: ModelPrices, model: string, promptTokens: number): number {
-    const key = resolvePriceKey(model);
-    const tiers = key === null ? undefined : prices[key]?.tiers;
+    const tiers = getModelPrice(prices, model)?.tiers;
     let picked = 0;
     tiers?.forEach((tier, index) => {
         if (promptTokens > tier.tier.size) {
@@ -304,8 +303,7 @@ function costFile(file: FileState, prices: ModelPrices): FileCost {
         if (!isClaudeModel(model)) {
             cost.allClaude = false;
         }
-        const key = resolvePriceKey(model);
-        const price = key === null ? undefined : prices[key];
+        const price = getModelPrice(prices, model);
         const modelCost: ModelCost = {
             usd: price ? 0 : null,
             inputTokens: 0,
@@ -349,7 +347,7 @@ function summarize(files: FileCost[]): SessionCostSummary {
  * Per-file progress persists under `~/.cache/ccstatusline`, so a render reads
  * only the bytes appended since the previous one; transcripts reach tens of MB.
  *
- * @param prices - Price table keyed by models.dev `provider/key`; tests inject a small one
+ * @param prices - Price table keyed by models.dev model id; tests inject a small one
  * @returns null when the transcript cannot be read
  */
 export function getSessionCostSummary(transcriptPath: string, prices: ModelPrices = getModelPrices()): SessionCostSummary | null {

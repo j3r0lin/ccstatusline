@@ -20,7 +20,6 @@ import path from 'node:path';
 import bundledJson from '../data/model-prices.json';
 import type { ModelPrices } from '../types/ModelPrice';
 
-import { getReferencedPriceKeys } from './model-price-aliases';
 import {
     MODELS_DEV_URL,
     extractModelPrices,
@@ -31,8 +30,8 @@ const bundledPrices: ModelPrices = bundledJson;
 
 // Prices ship in the binary but go stale; a detached child re-downloads the
 // models.dev dump into the cache dir so a render never waits on the network.
-// The cache holds only what the alias table references, so a newer binary
-// falls back to its bundled entry for keys an older cache lacks.
+// The cache covers every model models.dev prices, so a newer binary still falls
+// back to its bundled entry for a model an older cache lacks.
 const PRICE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const RETRY_BACKOFF_MS = 60 * 60 * 1000;
 // Only reachable when stampAttempt failed: the 1h backoff is checked before the lock.
@@ -147,6 +146,12 @@ function readCachedPrices(cachePath: string, now: number): { prices: ModelPrices
         }
         const prices: ModelPrices = {};
         for (const [key, value] of Object.entries(parsed)) {
+            // Keys are bare model ids. A provider-prefixed key is the format a
+            // previous version wrote, so the whole file predates this one: read
+            // it as absent and let the refresh replace it.
+            if (key.includes('/')) {
+                return null;
+            }
             if (isPrice(value)) {
                 prices[key] = value as ModelPrices[string];
             }
@@ -282,14 +287,7 @@ export function getModelPrices(deps: ModelPricesDeps = DEFAULT_DEPS): ModelPrice
         return bundledPrices;
     }
 
-    const prices: ModelPrices = {};
-    for (const key of getReferencedPriceKeys()) {
-        const price: ModelPrices[string] | undefined = cached.prices[key] ?? bundledPrices[key];
-        if (price !== undefined) {
-            prices[key] = price;
-        }
-    }
-    return prices;
+    return { ...bundledPrices, ...cached.prices };
 }
 
 /** Body of the detached child: download, extract, replace the cache atomically, and stamp the attempt. */

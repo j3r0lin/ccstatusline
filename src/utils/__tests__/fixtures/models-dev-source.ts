@@ -1,15 +1,21 @@
-import { getReferencedPriceKeys } from '../../model-price-aliases';
 import type { ModelsDev } from '../../model-price-extract';
 
-/** A models.dev dump carrying every referenced key at the given input price. */
+/** A models.dev dump pricing a handful of ids, enough for the cache and refresh paths. */
 export function sourceWithInput(input: number): ModelsDev {
-    const source: ModelsDev = {};
-    for (const key of getReferencedPriceKeys()) {
-        const slash = key.indexOf('/');
-        const provider = key.slice(0, slash);
-        source[provider] ??= { models: {} };
-        source[provider].models ??= {};
-        source[provider].models[key.slice(slash + 1)] = { cost: { input, output: input * 2 } };
-    }
-    return source;
+    return {
+        'anthropic': { models: { 'claude-opus-5-5': { cost: { input, output: input * 2 } } } },
+        'openai': {
+            models: {
+                // The gateway's own casing, which the extractor lowercases
+                'GPT-6.1-Terra': { cost: { input, output: input * 2 } }
+            }
+        },
+        'zai': {
+            models: {
+                'glm-5.3': { cost: { input, output: input * 2 } },
+                'glm-5.2': { cost: { input, output: input * 2 } }
+            }
+        },
+        'opencode-go': { models: { 'kimi-k3': { cost: { input, output: input * 2 } } } }
+    };
 }
