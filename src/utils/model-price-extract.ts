@@ -11,8 +11,7 @@ export const MODELS_DEV_URL = 'https://models.dev/api.json';
  * Providers whose listing of a model is that model's own price, ahead of everyone else.
  *
  * @remarks
- * First entry wins, so the order settles every id several providers carry. Each vendor
- * comes before its regional arm, whose numbers are a local-currency conversion.
+ * Each vendor comes before its regional arm, whose numbers are a local-currency conversion.
  * `opencode-go` follows the vendors as the gateway the status line is usually routed
  * through; a reseller that also carries another vendor's model (`alibaba`, `302ai`,
  * `requesty`) must come after it, or it would price DeepSeek and Kimi at its own markup.
@@ -36,6 +35,43 @@ const PROVIDER_PRIORITY = [
     'xiaomi',
     'opencode-go'
 ];
+
+/**
+ * Model id prefix -> the provider that makes that model.
+ *
+ * @remarks
+ * The global order alone loses to a reseller whenever a vendor is not in `PROVIDER_PRIORITY`:
+ * `alibaba` also carries Qwen, and lists it with its own cache-read rate. Checking the family
+ * first keeps a vendor's own numbers for its models wherever it sits in the global order.
+ * The family name must end there: followed by the end, a separator, or a version digit, never
+ * by another letter, so `gpt` does not also claim a model that merely starts with those letters.
+ */
+const MODEL_FAMILIES: [prefix: string, provider: string][] = [
+    ['claude', 'anthropic'],
+    ['fable', 'anthropic'],
+    ['gpt', 'openai'],
+    ['grok', 'xai'],
+    ['gemini', 'google'],
+    ['gemma', 'google'],
+    ['glm', 'zai'],
+    ['qwen', 'alibaba'],
+    ['qwq', 'alibaba'],
+    ['deepseek', 'deepseek'],
+    ['kimi', 'moonshotai'],
+    ['k3', 'moonshotai'],
+    ['minimax', 'minimax'],
+    ['mimo', 'xiaomi'],
+    ['mistral', 'mistral'],
+    ['devstral', 'mistral'],
+    ['pixtral', 'mistral'],
+    ['command', 'cohere'],
+    ['jamba', 'ai21'],
+    ['muse', 'meta']
+];
+
+function familyProvider(id: string): string | undefined {
+    return MODEL_FAMILIES.find(([prefix]) => new RegExp(`^${prefix}(?![a-z])`).test(id))?.[1];
+}
 
 function providerOrder(providers: string[]): string[] {
     const ranked = PROVIDER_PRIORITY.filter(provider => providers.includes(provider));
@@ -74,16 +110,30 @@ function pickCost(cost: ModelPrice): ModelPrice {
  * nothing usable; that throws so a refresh keeps the previous table instead of wiping it.
  */
 export function extractModelPrices(source: ModelsDev): ModelPrices {
+    const providers = providerOrder(Object.keys(source));
     const prices = new Map<string, ModelPrice>();
 
-    for (const provider of providerOrder(Object.keys(source))) {
+    for (const provider of providers) {
         for (const [rawId, entry] of Object.entries(source[provider]?.models ?? {})) {
             const id = rawId.toLowerCase();
             const cost = entry.cost;
-            if (cost === undefined || id.includes('/') || prices.has(id)) {
+            // A model's own vendor wins over whoever else lists it, whatever the global order
+            if (cost === undefined || id.includes('/') || familyProvider(id) === provider) {
                 continue;
             }
-            prices.set(id, pickCost(cost));
+            if (!prices.has(id)) {
+                prices.set(id, pickCost(cost));
+            }
+        }
+    }
+
+    // The vendor's entry replaces the one the global order picked for its family's models
+    for (const provider of providers) {
+        for (const [rawId, entry] of Object.entries(source[provider]?.models ?? {})) {
+            const id = rawId.toLowerCase();
+            if (entry.cost !== undefined && !id.includes('/') && familyProvider(id) === provider) {
+                prices.set(id, pickCost(entry.cost));
+            }
         }
     }
 

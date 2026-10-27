@@ -18,18 +18,21 @@ export const MODEL_PRICE_ALIASES: Record<string, string> = {
     'grok-4.7-build': 'grok-4.7'
 };
 
+/** Suffixes a gateway and Claude Code add that are priced as the model they decorate. */
 const SUFFIXES = [
     // Claude Code marks the 1M context window, e.g. `claude-opus-5-5[1m]`
     /\[[^\]]*\]$/,
-    // Dated snapshots are priced as the alias they point at, e.g. `claude-sonnet-4-5-20250929`
-    /-\d{8}$/,
     // Free and highspeed variants are priced as the paid model: the widget reports
     // API-equivalent consumption, not what the gateway billed.
     /-free$/,
     /-highspeed$/
 ];
 
-/** Lowercase, with the suffixes a gateway and Claude Code add stripped, ready to match an id. */
+// Dated snapshots carry their own price where models.dev lists one (`fugu-ultra-20260615`),
+// so the date is only dropped when the dated id misses.
+const DATE_SUFFIX = /-\d{8}$/;
+
+/** Lowercase, with the suffixes priced as the model they decorate stripped. */
 export function normalizeModelName(model: string): string {
     let name = model.toLowerCase();
     for (const suffix of SUFFIXES) {
@@ -43,8 +46,20 @@ export function isClaudeModel(model: string): boolean {
     return model.startsWith('claude-');
 }
 
-/** The model's price, or undefined when the table holds none for it. */
-export function getModelPrice(prices: ModelPrices, model: string): ModelPrice | undefined {
+function findPrice(prices: ModelPrices, model: string): ModelPrice | undefined {
     const name = normalizeModelName(model);
-    return prices[MODEL_PRICE_ALIASES[name] ?? name];
+    return prices[MODEL_PRICE_ALIASES[name] ?? name] ?? prices[name.replace(DATE_SUFFIX, '')];
+}
+
+/**
+ * The model's price, or undefined when the table holds none for it.
+ *
+ * @remarks
+ * A routed session records the provider or route group in front of the model
+ * (`codex/gpt-6-luna`, `tars/antigravity/gemini-3.8-flash`), so the segment after the last
+ * `/` is tried when the whole name misses.
+ */
+export function getModelPrice(prices: ModelPrices, model: string): ModelPrice | undefined {
+    const bare = model.slice(model.lastIndexOf('/') + 1);
+    return findPrice(prices, model) ?? (bare === model ? undefined : findPrice(prices, bare));
 }

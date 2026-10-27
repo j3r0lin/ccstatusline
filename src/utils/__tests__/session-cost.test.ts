@@ -143,6 +143,17 @@ describe('session cost at per-model API prices', () => {
         expect(total()).toBeCloseTo(4, 6);
     });
 
+    it('prices a model recorded behind a provider or route prefix', () => {
+        // Under the model's context tier, so the base price applies
+        write([assistantLine('a', 'codex/gpt-6-luna', { input: 100_000 })]);
+
+        const luna = (modelPrices as ModelPrices)['gpt-6-luna'] ?? { input: 0 };
+        const summary = getSessionCostSummary(transcript, modelPrices);
+
+        expect(summary).toMatchObject({ allClaude: false, hasUnknown: false });
+        expect(summary?.total).toBeCloseTo(luna.input / 10, 6);
+    });
+
     it('reports no price for a name the table does not hold', () => {
         write([assistantLine('a', 'not-a-real-model', { input: MILLION })]);
 

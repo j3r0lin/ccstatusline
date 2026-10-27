@@ -14,9 +14,12 @@ import {
 const PRICES: ModelPrices = {
     'gpt-6.1-terra': { input: 1, output: 5 },
     'glm-5.3-flash': { input: 0.15, output: 0.5 },
-    'deepseek-v4-flash': { input: 0.15, output: 0.6 },
+    'deepseek-v4.1-flash': { input: 0.15, output: 0.6 },
     'claude-opus-5-5': { input: 4, output: 20 },
     'claude-sonnet-4-5': { input: 3, output: 15 },
+    'claude-3-7-sonnet-20250219': { input: 3, output: 15 },
+    'fugu-ultra': { input: 4, output: 24 },
+    'fugu-ultra-20260615': { input: 5, output: 30 },
     'kimi-k3': { input: 3, output: 15 },
     'grok-4.7': { input: 2, output: 6 },
     'minimax-m2.5': { input: 0.3, output: 1.2 }
@@ -37,8 +40,26 @@ describe('model price lookup', () => {
         expect(normalizeModelName('Claude-Opus-5-5[1m]')).toBe('claude-opus-5-5');
     });
 
-    it('prices a dated snapshot as the model it snapshots', () => {
+    it('prices a dated snapshot as the model it snapshots when the date itself has no price', () => {
         expect(getModelPrice(PRICES, 'claude-sonnet-4-5-20250929')).toEqual({ input: 3, output: 15 });
+        expect(getModelPrice(PRICES, 'claude-3-7-sonnet-20250219')).toEqual({ input: 3, output: 15 });
+    });
+
+    it('takes the dated id price over the base model price when models.dev lists one', () => {
+        expect(getModelPrice(PRICES, 'fugu-ultra-20260615')).toEqual({ input: 5, output: 30 });
+        expect(getModelPrice(PRICES, 'fugu-ultra')).toEqual({ input: 4, output: 24 });
+    });
+
+    it('prices a routed model name by the segment after the route or provider', () => {
+        expect(getModelPrice(PRICES, 'codex/gpt-6.1-terra')).toEqual({ input: 1, output: 5 });
+        expect(getModelPrice(PRICES, 'group/deepseek-v4.1-flash')).toEqual({ input: 0.15, output: 0.6 });
+        expect(getModelPrice(PRICES, 'zai-org/GLM-5.3-Flash')).toEqual({ input: 0.15, output: 0.5 });
+        expect(getModelPrice(PRICES, 'tars/antigravity/kimi-k3')).toEqual({ input: 3, output: 15 });
+    });
+
+    it('follows an alias and strips suffixes on a routed model name too', () => {
+        expect(getModelPrice(PRICES, 'kimi/k3-256k')).toEqual({ input: 3, output: 15 });
+        expect(getModelPrice(PRICES, 'other/claude-opus-5-5[1m]')).toEqual({ input: 4, output: 20 });
     });
 
     it('prices a free or highspeed variant at the paid model price', () => {
@@ -87,6 +108,12 @@ describe('extracting prices from a models.dev dump', () => {
         });
 
         expect(prices).toEqual({ 'llama-4': { input: 1, output: 2 } });
+    });
+
+    it('prices a routed name even though extraction skips prefixed ids', () => {
+        const prices = extractModelPrices({ openai: { models: { 'gpt-6.1-terra': { cost: { input: 1, output: 5 } } } } });
+
+        expect(getModelPrice(prices, 'codex/gpt-6.1-terra')).toEqual({ input: 1, output: 5 });
     });
 
     it('takes the price from the vendor ahead of a reseller', () => {
