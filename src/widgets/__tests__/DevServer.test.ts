@@ -15,9 +15,13 @@ import {
 const ITEM: WidgetItem = { id: 'ds', type: 'dev-server' };
 
 describe('devServerLabel', () => {
-    it('drops the scheme and the trailing slash', () => {
-        expect(devServerLabel('http://localhost:8000/')).toBe('localhost:8000');
-        expect(devServerLabel('http://127.0.0.1:5173/')).toBe('127.0.0.1:5173');
+    it('shows only the port for loopback dev servers', () => {
+        expect(devServerLabel('http://localhost:8000/')).toBe(':8000');
+        expect(devServerLabel('http://127.0.0.1:5173/')).toBe(':5173');
+    });
+
+    it('keeps the host when the URL has no port', () => {
+        expect(devServerLabel('http://localhost/')).toBe('localhost');
     });
 
     it('falls back to the raw text when the URL does not parse', () => {
@@ -26,9 +30,9 @@ describe('devServerLabel', () => {
 });
 
 describe('DevServerWidget', () => {
-    it('renders the short label over the full address', () => {
+    it('renders the port over the full address', () => {
         const out = new DevServerWidget().render(ITEM, { isPreview: true }, DEFAULT_SETTINGS);
-        expect(out).toBe(renderOsc8Link('http://localhost:8000/', 'localhost:8000'));
+        expect(out).toBe(renderOsc8Link('http://localhost:8000/', ':8000'));
     });
 
     it('returns null without a transcript path', () => {

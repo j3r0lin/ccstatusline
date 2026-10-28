@@ -8,12 +8,12 @@ import type {
 import { collectDevServerUrls } from '../utils/dev-servers';
 import { renderOsc8Link } from '../utils/hyperlink';
 
-// The link text drops the scheme and the trailing slash: OSC-8 already carries
-// the real address, and the status line only needs enough to tell two servers
-// apart. `localhost:8000` still reads as an address on its own.
+// The link text is the port alone: OSC-8 already carries the real address, and
+// a loopback dev server is told from its neighbour by its port, not its host.
 export function devServerLabel(url: string): string {
     try {
-        return new URL(url).host;
+        const parsed = new URL(url);
+        return parsed.port ? `:${parsed.port}` : parsed.host;
     } catch {
         return url;
     }
