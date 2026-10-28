@@ -275,7 +275,7 @@ describe('usage prefetch', () => {
 
     it('fills missing Kimi monthly usage from the proxied usage endpoint', async () => {
         process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
-        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi-code' });
+        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi' });
         mockFetchMagpieUsageData.mockResolvedValue({
             sessionUsage: 0,
             weeklyUsage: 2
@@ -320,7 +320,7 @@ describe('usage prefetch', () => {
 
     it('keeps only the Kimi monthly fields when gateway quota is unavailable', async () => {
         process.env.ANTHROPIC_BASE_URL = 'http://localhost:3425';
-        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi-code' });
+        vi.spyOn(magpieUsage, 'resolveSessionAccount').mockReturnValue({ provider: 'kimi' });
         mockFetchMagpieUsageData.mockResolvedValue({});
         mockFetchKimiUsageData.mockResolvedValue({ sessionUsage: 99, weeklyUsage: 99, monthlyUsage: 6.25 });
 

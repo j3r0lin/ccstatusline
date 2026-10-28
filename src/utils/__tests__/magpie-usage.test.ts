@@ -84,10 +84,10 @@ describe('parseMagpieQuotaResponse', () => {
     });
 
     it('reads an account without an email when its provider has exactly one account', () => {
-        const kimi = { provider: 'kimi-code', user: null, windows: [{ name: '5 hours', used: 12, resetsAt: 'r' }] };
+        const kimi = { provider: 'kimi', user: null, windows: [{ name: '5 hours', used: 12, resetsAt: 'r' }] };
 
-        expect(parseMagpieQuotaResponse(JSON.stringify({ data: [kimi] }), { provider: 'kimi-code' })?.sessionUsage).toBe(12);
-        expect(parseMagpieQuotaResponse(JSON.stringify({ data: [kimi, { ...kimi, windows: [{ name: '5 hours', used: 80 }] }] }), { provider: 'kimi-code' })).toBeNull();
+        expect(parseMagpieQuotaResponse(JSON.stringify({ data: [kimi] }), { provider: 'kimi' })?.sessionUsage).toBe(12);
+        expect(parseMagpieQuotaResponse(JSON.stringify({ data: [kimi, { ...kimi, windows: [{ name: '5 hours', used: 80 }] }] }), { provider: 'kimi' })).toBeNull();
     });
 
     it('returns null for malformed input', () => {
@@ -118,6 +118,27 @@ describe('parseMagpieQuotaResponse', () => {
             monthlyResetAt: '2026-11-11T04:24:00Z'
         });
         expect(usage?.sessionWindowUnavailable).toBeUndefined();
+    });
+
+    it('reads Kimi\'s 30 days window as its monthly pool', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'kimi',
+                user: null,
+                windows: [
+                    { name: '5 hours', used: 11, resetsAt: '2026-10-28T12:54:00Z' },
+                    { name: '7 days', used: 2, resetsAt: '2026-11-02T11:54:00Z' },
+                    { name: '30 days', used: 85.45, resetsAt: '2026-11-11T12:24:00Z' }
+                ]
+            }]
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'kimi' })).toMatchObject({
+            sessionUsage: 11,
+            weeklyUsage: 2,
+            monthlyUsage: 85.45,
+            monthlyResetAt: '2026-11-11T12:24:00Z'
+        });
     });
 
     it('keeps a Month window at 0% with no reset time, which magpie leaves out', () => {
@@ -217,7 +238,7 @@ describe('resolveSessionAccount', () => {
             'claude/claude-haiku-5-5|session-a': { who: 'claude@platform1@inhand.com · inhand', at: '2026-10-12T11:00:00+08:00' },
             'group/sonnet-tier|session-b': { who: 'codex@someone@gmail.com', at: '2026-10-12T10:00:00+08:00' },
             'group/sonnet-tier|session-c': { who: 'claude@platform1@inhand.com · inhand', at: '2026-10-12T10:00:00+08:00' },
-            'group/sonnet-tier|session-e': { who: 'kimi-code#670d5e5763', at: '2026-10-12T10:00:00+08:00' }
+            'group/sonnet-tier|session-e': { who: 'kimi#670d5e5763', at: '2026-10-12T10:00:00+08:00' }
         }));
         return { affinityFile, environment: { CLAUDE_CONFIG_DIR: dir } };
     }
@@ -238,7 +259,7 @@ describe('resolveSessionAccount', () => {
     it('resolves a provider whose accounts magpie names by id instead of email', () => {
         const { affinityFile, environment } = setup();
 
-        expect(resolveSessionAccount('session-e', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'kimi-code', email: undefined, routed: true });
+        expect(resolveSessionAccount('session-e', 'sonnet-tier', environment, affinityFile)).toEqual({ provider: 'kimi', email: undefined, routed: true });
     });
 
     it('finds the routing group when Claude Code reports it as group/<name>', () => {

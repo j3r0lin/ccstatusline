@@ -263,7 +263,7 @@ export async function prefetchUsageDataIfNeeded(lines: WidgetItem[][], data?: St
         // The proxied Kimi usage reply can fill monthly fields missing from
         // magpie's cached quota.
         const needsMonthly = requirements.some(requirement => requirement.field === 'monthlyUsage' || requirement.field === 'monthlyResetAt');
-        if (needsMonthly && resolveSessionAccount(data?.session_id, modelId)?.provider === 'kimi-code') {
+        if (needsMonthly && resolveSessionAccount(data?.session_id, modelId)?.provider === 'kimi') {
             const monthlyData = await fetchKimiUsageData({ requiredFields: ['monthlyUsage', 'monthlyResetAt'] });
             // Prefer magpie's defined fields over the direct usage reply.
             return {

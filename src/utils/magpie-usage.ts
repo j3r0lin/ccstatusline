@@ -42,10 +42,14 @@ const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
 // magpie names rolling windows by their length, so "5 hours" and "7 days" mean
 // the same quota for every provider, and a plan's monthly window is "Month".
 // Only providers that name windows otherwise are listed; any other name is not
-// guessed, as it may be a different quota.
+// guessed, as it may be a different quota. Kimi's monthly pool is a rolling
+// "30 days" window that the Surge script adds to Kimi's usage reply.
 interface WindowNames { session?: string; weekly?: string; monthly?: string }
 const DEFAULT_WINDOWS: WindowNames = { session: '5 hours', weekly: '7 days', monthly: 'Month' };
-const PROVIDER_WINDOWS: Record<string, WindowNames> = { cursor: { weekly: 'Cursor Models' } };
+const PROVIDER_WINDOWS: Record<string, WindowNames> = {
+    cursor: { weekly: 'Cursor Models' },
+    kimi: { ...DEFAULT_WINDOWS, monthly: '30 days' }
+};
 
 const QuotaWindowSchema = z.looseObject({
     name: z.string(),
@@ -123,7 +127,7 @@ function accountEmail(user: string | null | undefined): string | undefined {
 
 export interface MagpieAccount {
     provider: string;
-    // Absent for providers whose accounts magpie identifies by an opaque id, such as kimi-code.
+    // Absent for providers whose accounts magpie identifies by an opaque id, such as kimi.
     email?: string;
     // True when the session's model is a routing group (e.g. sonnet-tier) whose
     // provider varies per session.
@@ -169,7 +173,7 @@ function readPinnedAccount(sessionId: string, modelId: string, affinityFile: str
         const latest = entries
             .filter(([key, value]) => key === `${key.split('/')[0]}/${bareModelId}|${sessionId}` && typeof value.who === 'string')
             .sort(([, left], [, right]) => Date.parse(right.at ?? '') - Date.parse(left.at ?? ''))[0];
-        // `who` is "<provider>@<email>" ("claude@platform2@inhand.com · inhand") or "<provider>#<id>" ("kimi-code#670d5e5763").
+        // `who` is "<provider>@<email>" ("claude@platform2@inhand.com · inhand") or "<provider>#<id>" ("kimi#670d5e5763").
         const match = /^([^@#]+)([@#])(.+)$/.exec(latest?.[1].who ?? '');
         if (!match) {
             return undefined;
