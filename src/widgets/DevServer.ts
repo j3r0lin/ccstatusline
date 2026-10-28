@@ -8,6 +8,17 @@ import type {
 import { collectDevServerUrls } from '../utils/dev-servers';
 import { renderOsc8Link } from '../utils/hyperlink';
 
+// The link text drops the scheme and the trailing slash: OSC-8 already carries
+// the real address, and the status line only needs enough to tell two servers
+// apart. `localhost:8000` still reads as an address on its own.
+export function devServerLabel(url: string): string {
+    try {
+        return new URL(url).host;
+    } catch {
+        return url;
+    }
+}
+
 export class DevServerWidget implements Widget {
     getDefaultColor(): string { return 'cyan'; }
     getDescription(): string { return 'Shows clickable URLs of live dev servers started in this session'; }
@@ -24,7 +35,7 @@ export class DevServerWidget implements Widget {
 
     render(_item: WidgetItem, context: RenderContext, _settings: Settings): string | null {
         if (context.isPreview)
-            return renderOsc8Link('http://localhost:8000/', 'http://localhost:8000/');
+            return renderOsc8Link('http://localhost:8000/', devServerLabel('http://localhost:8000/'));
 
         const transcriptPath = context.data?.transcript_path;
         if (!transcriptPath)
@@ -34,9 +45,7 @@ export class DevServerWidget implements Widget {
         if (urls.length === 0)
             return null;
 
-        // The full URL is the link text: a terminal that ignores OSC-8 can still
-        // pick the address up with its own URL detection, and `:8000` cannot.
-        return urls.map(url => renderOsc8Link(url, url)).join(' · ');
+        return urls.map(url => renderOsc8Link(url, devServerLabel(url))).join(' · ');
     }
 
     supportsRawValue(): boolean { return false; }
