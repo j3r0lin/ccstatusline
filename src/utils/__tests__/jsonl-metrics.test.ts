@@ -16,6 +16,7 @@ import type { StatusJSON } from '../../types/StatusJSON';
 import { getContextWindowMetrics } from '../context-window';
 import { getTranscriptAnalysis } from '../jsonl';
 import type { SpeedMetricsCollection } from '../jsonl-metrics';
+import { clearTranscriptMemo } from '../transcript-cache';
 
 // The render path makes one combined scan; these narrow the result to the one
 // metric each case is about, so the assertions stay readable.
@@ -1927,5 +1928,98 @@ describe('jsonl transcript metrics', () => {
             totalTokens: 0,
             requestCount: 0
         });
+    });
+});
+
+describe('incremental transcript analysis', () => {
+    const roots: string[] = [];
+    afterEach(() => {
+        while (roots.length > 0) {
+            const root = roots.pop();
+            if (root) {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        }
+    });
+
+    const assistantLine = (ts: string, id: string | null, usage: [number, number], stop: string | null, extra: object = {}) => JSON.stringify({
+        type: 'assistant',
+        timestamp: ts,
+        ...(id ? {} : {}),
+        message: {
+            ...(id ? { id } : {}),
+            stop_reason: stop,
+            usage: { input_tokens: usage[0], output_tokens: usage[1], cache_read_input_tokens: 5, cache_creation_input_tokens: 2 }
+        },
+        ...extra
+    });
+    const userLine = (ts: string) => JSON.stringify({ type: 'user', timestamp: ts, message: { content: 'hi' } });
+
+    const options = {
+        includeSessionDuration: true,
+        includeSpeedMetrics: true,
+        includeSubagents: true,
+        speedWindowSeconds: [60],
+        includeCompactionStats: true,
+        includeThinkingEffort: true
+    };
+
+    it('gives the same result after appends as a fresh analysis of the final files', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-incremental-'));
+        roots.push(root);
+        const transcriptPath = path.join(root, 'session.jsonl');
+        const subagentsDir = path.join(root, 'session', 'subagents');
+        fs.mkdirSync(subagentsDir, { recursive: true });
+        const subagentPath = path.join(subagentsDir, 'agent-a1.jsonl');
+
+        fs.writeFileSync(transcriptPath, [
+            userLine('2026-01-01T10:00:00.000Z'),
+            assistantLine('2026-01-01T10:00:05.000Z', 'msg_1', [100, 10], 'end_turn')
+        ].join('\n') + '\n');
+        fs.writeFileSync(subagentPath, `${userLine('2026-01-01T10:00:06.000Z')}\n`);
+
+        await getTranscriptAnalysis(transcriptPath, options);
+        clearTranscriptMemo();
+
+        fs.appendFileSync(transcriptPath, [
+            userLine('2026-01-01T10:01:00.000Z'),
+            assistantLine('2026-01-01T10:01:02.000Z', 'msg_2', [0, 0], null),
+            assistantLine('2026-01-01T10:01:04.000Z', 'msg_2', [300, 40], 'tool_use'),
+            JSON.stringify({
+                type: 'system',
+                subtype: 'compact_boundary',
+                timestamp: '2026-01-01T10:02:00.000Z',
+                compactMetadata: { trigger: 'auto', preTokens: 900, postTokens: 200 }
+            }),
+            assistantLine('2026-01-01T10:02:10.000Z', 'msg_3', [50, 5], 'end_turn'),
+            JSON.stringify({
+                type: 'user',
+                timestamp: '2026-01-01T10:02:20.000Z',
+                toolUseResult: { agentId: 'a1' },
+                message: { content: '<local-command-stdout>Set effort level to high</local-command-stdout>' }
+            })
+        ].join('\n') + '\n');
+        fs.appendFileSync(subagentPath, [
+            assistantLine('2026-01-01T10:02:30.000Z', 'sub_1', [0, 0], null),
+            assistantLine('2026-01-01T10:02:40.000Z', 'sub_1', [70, 9], 'end_turn')
+        ].join('\n') + '\n');
+
+        const incremental = await getTranscriptAnalysis(transcriptPath, options);
+
+        // A new home means an empty cache dir, so this analysis parses everything.
+        clearTranscriptMemo();
+        const originalHome = process.env.HOME;
+        process.env.HOME = path.join(root, 'fresh-home');
+        let fresh: Awaited<ReturnType<typeof getTranscriptAnalysis>>;
+        try {
+            fresh = await getTranscriptAnalysis(transcriptPath, options);
+        } finally {
+            process.env.HOME = originalHome;
+        }
+
+        expect(incremental).toEqual(fresh);
+        expect(fresh.compactionData?.count).toBe(1);
+        expect(fresh.thinkingEffort?.value).toBe('high');
+        expect(fresh.speedMetricsCollection?.sessionAverage.requestCount).toBeGreaterThan(0);
     });
 });

@@ -28,6 +28,10 @@ import {
     type ResolvedThinkingEffort
 } from './jsonl-metadata';
 import { getSessionNameFromRecord } from './jsonl-session';
+import {
+    readTranscriptData,
+    type SlimTranscriptEntry
+} from './transcript-cache';
 
 export interface SpeedMetricsCollection {
     sessionAverage: SpeedMetrics;
@@ -413,11 +417,72 @@ function collectSpeedMetricRecord(
     });
 }
 
+type RestoredTranscriptLine = TranscriptLine & {
+    subtype?: 'compact_boundary';
+    compactMetadata?: { trigger?: string; preTokens?: number; postTokens?: number };
+};
+
+/**
+ * Rebuilds the minimal record shape the collectors read from a cached slim
+ * entry, so cached and freshly parsed transcripts run through the same code.
+ */
+function restoreTranscriptLine(entry: SlimTranscriptEntry): RestoredTranscriptLine {
+    const line: RestoredTranscriptLine = {};
+
+    if (entry.y !== undefined) {
+        line.type = entry.y;
+    } else if (entry.c === 1) {
+        line.type = 'system';
+    }
+    if (entry.s === 1) {
+        line.isSidechain = true;
+    }
+    if (entry.e === 1) {
+        line.isApiErrorMessage = true;
+    }
+
+    if (entry.c === 1) {
+        line.subtype = 'compact_boundary';
+        const metadata: NonNullable<RestoredTranscriptLine['compactMetadata']> = {};
+        if (entry.ct !== undefined) {
+            metadata.trigger = entry.ct;
+        }
+        if (entry.pt !== undefined) {
+            metadata.preTokens = entry.pt;
+        }
+        if (entry.pr !== undefined) {
+            metadata.postTokens = entry.pr;
+        }
+        line.compactMetadata = metadata;
+    }
+
+    if (entry.u || entry.i !== undefined) {
+        const message: NonNullable<TranscriptLine['message']> = {};
+        if (entry.i !== undefined) {
+            message.id = entry.i;
+        }
+        if (entry.u) {
+            message.usage = {
+                input_tokens: entry.u[0],
+                output_tokens: entry.u[1],
+                cache_read_input_tokens: entry.u[2],
+                cache_creation_input_tokens: entry.u[3]
+            };
+            if (entry.r !== undefined) {
+                message.stop_reason = entry.r === 0 ? null : (entry.r === 1 ? 'stop' : '');
+            }
+        }
+        line.message = message;
+    }
+
+    return line;
+}
+
 async function collectSpeedMetricsFromFile(filePath: string, ignoreSidechain: boolean): Promise<CollectedSpeedMetrics> {
     const state = createSpeedMetricCollector();
-    for await (const line of iterateJsonlLines(filePath)) {
-        const data = parseJsonlLine(line) as TranscriptLine | null;
-        collectSpeedMetricRecord(state, data, parseTimestampMs(data?.timestamp), ignoreSidechain);
+    const { entries } = await readTranscriptData(filePath);
+    for (const entry of entries) {
+        collectSpeedMetricRecord(state, restoreTranscriptLine(entry), entry.t ?? null, ignoreSidechain);
     }
 
     return state;
@@ -623,37 +688,69 @@ async function scanTranscript(transcriptPath: string, options: TranscriptScanOpt
     let sessionName: string | null = null;
 
     try {
-        for await (const line of iterateJsonlLines(transcriptPath)) {
-            const data = parseJsonlLine(line) as TranscriptLine | null;
-            const needsTimestamp = options.includeSessionDuration === true
-                || speedState !== null
-                || Boolean(data?.message?.usage);
-            const timestampMs = needsTimestamp ? parseTimestampMs(data?.timestamp) : null;
+        // The incremental cache has no session name, so that one still needs the full parse.
+        if (options.includeSessionName) {
+            for await (const line of iterateJsonlLines(transcriptPath)) {
+                const data = parseJsonlLine(line) as TranscriptLine | null;
+                const needsTimestamp = options.includeSessionDuration === true
+                    || speedState !== null
+                    || Boolean(data?.message?.usage);
+                const timestampMs = needsTimestamp ? parseTimestampMs(data?.timestamp) : null;
 
-            if (tokenState) {
-                collectTokenMetricRecord(tokenState, data, timestampMs);
+                if (tokenState) {
+                    collectTokenMetricRecord(tokenState, data, timestampMs);
+                }
+                if (options.includeSessionDuration && timestampMs !== null) {
+                    firstTimestampMs ??= timestampMs;
+                    lastTimestampMs = timestampMs;
+                }
+                if (speedState) {
+                    collectSpeedMetricRecord(speedState, data, timestampMs, true);
+                }
+                if (referencedAgentIds) {
+                    collectAgentIds(data, referencedAgentIds);
+                }
+                if (compactionData) {
+                    accumulateCompactionStats(compactionData, data);
+                }
+                if (options.includeThinkingEffort) {
+                    const update = getThinkingEffortUpdate(data);
+                    if (update) {
+                        thinkingEffort = update.effort;
+                    }
+                }
+                sessionName = getSessionNameFromRecord(data) ?? sessionName;
             }
-            if (options.includeSessionDuration && timestampMs !== null) {
-                firstTimestampMs ??= timestampMs;
-                lastTimestampMs = timestampMs;
-            }
-            if (speedState) {
-                collectSpeedMetricRecord(speedState, data, timestampMs, true);
-            }
-            if (referencedAgentIds) {
-                collectAgentIds(data, referencedAgentIds);
-            }
-            if (compactionData) {
-                accumulateCompactionStats(compactionData, data);
-            }
-            if (options.includeThinkingEffort) {
-                const update = getThinkingEffortUpdate(data);
-                if (update) {
-                    thinkingEffort = update.effort;
+        } else {
+            const cached = await readTranscriptData(transcriptPath);
+            for (const entry of cached.entries) {
+                const data = restoreTranscriptLine(entry);
+                const needsTimestamp = options.includeSessionDuration === true
+                    || speedState !== null
+                    || entry.u !== undefined;
+                const timestampMs = needsTimestamp ? (entry.t ?? null) : null;
+
+                if (tokenState) {
+                    collectTokenMetricRecord(tokenState, data, timestampMs);
+                }
+                if (options.includeSessionDuration && timestampMs !== null) {
+                    firstTimestampMs ??= timestampMs;
+                    lastTimestampMs = timestampMs;
+                }
+                if (speedState) {
+                    collectSpeedMetricRecord(speedState, data, timestampMs, true);
+                }
+                if (compactionData) {
+                    accumulateCompactionStats(compactionData, data);
                 }
             }
-            if (options.includeSessionName) {
-                sessionName = getSessionNameFromRecord(data) ?? sessionName;
+            if (referencedAgentIds) {
+                for (const id of cached.agentIds) {
+                    referencedAgentIds.add(id);
+                }
+            }
+            if (options.includeThinkingEffort) {
+                thinkingEffort = cached.thinkingEffort;
             }
         }
 

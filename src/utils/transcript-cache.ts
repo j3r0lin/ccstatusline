@@ -37,6 +37,14 @@ export interface SlimTranscriptEntry {
     c?: 1;
     /** compactMetadata.postTokens of a boundary row, when the record reports it */
     p?: number;
+    /** message.id when it is a non-empty string; groups the records of one API response */
+    i?: string;
+    /** compactMetadata.trigger of a boundary row, when it is a string */
+    ct?: string;
+    /** compactMetadata.preTokens of a boundary row, when it is a number */
+    pt?: number;
+    /** compactMetadata.postTokens as recorded (unclamped, unlike p), when it is a number */
+    pr?: number;
 }
 
 export interface TranscriptData {
@@ -84,12 +92,13 @@ interface TranscriptCacheFile {
     effort: ResolvedThinkingEffort | null;
 }
 
-const CACHE_VERSION = 6;
+const CACHE_VERSION = 7;
 const MAX_CACHED_PROMPT_LENGTH = 500;
 const HEAD_SAMPLE_BYTES = 4096;
-const MAX_CACHE_FILES = 512;
+// Subagent transcripts each get their own cache file, so this must outlast many sessions.
+const MAX_CACHE_FILES = 4096;
 
-const processMemo = new Map<string, TranscriptData>();
+const processMemo = new Map<string, { size: number; data: TranscriptData }>();
 
 function getCacheDir(): string {
     return path.join(os.homedir(), '.cache', 'ccstatusline', 'transcripts');
@@ -134,7 +143,9 @@ interface RawTranscriptLine {
     type?: string;
     isSidechain?: boolean;
     isApiErrorMessage?: boolean;
+    compactMetadata?: unknown;
     message?: {
+        id?: unknown;
         content?: unknown;
         usage?: {
             input_tokens?: number;
@@ -213,10 +224,26 @@ function slimifyLine(line: string, sink: SlimifySink): SlimTranscriptEntry | nul
         if (postTokens !== null) {
             entry.p = postTokens;
         }
+        const meta = data.compactMetadata;
+        if (meta && typeof meta === 'object') {
+            const { trigger, preTokens, postTokens: rawPostTokens } = meta as Record<string, unknown>;
+            if (typeof trigger === 'string') {
+                entry.ct = trigger;
+            }
+            if (typeof preTokens === 'number') {
+                entry.pt = preTokens;
+            }
+            if (typeof rawPostTokens === 'number') {
+                entry.pr = rawPostTokens;
+            }
+        }
     }
 
     const message = data.message;
     if (message && typeof message === 'object') {
+        if (typeof message.id === 'string' && message.id !== '') {
+            entry.i = message.id;
+        }
         const usage = message.usage;
         if (usage && typeof usage === 'object') {
             entry.u = [
@@ -374,14 +401,14 @@ async function readBytes(fd: fs.promises.FileHandle, position: number, length: n
  * process so multiple widgets share a single read.
  */
 export async function readTranscriptData(transcriptPath: string): Promise<TranscriptData> {
-    const memoized = processMemo.get(transcriptPath);
-    if (memoized) {
-        return memoized;
-    }
-
     const fd = await fs.promises.open(transcriptPath, 'r');
     try {
         const fileSize = (await fd.stat()).size;
+        // Size guards against the same path being rewritten within one process.
+        const memoized = processMemo.get(transcriptPath);
+        if (memoized?.size === fileSize) {
+            return memoized.data;
+        }
         const cache = readCacheFile(transcriptPath);
 
         let baseEntries: SlimTranscriptEntry[] = [];
@@ -456,7 +483,7 @@ export async function readTranscriptData(transcriptPath: string): Promise<Transc
             };
         }
 
-        processMemo.set(transcriptPath, result);
+        processMemo.set(transcriptPath, { size: fileSize, data: result });
         return result;
     } finally {
         await fd.close();

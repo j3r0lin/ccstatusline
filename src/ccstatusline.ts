@@ -125,7 +125,10 @@ async function renderMultipleLines(data: StatusJSON) {
     const hasCompactionWidget = lines.some(line => line.some(item => item.type === 'compaction-counter'));
     const hasThinkingEffortWidget = lines.some(line => line.some(item => item.type === 'thinking-effort'));
     const hasSessionNameWidget = lines.some(line => line.some(item => item.type === 'session-name'));
-    const needsTranscriptThinkingEffort = hasThinkingEffortWidget
+    // The model widget falls back to a reverse whole-file scan for effort when
+    // this is undefined, so it needs the cached value too.
+    const hasModelWidget = lines.some(line => line.some(item => item.type === 'model'));
+    const needsTranscriptThinkingEffort = (hasThinkingEffortWidget || hasModelWidget)
         && (!data.effort || !('level' in data.effort));
     const requestedSpeedWindows = new Set<number>();
     for (const line of lines) {
