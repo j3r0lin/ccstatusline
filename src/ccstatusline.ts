@@ -26,6 +26,10 @@ import {
 } from './utils/jira-issue-cache';
 import { getTranscriptAnalysis } from './utils/jsonl';
 import {
+    MAGPIE_SERVED_REFRESH_FLAG,
+    refreshServedCacheFromCli
+} from './utils/magpie-served';
+import {
     MODEL_PRICES_REFRESH_FLAG,
     refreshModelPrices
 } from './utils/model-prices';
@@ -352,6 +356,22 @@ function handleJiraIssueRefresh(): boolean {
     return true;
 }
 
+function handleMagpieServedRefresh(): boolean {
+    const flagIndex = process.argv.indexOf(MAGPIE_SERVED_REFRESH_FLAG);
+    if (flagIndex === -1) {
+        return false;
+    }
+
+    const windowMs = Number(process.argv[flagIndex + 1]);
+    const lockPath = process.argv[flagIndex + 2];
+    if (!lockPath) {
+        return true;
+    }
+
+    refreshServedCacheFromCli(windowMs, lockPath);
+    return true;
+}
+
 async function handleModelPricesRefresh(): Promise<boolean> {
     const flagIndex = process.argv.indexOf(MODEL_PRICES_REFRESH_FLAG);
     if (flagIndex === -1) {
@@ -373,6 +393,10 @@ async function main() {
     }
 
     if (handleJiraIssueRefresh()) {
+        return;
+    }
+
+    if (handleMagpieServedRefresh()) {
         return;
     }
 

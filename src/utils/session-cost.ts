@@ -9,6 +9,13 @@ import type {
 } from '../types/ModelPrice';
 
 import {
+    DEFAULT_MAGPIE_SERVED_DEPS,
+    readServedCache,
+    requestServedRefresh,
+    type MagpieServedDeps,
+    type ServedCache
+} from './magpie-served';
+import {
     getModelPrice,
     isClaudeModel
 } from './model-price-lookup';
@@ -34,6 +41,20 @@ interface CountedMessage {
     tokens: TierTokens;
 }
 
+/**
+ * A message whose model has no price, kept by id until its price can be settled.
+ * magpie writes its route group's name as the model, so the served model is
+ * looked up in magpie's log when costing, not when reading the transcript.
+ */
+interface UnpricedMessage {
+    model: string;
+    /** Input plus cache tokens, which pick the price tier of the model that served it. */
+    promptTokens: number;
+    tokens: TierTokens;
+    /** The line's timestamp in epoch ms. */
+    at: number;
+}
+
 interface FileState {
     ino: number;
     /** Bytes consumed so far, always ending just after a newline. */
@@ -41,6 +62,8 @@ interface FileState {
     /** Lines sharing a message id are adjacent, so only the latest message needs tracking. */
     last?: CountedMessage;
     models: ModelTokens;
+    /** Unpriced messages by id; a later line of the same id replaces the earlier one. */
+    unpriced: Record<string, UnpricedMessage>;
 }
 
 interface CostCache {
@@ -67,7 +90,7 @@ function getCachePath(transcriptPath: string): string {
 }
 
 /** Bump when the cached state's shape changes, so older caches are discarded. */
-const CACHE_FORMAT = 2;
+const CACHE_FORMAT = 3;
 
 /**
  * Cached state stores tokens, not dollars, and the price table is applied on every
@@ -124,6 +147,7 @@ function getSubagentFiles(transcriptPath: string): string[] {
 }
 
 interface UsageLine {
+    timestamp?: string;
     message?: {
         id?: string;
         model?: string;
@@ -190,11 +214,24 @@ function addLine(state: FileState, prices: ModelPrices, line: string): void {
 
     const write1h = usage.cache_creation?.ephemeral_1h_input_tokens ?? 0;
     const write5m = usage.cache_creation?.ephemeral_5m_input_tokens ?? Math.max(cacheCreated - write1h, 0);
+    const id = message.id ?? '';
+    const tokens: TierTokens = { input, output, cacheRead, write5m, write1h };
+    if (id !== '' && !getModelPrice(prices, model)) {
+        const time = Date.parse(parsed.timestamp ?? '');
+        state.unpriced[id] = {
+            model,
+            promptTokens: input + cacheRead + cacheCreated,
+            tokens,
+            at: Number.isNaN(time) ? Date.now() : time
+        };
+        return;
+    }
+
     const counted: CountedMessage = {
-        id: message.id ?? '',
+        id,
         model,
         tier: pickTier(prices, model, input + cacheRead + cacheCreated),
-        tokens: { input, output, cacheRead, write5m, write1h }
+        tokens
     };
 
     // Claude Code writes one line per content block, and a later line of the
@@ -255,7 +292,7 @@ function refreshFile(filePath: string, previous: FileState | undefined, prices: 
 
     const state: FileState = previous?.ino === stat.ino && previous.offset <= stat.size
         ? previous
-        : { ino: stat.ino, offset: 0, models: {} };
+        : { ino: stat.ino, offset: 0, models: {}, unpriced: {} };
 
     if (state.offset < stat.size) {
         consumeAppended(filePath, stat.size, state, prices);
@@ -296,7 +333,7 @@ interface FileCost {
     byModel: Record<string, ModelCost>;
 }
 
-function costFile(file: FileState, prices: ModelPrices): FileCost {
+function costFile(file: FileState, prices: ModelPrices, served: ServedCache | null): FileCost {
     const cost: FileCost = { totalUsd: 0, allClaude: true, hasUnknown: false, byModel: {} };
 
     for (const [model, byTier] of Object.entries(file.models)) {
@@ -329,6 +366,33 @@ function costFile(file: FileState, prices: ModelPrices): FileCost {
         }
     }
 
+    for (const [id, message] of Object.entries(file.unpriced)) {
+        if (!isClaudeModel(message.model)) {
+            cost.allClaude = false;
+        }
+        const servedModel = served?.ids[id]?.model;
+        const price = servedModel === undefined ? undefined : getModelPrice(prices, servedModel);
+        const name = servedModel !== undefined && price ? servedModel : message.model;
+        const modelCost = cost.byModel[name] ??= {
+            usd: price ? 0 : null,
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0
+        };
+        modelCost.inputTokens += message.tokens.input;
+        modelCost.outputTokens += message.tokens.output;
+        modelCost.cacheReadTokens += message.tokens.cacheRead;
+        modelCost.cacheWriteTokens += message.tokens.write5m + message.tokens.write1h;
+        if (price && servedModel !== undefined) {
+            const usd = priceTokens(price, pickTier(prices, servedModel, message.promptTokens), message.tokens);
+            modelCost.usd = (modelCost.usd ?? 0) + usd;
+            cost.totalUsd += usd;
+        } else {
+            cost.hasUnknown = true;
+        }
+    }
+
     return cost;
 }
 
@@ -350,9 +414,13 @@ function summarize(files: FileCost[]): SessionCostSummary {
  * @param prices - Price table keyed by models.dev model id; tests inject a small one
  * @returns null when the transcript cannot be read
  */
-export function getSessionCostSummary(transcriptPath: string, prices: ModelPrices = getModelPrices()): SessionCostSummary | null {
+export function getSessionCostSummary(
+    transcriptPath: string,
+    prices: ModelPrices = getModelPrices(),
+    servedDeps: MagpieServedDeps = DEFAULT_MAGPIE_SERVED_DEPS
+): SessionCostSummary | null {
     try {
-        const state = readSessionCost(transcriptPath, prices);
+        const state = readSessionCost(transcriptPath, prices, servedDeps);
         return state ? summarize(Object.values(state.costs)) : null;
     } catch {
         return null;
@@ -366,7 +434,7 @@ interface SessionCostState {
     costs: Record<string, FileCost>;
 }
 
-function readSessionCost(transcriptPath: string, prices: ModelPrices): SessionCostState | null {
+function readSessionCost(transcriptPath: string, prices: ModelPrices, servedDeps: MagpieServedDeps): SessionCostState | null {
     if (!fs.existsSync(transcriptPath)) {
         return null;
     }
@@ -398,9 +466,14 @@ function readSessionCost(transcriptPath: string, prices: ModelPrices): SessionCo
         saveCache(cachePath, cache);
     }
 
+    const unpriced = Object.values(nextFiles).flatMap(state => Object.entries(state.unpriced));
+    const served = unpriced.length > 0 ? readServedCache(servedDeps) : null;
     const costs: Record<string, FileCost> = {};
     for (const [filePath, state] of Object.entries(nextFiles)) {
-        costs[filePath] = costFile(state, prices);
+        costs[filePath] = costFile(state, prices, served);
+    }
+    if (unpriced.length > 0) {
+        requestServedRefresh(served, unpriced.filter(([id]) => served?.ids[id] === undefined).map(([, message]) => message.at), servedDeps);
     }
     return { cache, cachePath, costs };
 }
@@ -513,7 +586,8 @@ function recordLedger(transcriptPath: string, state: SessionCostState, result: S
 export function resolveSessionCost(
     transcriptPath: string | undefined,
     claudeCodeTotal: number | undefined,
-    prices: ModelPrices = getModelPrices()
+    prices: ModelPrices = getModelPrices(),
+    servedDeps: MagpieServedDeps = DEFAULT_MAGPIE_SERVED_DEPS
 ): SessionCostResult {
     let result: SessionCostResult = { totalUsd: claudeCodeTotal, approximate: false, source: 'claude-code' };
     if (!transcriptPath) {
@@ -522,7 +596,7 @@ export function resolveSessionCost(
 
     let state: SessionCostState | null;
     try {
-        state = readSessionCost(transcriptPath, prices);
+        state = readSessionCost(transcriptPath, prices, servedDeps);
     } catch {
         return result;
     }

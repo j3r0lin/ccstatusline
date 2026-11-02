@@ -37,6 +37,21 @@ function seedFreshPriceCache(home: string): void {
     const dir = path.join(home, '.cache', 'ccstatusline');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'model-prices.json'), JSON.stringify(modelPrices));
+    seedServedCache(home, {});
+}
+
+/** A served-model cache fetched just now, so a render finds nothing due and spawns no refresh. */
+function seedServedCache(home: string, ids: Record<string, string>): void {
+    const dir = path.join(home, '.cache', 'ccstatusline');
+    fs.mkdirSync(dir, { recursive: true });
+    const now = Date.now();
+    fs.writeFileSync(path.join(dir, 'magpie-served.json'), JSON.stringify({
+        version: 1,
+        ids: Object.fromEntries(Object.entries(ids).map(([id, model]) => [id, { model, at: now }])),
+        coveredFrom: 0,
+        fetchedAt: now,
+        attemptedAt: now
+    }));
 }
 
 interface Usage {
@@ -549,5 +564,108 @@ describe('session cost record', () => {
         );
 
         expect(fs.existsSync(sessionDir)).toBe(false);
+    });
+});
+
+describe('session cost of steps named after a magpie route group', () => {
+    let tempDir: string;
+    let transcript: string;
+
+    const GROUP = 'auto-sonnet';
+
+    function write(file: string, lines: string[]): void {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, `${lines.join('\n')}\n`, 'utf-8');
+    }
+
+    beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-session-cost-group-'));
+        vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        seedFreshPriceCache(tempDir);
+        transcript = path.join(tempDir, 'proj', 'sess.jsonl');
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('prices a group-named step at the model that served it and keys it under that model', () => {
+        seedServedCache(tempDir, { a: 'claude-sonnet-5-5' });
+        write(transcript, [assistantLine('a', GROUP, { input: MILLION, output: 100_000 })]);
+        const agentFile = path.join(tempDir, 'proj', 'sess', 'subagents', 'agent-x.jsonl');
+        write(agentFile, [assistantLine('a', GROUP, { input: MILLION, output: 100_000 })]);
+
+        const result = resolveSessionCost(transcript, 99, FIXTURE_PRICES);
+
+        // sonnet: 2 + 1 per file, two files
+        expect(result).toMatchObject({ source: 'computed', approximate: false });
+        expect(result.totalUsd).toBeCloseTo(6, 6);
+        const agent = JSON.parse(fs.readFileSync(path.join(path.dirname(agentFile), 'agent-x.cost.json'), 'utf-8')) as {
+            totalUsd: number;
+            approximate: boolean;
+            byModel: Record<string, { usd: number }>;
+        };
+        expect(agent.approximate).toBe(false);
+        expect(agent.totalUsd).toBeCloseTo(3, 6);
+        expect(Object.keys(agent.byModel)).toEqual(['claude-sonnet-5-5']);
+    });
+
+    it('keeps a group-named step unknown when magpie has no record of it', () => {
+        write(transcript, [
+            assistantLine('a', GROUP, { input: MILLION }),
+            assistantLine('b', 'glm-5.3', { input: MILLION })
+        ]);
+
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ hasUnknown: true, allClaude: false });
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)?.total).toBeCloseTo(2, 6);
+    });
+
+    it('keeps the group name and a null price in the record while unresolved', () => {
+        write(path.join(tempDir, 'proj', 'sess', 'subagents', 'agent-x.jsonl'), [assistantLine('a', GROUP, { input: MILLION })]);
+        write(transcript, [assistantLine('m', 'glm-5.3', { input: MILLION })]);
+
+        resolveSessionCost(transcript, 99, FIXTURE_PRICES);
+
+        const agent = JSON.parse(fs.readFileSync(path.join(tempDir, 'proj', 'sess', 'subagents', 'agent-x.cost.json'), 'utf-8')) as {
+            approximate: boolean;
+            byModel: Record<string, { usd: number | null }>;
+        };
+        expect(agent.approximate).toBe(true);
+        expect(agent.byModel[GROUP]?.usd).toBeNull();
+    });
+
+    it('counts only the last line of a message that spans several lines', () => {
+        seedServedCache(tempDir, { a: 'claude-sonnet-5-5' });
+        write(transcript, [
+            assistantLine('a', GROUP, { input: MILLION, output: 10 }),
+            assistantLine('a', GROUP, { input: MILLION, output: 100_000 })
+        ]);
+
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)?.total).toBeCloseTo(3, 6);
+    });
+
+    it('does not treat a group step as Claude even when a Claude model served it', () => {
+        seedServedCache(tempDir, { a: 'claude-sonnet-5-5' });
+        write(transcript, [assistantLine('a', GROUP, { input: MILLION })]);
+
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ allClaude: false, hasUnknown: false });
+    });
+
+    it('picks the price tier from the served model and the step prompt size', () => {
+        seedServedCache(tempDir, { a: 'grok-4.7' });
+        write(transcript, [assistantLine('a', GROUP, { input: 300_000, output: MILLION })]);
+
+        // above the 200k tier boundary: 0.3M * 4 + 1M * 12
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)?.total).toBeCloseTo(13.2, 6);
+    });
+
+    it('sees a mapping that arrives after the step was first read', () => {
+        write(transcript, [assistantLine('a', GROUP, { input: MILLION })]);
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ hasUnknown: true });
+
+        seedServedCache(tempDir, { a: 'claude-sonnet-5-5' });
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ hasUnknown: false });
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)?.total).toBeCloseTo(2, 6);
     });
 });
