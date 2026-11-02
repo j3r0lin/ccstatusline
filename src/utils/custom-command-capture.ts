@@ -6,15 +6,18 @@ import type {
 } from './custom-command';
 
 /**
- * Runs in a separate runtime so the synchronous renderer can enforce a streaming
- * output limit. Keep this function self-contained: its compiled source is passed
- * to the current runtime with `-e`, including in the single-file release bundle.
+ * Enforces a streaming output limit, the deadline and process-group cleanup
+ * around one command. It runs either in a helper runtime for the synchronous
+ * renderer or in the main process for prefetching. Keep this function
+ * self-contained: its compiled source is passed to a helper runtime with `-e`,
+ * including in the single-file release bundle.
  */
 export function captureCustomCommand(
     spawnCommand: typeof spawn,
     request: CustomCommandRequest,
     maxBytes: number,
-    maxChars: number
+    maxChars: number,
+    onResult: (result: RawCustomCommandResult) => void
 ): void {
     const child = spawnCommand(request.command, {
         shell: true,
@@ -58,7 +61,7 @@ export function captureCustomCommand(
             : marker === null
                 ? { status: 'ok', stdout: output.toString('utf8', 0, length).slice(0, maxChars).trim() }
                 : { status: 'failed', marker };
-        process.stdout.write(JSON.stringify(result), () => process.exit(0));
+        onResult(result);
     }
 
     child.stdout.on('data', (chunk: Buffer) => {

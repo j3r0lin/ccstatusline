@@ -18,10 +18,35 @@ import {
     getVisibleText,
     stripSgrCodes
 } from '../utils/ansi';
+import type { CustomCommandRequest } from '../utils/custom-command';
 import { runCustomCommand } from '../utils/custom-command';
 import { shouldInsertInput } from '../utils/input-guards';
 
 import { applyMaxWidth } from './shared/max-width';
+
+/**
+ * The request render() runs, or null when render() runs no command. Prefetching
+ * uses it too, so a prefetched result always matches the later lookup key.
+ */
+export function buildCustomCommandRequest(item: WidgetItem, context: RenderContext): CustomCommandRequest | null {
+    if (context.isPreview || !item.commandPath || !context.data) {
+        return null;
+    }
+
+    const jsonInput = JSON.stringify(
+        typeof context.terminalWidth === 'number'
+            ? { ...context.data, terminal_width: context.terminalWidth }
+            : context.data
+    );
+    return {
+        command: item.commandPath,
+        input: jsonInput,
+        timeoutMs: item.timeout ?? 1000,
+        ttlSeconds: context.customCommandCacheTtlSeconds,
+        sessionId: context.data.session_id,
+        terminalWidth: context.terminalWidth
+    };
+}
 
 export class CustomCommandWidget implements Widget {
     getDefaultColor(): string { return 'white'; }
@@ -62,20 +87,11 @@ export class CustomCommandWidget implements Widget {
     render(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
         if (context.isPreview) {
             return item.commandPath ? `[cmd: ${item.commandPath.substring(0, 20)}${item.commandPath.length > 20 ? '...' : ''}]` : '[No command]';
-        } else if (item.commandPath && context.data) {
-            const jsonInput = JSON.stringify(
-                typeof context.terminalWidth === 'number'
-                    ? { ...context.data, terminal_width: context.terminalWidth }
-                    : context.data
-            );
-            const result = runCustomCommand({
-                command: item.commandPath,
-                input: jsonInput,
-                timeoutMs: item.timeout ?? 1000,
-                ttlSeconds: context.customCommandCacheTtlSeconds,
-                sessionId: context.data.session_id,
-                terminalWidth: context.terminalWidth
-            });
+        }
+
+        const request = buildCustomCommandRequest(item, context);
+        if (request) {
+            const result = runCustomCommand(request);
 
             if (result.status === 'failed') {
                 return result.marker;

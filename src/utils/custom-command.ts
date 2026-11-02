@@ -1,5 +1,8 @@
 import type { SpawnSyncReturns } from 'node:child_process';
-import { spawnSync } from 'node:child_process';
+import {
+    spawn,
+    spawnSync
+} from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -71,6 +74,8 @@ const MAX_STDOUT_BYTES = 1024 * 1024;
 // the file level and keys entries by command, session and terminal width.
 const customCommandCache = new Map<string, CustomCommandCacheEntry>();
 const lastSuccessCache = new Map<string, LastSuccess>();
+// Raw results from prefetchCustomCommands, each consumed by one runCustomCommand.
+const prefetchedRaw = new Map<string, RawCustomCommandResult>();
 
 // Session ids keep changing, so the last-success store needs its own bound.
 const LAST_SUCCESS_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -295,7 +300,8 @@ function executeCommand(request: CustomCommandRequest): RawCustomCommandResult {
         (${captureCustomCommand.toString()})(
             require('child_process').spawn,
             JSON.parse(require('fs').readFileSync(0, 'utf8')),
-            ${MAX_STDOUT_BYTES}, ${MAX_CACHED_OUTPUT_CHARS}
+            ${MAX_STDOUT_BYTES}, ${MAX_CACHED_OUTPUT_CHARS},
+            r => process.stdout.write(JSON.stringify(r), () => process.exit(0))
         )`;
         const result = spawnSync(process.execPath, ['-e', script], {
             encoding: 'utf8',
@@ -322,6 +328,65 @@ function executeCommand(request: CustomCommandRequest): RawCustomCommandResult {
     }
 }
 
+function lookupCachedResult(request: CustomCommandRequest): CustomCommandResult | null {
+    const ttlMs = getCacheTtlMs(request.ttlSeconds);
+    if (ttlMs <= 0) {
+        return null;
+    }
+
+    const cwd = process.cwd();
+    const entryKey = getEntryKey(request);
+    const memoryCacheKey = `${entryKey}\0${cwd}`;
+    const now = Date.now();
+    const memoryEntry = customCommandCache.get(memoryCacheKey);
+    if (memoryEntry && isCacheEntryFresh(memoryEntry, ttlMs, now)) {
+        return memoryEntry.result;
+    }
+
+    if (canShare(request)) {
+        const persistentEntry = readPersistentCacheEntry(cwd, entryKey, ttlMs, now);
+        if (persistentEntry) {
+            customCommandCache.set(memoryCacheKey, persistentEntry);
+            return persistentEntry.result;
+        }
+    }
+
+    return null;
+}
+
+function canShare(request: CustomCommandRequest): boolean {
+    return typeof request.sessionId === 'string' && request.sessionId.length > 0;
+}
+
+/**
+ * Starts every uncached command at once in this process, so the synchronous
+ * render pass finds the results ready. Commands therefore run concurrently
+ * rather than one after another. A command is not run here when the cache
+ * already answers it; runCustomCommand then runs it itself if needed.
+ */
+export async function prefetchCustomCommands(requests: CustomCommandRequest[]): Promise<void> {
+    if (process.platform === 'win32') {
+        return;
+    }
+
+    await Promise.all(requests.map(async (request) => {
+        if (lookupCachedResult(request) !== null) {
+            return;
+        }
+
+        // Same as the helper: a nested ccstatusline binary must not see the flag.
+        delete process.env.BUN_BE_BUN;
+        const raw = await new Promise<RawCustomCommandResult>((resolve) => {
+            try {
+                captureCustomCommand(spawn, request, MAX_STDOUT_BYTES, MAX_CACHED_OUTPUT_CHARS, resolve);
+            } catch {
+                resolve({ status: 'failed', marker: '[Error]' });
+            }
+        });
+        prefetchedRaw.set(`${getEntryKey(request)}\0${process.cwd()}`, raw);
+    }));
+}
+
 /**
  * Run a custom command, reusing a recent result when one is still within the TTL.
  *
@@ -343,25 +408,18 @@ export function runCustomCommand(request: CustomCommandRequest): CustomCommandRe
     const cwd = process.cwd();
     const entryKey = getEntryKey(request);
     const memoryCacheKey = `${entryKey}\0${cwd}`;
-    const canShareAcrossProcesses = typeof request.sessionId === 'string' && request.sessionId.length > 0;
-    const now = Date.now();
+    const canShareAcrossProcesses = canShare(request);
 
-    if (ttlMs > 0) {
-        const memoryEntry = customCommandCache.get(memoryCacheKey);
-        if (memoryEntry && isCacheEntryFresh(memoryEntry, ttlMs, now)) {
-            return memoryEntry.result;
-        }
-
-        if (canShareAcrossProcesses) {
-            const persistentEntry = readPersistentCacheEntry(cwd, entryKey, ttlMs, now);
-            if (persistentEntry) {
-                customCommandCache.set(memoryCacheKey, persistentEntry);
-                return persistentEntry.result;
-            }
-        }
+    const cached = lookupCachedResult(request);
+    if (cached) {
+        return cached;
     }
 
-    const raw = executeCommand(request);
+    // A prefetched result is single-use: a second call must run the command
+    // again, as it would without prefetching.
+    const prefetched = prefetchedRaw.get(memoryCacheKey);
+    prefetchedRaw.delete(memoryCacheKey);
+    const raw = prefetched ?? executeCommand(request);
     const createdAt = Date.now();
     let result: CustomCommandResult;
     let success: LastSuccess | null = null;
@@ -405,4 +463,5 @@ export function runCustomCommand(request: CustomCommandRequest): CustomCommandRe
 export function clearCustomCommandCache(): void {
     customCommandCache.clear();
     lastSuccessCache.clear();
+    prefetchedRaw.clear();
 }

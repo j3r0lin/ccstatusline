@@ -15,6 +15,8 @@ import {
     loadSettings,
     saveSettings
 } from './utils/config';
+import type { CustomCommandRequest } from './utils/custom-command';
+import { prefetchCustomCommands } from './utils/custom-command';
 import {
     GIT_REVIEW_REFRESH_FLAG,
     refreshGitReviewCacheFromCli
@@ -56,6 +58,7 @@ import {
     readTranscriptData
 } from './utils/transcript-cache';
 import { prefetchUsageDataIfNeeded } from './utils/usage-prefetch';
+import { buildCustomCommandRequest } from './widgets/CustomCommand';
 
 function hasSessionDurationInStatusJson(data: StatusJSON): boolean {
     const durationMs = data.cost?.total_duration_ms;
@@ -223,6 +226,13 @@ async function renderMultipleLines(data: StatusJSON) {
         hasResetTimerWidget,
         gitReviewNeedsChecks: lines.some(line => line.some(item => item.type === 'git-ci-status'))
     };
+
+    // Commands start together before the synchronous render pass reads them.
+    const customCommandRequests = lines.flat()
+        .filter(item => item.type === 'custom-command')
+        .map(item => buildCustomCommandRequest(item, context))
+        .filter((request): request is CustomCommandRequest => request !== null);
+    await prefetchCustomCommands(customCommandRequests);
 
     // Always pre-render all widgets once (for efficiency)
     const preRenderedLines = preRenderAllWidgets(lines, settings, context);
