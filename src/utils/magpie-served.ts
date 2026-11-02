@@ -101,7 +101,7 @@ function getLockPath(deps: MagpieServedDeps): string {
     return `${getCachePath(deps)}.lock`;
 }
 
-/** Splits CSV text into rows of fields; a quoted field may hold commas, doubled quotes and newlines. */
+// A quoted field may hold commas, doubled quotes and newlines (error messages do)
 function parseCsvRecords(text: string): string[][] {
     const records: string[][] = [];
     let record: string[] = [];
@@ -145,7 +145,6 @@ function parseCsvRecords(text: string): string[][] {
     return records;
 }
 
-/** Reads `response_id → served_model` out of `magpie usage --csv`; rows without a served model are skipped. */
 export function parseServedCsv(csv: string, fallbackAt: number): ServedRow[] {
     const [header, ...records] = parseCsvRecords(csv);
     if (!header) {
@@ -204,7 +203,7 @@ export function mergeServed(
     }
 
     const from = fetchedAt - windowMs;
-    // Ranges that touch or overlap join; a gap would claim time nobody fetched, so the newer range replaces the older
+    // A gap would claim time nobody fetched, so a range that does not reach the old one replaces it
     const joins = previous !== null && previous.fetchedAt > 0 && from <= previous.fetchedAt;
     const coveredFrom = Math.max(joins ? Math.min(previous.coveredFrom, from) : from, oldest);
     return { version: 1, ids, coveredFrom, fetchedAt, attemptedAt: fetchedAt };
@@ -218,17 +217,12 @@ export function readServedCache(deps: MagpieServedDeps = DEFAULT_MAGPIE_SERVED_D
             && typeof parsed.ids === 'object'
             && typeof parsed.coveredFrom === 'number'
             && typeof parsed.fetchedAt === 'number'
+            && typeof parsed.attemptedAt === 'number'
         ) {
-            return {
-                version: 1,
-                ids: parsed.ids,
-                coveredFrom: parsed.coveredFrom,
-                fetchedAt: parsed.fetchedAt,
-                attemptedAt: typeof parsed.attemptedAt === 'number' ? parsed.attemptedAt : parsed.fetchedAt
-            };
+            return parsed as ServedCache;
         }
     } catch {
-        // Missing or corrupt cache: treated as never fetched
+        // No usable cache
     }
     return null;
 }

@@ -668,4 +668,13 @@ describe('session cost of steps named after a magpie route group', () => {
         expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ hasUnknown: false });
         expect(getSessionCostSummary(transcript, FIXTURE_PRICES)?.total).toBeCloseTo(2, 6);
     });
+
+    it('prices a message under its own model once the price table gains it, without rereading the transcript', () => {
+        write(transcript, [assistantLine('a', 'mystery-model', { input: MILLION })]);
+        expect(getSessionCostSummary(transcript, FIXTURE_PRICES)).toMatchObject({ hasUnknown: true, total: 0 });
+
+        const withMystery: ModelPrices = { ...FIXTURE_PRICES, 'mystery-model': { input: 3, output: 10 } };
+        expect(getSessionCostSummary(transcript, withMystery)).toMatchObject({ hasUnknown: false });
+        expect(getSessionCostSummary(transcript, withMystery)?.total).toBeCloseTo(3, 6);
+    });
 });

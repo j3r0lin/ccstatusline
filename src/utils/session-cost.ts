@@ -336,43 +336,7 @@ interface FileCost {
 function costFile(file: FileState, prices: ModelPrices, served: ServedCache | null): FileCost {
     const cost: FileCost = { totalUsd: 0, allClaude: true, hasUnknown: false, byModel: {} };
 
-    for (const [model, byTier] of Object.entries(file.models)) {
-        if (!isClaudeModel(model)) {
-            cost.allClaude = false;
-        }
-        const price = getModelPrice(prices, model);
-        const modelCost: ModelCost = {
-            usd: price ? 0 : null,
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0
-        };
-        cost.byModel[model] = modelCost;
-
-        for (const [tierIndex, tokens] of Object.entries(byTier)) {
-            modelCost.inputTokens += tokens.input;
-            modelCost.outputTokens += tokens.output;
-            modelCost.cacheReadTokens += tokens.cacheRead;
-            modelCost.cacheWriteTokens += tokens.write5m + tokens.write1h;
-            if (price) {
-                const usd = priceTokens(price, Number(tierIndex), tokens);
-                modelCost.usd = (modelCost.usd ?? 0) + usd;
-                cost.totalUsd += usd;
-            }
-        }
-        if (!price) {
-            cost.hasUnknown = true;
-        }
-    }
-
-    for (const [id, message] of Object.entries(file.unpriced)) {
-        if (!isClaudeModel(message.model)) {
-            cost.allClaude = false;
-        }
-        const servedModel = served?.ids[id]?.model;
-        const price = servedModel === undefined ? undefined : getModelPrice(prices, servedModel);
-        const name = servedModel !== undefined && price ? servedModel : message.model;
+    const add = (name: string, price: ModelPrice | undefined, tierIndex: number, tokens: TierTokens): void => {
         const modelCost = cost.byModel[name] ??= {
             usd: price ? 0 : null,
             inputTokens: 0,
@@ -380,17 +344,41 @@ function costFile(file: FileState, prices: ModelPrices, served: ServedCache | nu
             cacheReadTokens: 0,
             cacheWriteTokens: 0
         };
-        modelCost.inputTokens += message.tokens.input;
-        modelCost.outputTokens += message.tokens.output;
-        modelCost.cacheReadTokens += message.tokens.cacheRead;
-        modelCost.cacheWriteTokens += message.tokens.write5m + message.tokens.write1h;
-        if (price && servedModel !== undefined) {
-            const usd = priceTokens(price, pickTier(prices, servedModel, message.promptTokens), message.tokens);
+        modelCost.inputTokens += tokens.input;
+        modelCost.outputTokens += tokens.output;
+        modelCost.cacheReadTokens += tokens.cacheRead;
+        modelCost.cacheWriteTokens += tokens.write5m + tokens.write1h;
+        if (price) {
+            const usd = priceTokens(price, tierIndex, tokens);
             modelCost.usd = (modelCost.usd ?? 0) + usd;
             cost.totalUsd += usd;
         } else {
             cost.hasUnknown = true;
         }
+    };
+
+    for (const [model, byTier] of Object.entries(file.models)) {
+        if (!isClaudeModel(model)) {
+            cost.allClaude = false;
+        }
+        const price = getModelPrice(prices, model);
+        for (const [tierIndex, tokens] of Object.entries(byTier)) {
+            add(model, price, Number(tierIndex), tokens);
+        }
+    }
+
+    // The price table can gain a model after its messages were read, so an unpriced
+    // message is looked up again on every render: first by the model magpie says served
+    // it, then by the name it was recorded under.
+    for (const [id, message] of Object.entries(file.unpriced)) {
+        if (!isClaudeModel(message.model)) {
+            cost.allClaude = false;
+        }
+        const servedModel = served?.ids[id]?.model;
+        const servedPrice = servedModel === undefined ? undefined : getModelPrice(prices, servedModel);
+        const name = servedModel !== undefined && servedPrice ? servedModel : message.model;
+        const price = servedPrice ?? getModelPrice(prices, message.model);
+        add(name, price, pickTier(prices, name, message.promptTokens), message.tokens);
     }
 
     return cost;
