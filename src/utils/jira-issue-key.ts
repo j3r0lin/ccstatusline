@@ -1,5 +1,7 @@
 import { execFileSync } from 'child_process';
 
+import { readCurrentBranch } from './git-head';
+
 // The issue-key shape jira-cli / Jira itself uses: an uppercase project key
 // (letters and digits, starting with a letter) followed by `-<number>`.
 // Branch names carry the key anywhere in the string (e.g.
@@ -42,7 +44,7 @@ function runGitForKey(args: string[], cwd: string, deps: JiraIssueKeyDeps): stri
 }
 
 export function getCurrentBranchName(cwd: string, deps: JiraIssueKeyDeps = DEFAULT_JIRA_ISSUE_KEY_DEPS): string | null {
-    return runGitForKey(['symbolic-ref', '--short', 'HEAD'], cwd, deps);
+    return readCurrentBranch(cwd) ?? runGitForKey(['symbolic-ref', '--short', 'HEAD'], cwd, deps);
 }
 
 function getBranchIssueKeyConfig(cwd: string, branch: string, deps: JiraIssueKeyDeps): string | null {

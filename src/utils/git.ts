@@ -96,7 +96,7 @@ function readGitDirFile(gitFilePath: string): string | null {
     }
 }
 
-function discoverGitDir(startDir: string): string | null {
+export function discoverGitDir(startDir: string): string | null {
     let current = startDir;
 
     for (;;) {

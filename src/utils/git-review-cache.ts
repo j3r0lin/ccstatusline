@@ -16,6 +16,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
+import { readCurrentBranch } from './git-head';
 import { parseRemoteUrl } from './git-remote';
 
 export type GitReviewProvider = 'gh' | 'glab';
@@ -176,7 +177,7 @@ function runGitForCache(args: string[], cwd: string, deps: GitReviewCacheDeps): 
 }
 
 function getCurrentBranch(cwd: string, deps: GitReviewCacheDeps): string | null {
-    const branch = runGitForCache(['symbolic-ref', '--short', 'HEAD'], cwd, deps);
+    const branch = readCurrentBranch(cwd) ?? runGitForCache(['symbolic-ref', '--short', 'HEAD'], cwd, deps);
     return branch.length > 0 ? branch : null;
 }
 
