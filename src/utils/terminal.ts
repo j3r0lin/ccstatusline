@@ -58,7 +58,7 @@ function probeTerminalWidth(sessionId?: string): number | null {
 
     if (sessionId) {
         const cached = readAncestorTTY(sessionId);
-        if (cached) {
+        if (cached && getParentProcessId(process.ppid) === cached.ancestorPid) {
             const width = getWidthForTTY(cached.tty);
             if (width !== null)
                 return width;

@@ -362,13 +362,15 @@ describe('terminal utils', () => {
         pinPosixPlatform();
         vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: process.pid, tty: 'ttys001' });
         mockExecFileSync.mockImplementation((file, args) => {
+            if (file === 'ps')
+                return String(process.pid);
             if (file === 'stty' && args[1] === '/dev/ttys001')
                 return '24 121';
             throw new Error('unexpected command');
         });
         expect(getTerminalWidth({ sessionId: 'tty-hit' })).toBe(121);
         resetTerminalWidthCache();
-        mockExecFileSync.mockImplementation(() => '24 140');
+        mockExecFileSync.mockImplementation((file) => file === 'ps' ? String(process.pid) : '24 140');
         expect(getTerminalWidth({ sessionId: 'tty-hit' })).toBe(140);
     });
 
@@ -377,6 +379,8 @@ describe('terminal utils', () => {
         vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: process.pid, tty: 'old' });
         const write = vi.spyOn(ttyCache, 'writeAncestorTTY').mockImplementation(() => undefined);
         mockExecFileSync.mockImplementation((file, args) => {
+            if (file === 'ps' && args[1] === 'ppid=' && args[3] === String(process.ppid))
+                return String(process.pid);
             if (file === 'ps' && args[1] === 'ppid=')
                 return '1234';
             if (file === 'ps' && args[1] === 'tty=')
@@ -387,6 +391,24 @@ describe('terminal utils', () => {
         });
         expect(getTerminalWidth({ sessionId: 'tty-stale' })).toBe(99);
         expect(write).toHaveBeenCalledWith('tty-stale', { ancestorPid: 1234, tty: 'new' });
+    });
+
+    it('walks ancestors when the cached tty belongs to another terminal', () => {
+        pinPosixPlatform();
+        vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: 1234, tty: 'old' });
+        vi.spyOn(ttyCache, 'writeAncestorTTY').mockImplementation(() => undefined);
+        mockExecFileSync.mockImplementation((file, args) => {
+            if (file === 'ps' && args[1] === 'ppid=' && args[3] === String(process.ppid))
+                return '5678';
+            if (file === 'ps' && args[1] === 'ppid=')
+                return '5678';
+            if (file === 'ps' && args[1] === 'tty=')
+                return 'new';
+            if (file === 'stty' && args[1] === '/dev/new')
+                return '24 101';
+            throw new Error('unexpected command');
+        });
+        expect(getTerminalWidth({ sessionId: 'other-tty' })).toBe(101);
     });
 
     // Wiring coverage for the sessionId/ttlSeconds L2-cache integration: unlike
