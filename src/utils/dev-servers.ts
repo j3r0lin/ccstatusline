@@ -443,6 +443,7 @@ export interface ServerCache {
     // The loopback ports seen last time. While this set holds and every pid
     // above is alive, nothing has started or stopped and no scan is needed.
     ports: number[];
+    portsCheckedAt?: number;
 }
 
 export function serverCachePath(transcriptPath: string): string {
@@ -464,7 +465,7 @@ export function readServerCache(filePath: string): ServerCache {
     }
     if (!parsed || typeof parsed !== 'object')
         return cache;
-    const raw = parsed as { records?: unknown; discovered?: unknown; ports?: unknown };
+    const raw = parsed as { records?: unknown; discovered?: unknown; ports?: unknown; portsCheckedAt?: unknown };
 
     if (raw.records && typeof raw.records === 'object') {
         for (const [id, value] of Object.entries(raw.records as Record<string, unknown>)) {
@@ -489,6 +490,8 @@ export function readServerCache(filePath: string): ServerCache {
     }
     if (Array.isArray(raw.ports))
         cache.ports = raw.ports.filter((p): p is number => typeof p === 'number');
+    if (typeof raw.portsCheckedAt === 'number')
+        cache.portsCheckedAt = raw.portsCheckedAt;
     return cache;
 }
 
@@ -538,6 +541,7 @@ export function createServerResolver(
 
     let discovered: DiscoveredServer[] | undefined;
     let seenPorts: number[] | undefined;
+    let portsCheckedAt: number | undefined;
 
     const cachePath = serverCachePath(transcriptPath);
     const cache = readCache(cachePath);
@@ -599,12 +603,21 @@ export function createServerResolver(
     // pid found last time is still alive, nothing has started or stopped.
     function discover(): string[] {
         const known = cache.discovered.filter(s => alive(s.pid));
-        const ports = ports_();
+        const now = Date.now();
+        const age = now - (cache.portsCheckedAt ?? 0);
+        const cachedPortsAreFresh = cache.portsCheckedAt !== undefined && age >= 0 && age < 5000;
+        const ports = cachedPortsAreFresh ? cache.ports : ports_();
         // No port has appeared that was not open last time, and every server
         // found then is still running: nothing can have started. A port going
         // away needs no scan — the pid check above already caught that.
-        if (ports !== null && known.length === cache.discovered.length && noNewPorts(ports, cache.ports))
+        if (ports !== null && known.length === cache.discovered.length && noNewPorts(ports, cache.ports)) {
+            if (!cachedPortsAreFresh) {
+                seenPorts = ports;
+                portsCheckedAt = now;
+                changed = true;
+            }
             return known.map(s => s.url);
+        }
 
         const processes = findListening();
         if (processes === null)
@@ -627,6 +640,7 @@ export function createServerResolver(
         }
         discovered = found;
         seenPorts = ports ?? [];
+        portsCheckedAt = ports === null ? undefined : (cachedPortsAreFresh ? cache.portsCheckedAt : now);
         changed = true;
         return found.map(s => s.url);
     }
@@ -637,7 +651,8 @@ export function createServerResolver(
         const merged: ServerCache = {
             records: {},
             discovered: discovered ?? cache.discovered,
-            ports: seenPorts ?? cache.ports
+            ports: seenPorts ?? cache.ports,
+            portsCheckedAt: seenPorts === undefined ? cache.portsCheckedAt : portsCheckedAt
         };
         for (const record of records) {
             const entry = fresh[record.id] ?? cache.records[record.id];

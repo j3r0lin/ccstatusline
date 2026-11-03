@@ -354,6 +354,37 @@ describe('createServerResolver discovery', () => {
         };
     }
 
+    it('reuses recent ports and checks again after five seconds', () => {
+        let now = 100_000;
+        let calls = 0;
+        let cache: ServerCache = { records: {}, discovered: [], ports: [] };
+        const clock = Date.now;
+        Date.now = () => now;
+        try {
+            const make = () => createServerResolver(SESSION, [], {
+                readServerCache: () => cache,
+                writeServerCache: (_path, value) => { cache = value; },
+                listeningPorts: () => { calls++; return [8000]; },
+                findListeningProcesses: () => []
+            });
+            const first = make();
+            first.discover();
+            first.flush();
+            now += 4999;
+            const second = make();
+            second.discover();
+            second.flush();
+            expect(calls).toBe(1);
+            now++;
+            const third = make();
+            third.discover();
+            third.flush();
+            expect(calls).toBe(2);
+        } finally {
+            Date.now = clock;
+        }
+    });
+
     it('finds a server the sidecar never recorded', () => {
         const r = resolver({
             ports: [8000],
