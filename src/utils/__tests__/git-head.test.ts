@@ -38,6 +38,16 @@ describe('current git branch', () => {
             expect(getCurrentBranchName(cwd)).toBe(git(cwd, 'symbolic-ref', '--short', 'HEAD'));
         }
     });
+    it('finds the physical repository when cwd is a symlink', () => {
+        const first = repository();
+        const second = repository();
+        git(second, 'switch', '-c', 'other-branch');
+        const subdir = path.join(second, 'nested');
+        fs.mkdirSync(subdir);
+        const link = path.join(first, 'link');
+        fs.symlinkSync(subdir, link);
+        expect(getCurrentBranchName(link)).toBe(git(link, 'symbolic-ref', '--short', 'HEAD'));
+    });
     it('falls back for detached HEAD', () => {
         const dir = repository();
         git(dir, 'checkout', '--detach');

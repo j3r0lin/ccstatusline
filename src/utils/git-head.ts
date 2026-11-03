@@ -9,7 +9,7 @@ export function readCurrentBranch(cwd: string): string | null {
         if (process.env.GIT_DIR || process.env.GIT_COMMON_DIR || process.env.GIT_NAMESPACE
             || process.env.GIT_WORK_TREE || process.env.GIT_CEILING_DIRECTORIES || process.env.GIT_DISCOVERY_ACROSS_FILESYSTEM)
             return null;
-        const gitDir = discoverGitDir(path.resolve(cwd));
+        const gitDir = discoverGitDir(fs.realpathSync(cwd));
         if (!gitDir)
             return null;
         const head = fs.readFileSync(path.join(gitDir, 'HEAD'), 'utf8').trim();
