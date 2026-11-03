@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import {
     afterEach,
     beforeEach,
@@ -13,6 +14,7 @@ import {
     getTerminalWidth,
     resetTerminalWidthCache
 } from '../terminal';
+import * as ttyCache from '../terminal-tty-cache';
 import * as terminalWidthCache from '../terminal-width-cache';
 
 vi.mock('node:child_process', () => ({
@@ -348,6 +350,43 @@ describe('terminal utils', () => {
 
         resetTerminalWidthCache();
         expect(getTerminalWidth()).toBe(175);
+    });
+
+    it('treats an exited ancestor as a cache miss', () => {
+        vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify({ ancestorPid: 1234, tty: 'ttys001' }));
+        vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('process exited'); });
+        expect(ttyCache.readAncestorTTY('exited')).toBeNull();
+    });
+
+    it('reads the live width from a cached ancestor tty', () => {
+        pinPosixPlatform();
+        vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: process.pid, tty: 'ttys001' });
+        mockExecFileSync.mockImplementation((file, args) => {
+            if (file === 'stty' && args[1] === '/dev/ttys001')
+                return '24 121';
+            throw new Error('unexpected command');
+        });
+        expect(getTerminalWidth({ sessionId: 'tty-hit' })).toBe(121);
+        resetTerminalWidthCache();
+        mockExecFileSync.mockImplementation(() => '24 140');
+        expect(getTerminalWidth({ sessionId: 'tty-hit' })).toBe(140);
+    });
+
+    it('walks ancestors again when the cached tty fails', () => {
+        pinPosixPlatform();
+        vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: process.pid, tty: 'old' });
+        const write = vi.spyOn(ttyCache, 'writeAncestorTTY').mockImplementation(() => undefined);
+        mockExecFileSync.mockImplementation((file, args) => {
+            if (file === 'ps' && args[1] === 'ppid=')
+                return '1234';
+            if (file === 'ps' && args[1] === 'tty=')
+                return 'new';
+            if (file === 'stty' && args[1] === '/dev/new')
+                return '24 99';
+            throw new Error('unavailable');
+        });
+        expect(getTerminalWidth({ sessionId: 'tty-stale' })).toBe(99);
+        expect(write).toHaveBeenCalledWith('tty-stale', { ancestorPid: 1234, tty: 'new' });
     });
 
     // Wiring coverage for the sessionId/ttlSeconds L2-cache integration: unlike

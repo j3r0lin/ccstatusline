@@ -4,6 +4,10 @@ import * as path from 'node:path';
 
 import { probeWidthNative } from './terminal-native';
 import {
+    readAncestorTTY,
+    writeAncestorTTY
+} from './terminal-tty-cache';
+import {
     readCachedWidth,
     writeCachedWidth
 } from './terminal-width-cache';
@@ -38,7 +42,7 @@ export function getPackageVersion(): string {
     return '';
 }
 
-function probeTerminalWidth(): number | null {
+function probeTerminalWidth(sessionId?: string): number | null {
     // Preserve historical behavior on Windows: width detection is unavailable.
     // This avoids Unix fallback command behavior (e.g. 2>/dev/null) on Windows.
     if (process.platform === 'win32') {
@@ -50,6 +54,15 @@ function probeTerminalWidth(): number | null {
     const nativeWidth = probeWidthNative();
     if (nativeWidth !== null) {
         return nativeWidth;
+    }
+
+    if (sessionId) {
+        const cached = readAncestorTTY(sessionId);
+        if (cached) {
+            const width = getWidthForTTY(cached.tty);
+            if (width !== null)
+                return width;
+        }
     }
 
     // Claude Code can spawn ccstatusline with piped stdio, leaving the immediate
@@ -71,6 +84,8 @@ function probeTerminalWidth(): number | null {
 
         const width = getWidthForTTY(tty);
         if (width !== null) {
+            if (sessionId)
+                writeAncestorTTY(sessionId, { ancestorPid: pid, tty });
             return width;
         }
     }
@@ -224,7 +239,7 @@ export function getTerminalWidth(options?: TerminalWidthOptions): number | null 
         }
     }
 
-    cachedWidth = probeTerminalWidth();
+    cachedWidth = probeTerminalWidth(sessionId);
     hasProbed = true;
 
     // Persist only the "no TTY" result, never a discovered numeric width.
