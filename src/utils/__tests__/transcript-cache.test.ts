@@ -137,6 +137,37 @@ describe('transcript incremental cache', () => {
         expect(second.inputTokens).toBe(16);
         expect(second.outputTokens).toBe(4);
     });
+
+    it('gives the same result for any read block size, including lines and multibyte characters crossing block edges', async () => {
+        const userLine = (ts: string, content: string) => JSON.stringify({ timestamp: ts, type: 'user', message: { content } });
+        const body = [
+            userLine('2026-01-01T10:00:00.000Z', '你好，世界 😀 first'),
+            makeUsageLine({ timestamp: '2026-01-01T10:01:00.000Z', input: 11, output: 5 }),
+            userLine('2026-01-01T10:02:00.000Z', `${'汉字'.repeat(40)} second`),
+            makeUsageLine({ timestamp: '2026-01-01T10:03:00.000Z', input: 22, output: 6 })
+        ].join('\n');
+        const unterminated = makeUsageLine({ timestamp: '2026-01-01T10:04:00.000Z', input: 33, output: 7 });
+        const appended = `\n${makeUsageLine({ timestamp: '2026-01-01T10:05:00.000Z', input: 44, output: 8 })}\n`;
+
+        async function run(chunkBytes: number) {
+            const transcriptPath = makeTranscriptPath();
+            fs.writeFileSync(transcriptPath, `${body}\n${unterminated}`);
+            clearTranscriptMemo();
+            const first = await readTranscriptData(transcriptPath, chunkBytes);
+            clearTranscriptMemo();
+            fs.appendFileSync(transcriptPath, appended);
+            const second = await readTranscriptData(transcriptPath, chunkBytes);
+            return { first, second };
+        }
+
+        const expected = await run(1024 * 1024);
+        expect(expected.first.lastPrompt).toContain('second');
+        expect(expected.second.entries.length).toBe(expected.first.entries.length + 1);
+
+        for (const chunkBytes of [1, 2, 3, 7, 64, 200]) {
+            expect(await run(chunkBytes)).toEqual(expected);
+        }
+    });
 });
 
 describe('isTranscriptTurnInFlight', () => {

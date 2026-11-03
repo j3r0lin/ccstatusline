@@ -7,7 +7,10 @@ import {
     getCompactBoundaryPostTokens,
     isCompactBoundary
 } from './compaction';
-import { parseJsonlLine } from './jsonl-lines';
+import {
+    JSONL_READ_CHUNK_BYTES,
+    parseJsonlLine
+} from './jsonl-lines';
 import type { ResolvedThinkingEffort } from './jsonl-metadata';
 import { extractThinkingEffortMarker } from './jsonl-metadata';
 import { extractPlainUserPromptFromRecord } from './last-prompt';
@@ -281,14 +284,30 @@ interface ParsedChunk {
     tailEffortMarker?: { level: ResolvedThinkingEffort | undefined };
 }
 
-function parseChunk(buffer: Buffer): ParsedChunk {
-    const lastNewline = buffer.lastIndexOf(0x0A);
-    const completeBytes = lastNewline === -1 ? 0 : lastNewline + 1;
-
+async function parseRange(
+    fd: fs.promises.FileHandle,
+    start: number,
+    end: number,
+    chunkBytes: number
+): Promise<ParsedChunk> {
     const entries: SlimTranscriptEntry[] = [];
     const sink: SlimifySink = { agentIds: new Set<string>(), lastPrompt: null };
-    if (completeBytes > 0) {
-        for (const line of buffer.toString('utf-8', 0, completeBytes).split('\n')) {
+    let completeBytes = 0;
+    // Bytes after the last newline seen so far; they may continue into the next block.
+    let carry: Buffer = Buffer.alloc(0);
+
+    for (let position = start; position < end; position += chunkBytes) {
+        const block = await readBytes(fd, position, Math.min(chunkBytes, end - position));
+        if (block.length === 0) {
+            break;
+        }
+        const buffer = carry.length > 0 ? Buffer.concat([carry, block]) : block;
+        const lastNewline = buffer.lastIndexOf(0x0A);
+        if (lastNewline === -1) {
+            carry = buffer;
+            continue;
+        }
+        for (const line of buffer.toString('utf-8', 0, lastNewline + 1).split('\n')) {
             if (line.length === 0) {
                 continue;
             }
@@ -297,17 +316,17 @@ function parseChunk(buffer: Buffer): ParsedChunk {
                 entries.push(entry);
             }
         }
+        completeBytes += lastNewline + 1;
+        carry = Buffer.from(buffer.subarray(lastNewline + 1));
     }
 
     const tailEntries: SlimTranscriptEntry[] = [];
     const tailSink: SlimifySink = { agentIds: new Set<string>(), lastPrompt: null };
-    if (completeBytes < buffer.length) {
-        const tailLine = buffer.toString('utf-8', completeBytes).trim();
-        if (tailLine.length > 0) {
-            const entry = slimifyLine(tailLine, tailSink);
-            if (entry) {
-                tailEntries.push(entry);
-            }
+    const tailLine = carry.toString('utf-8').trim();
+    if (tailLine.length > 0) {
+        const entry = slimifyLine(tailLine, tailSink);
+        if (entry) {
+            tailEntries.push(entry);
         }
     }
 
@@ -400,7 +419,10 @@ async function readBytes(fd: fs.promises.FileHandle, position: number, length: n
  * since the last render are read and parsed. Results are also memoized per
  * process so multiple widgets share a single read.
  */
-export async function readTranscriptData(transcriptPath: string): Promise<TranscriptData> {
+export async function readTranscriptData(
+    transcriptPath: string,
+    chunkBytes = JSONL_READ_CHUNK_BYTES
+): Promise<TranscriptData> {
     const fd = await fs.promises.open(transcriptPath, 'r');
     try {
         const fileSize = (await fd.stat()).size;
@@ -440,7 +462,7 @@ export async function readTranscriptData(transcriptPath: string): Promise<Transc
 
         let result: TranscriptData;
         if (fileSize > baseOffset) {
-            const chunk = parseChunk(await readBytes(fd, baseOffset, fileSize - baseOffset));
+            const chunk = await parseRange(fd, baseOffset, fileSize, chunkBytes);
             const cachedEntries = [...baseEntries, ...chunk.entries];
             const cachedAgentIds = new Set(baseAgentIds);
             for (const id of chunk.agentIds) {
