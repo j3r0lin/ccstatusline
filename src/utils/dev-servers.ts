@@ -518,6 +518,8 @@ export function writeServerCache(filePath: string, cache: ServerCache): void {
 // answer is cached against the pid behind it and re-checked with a signal-0
 // kill, which is free. A record whose process is gone and whose log nobody has
 // written to since stays resolved as gone, without asking lsof again.
+const PORT_CACHE_TTL_MS = 5000;
+
 export function createServerResolver(
     transcriptPath: string,
     records: DevServerRecord[],
@@ -598,14 +600,13 @@ export function createServerResolver(
         return null;
     }
 
-    // Servers the sidecar never recorded. The cheap netstat call decides whether
-    // the expensive scan is needed at all: if the same ports are open and every
-    // pid found last time is still alive, nothing has started or stopped.
+    // Reuse recent port observations to avoid netstat on every render; the
+    // five-second window bounds how long a new server can remain undiscovered.
     function discover(): string[] {
         const known = cache.discovered.filter(s => alive(s.pid));
         const now = Date.now();
         const age = now - (cache.portsCheckedAt ?? 0);
-        const cachedPortsAreFresh = cache.portsCheckedAt !== undefined && age >= 0 && age < 5000;
+        const cachedPortsAreFresh = cache.portsCheckedAt !== undefined && age >= 0 && age < PORT_CACHE_TTL_MS;
         const ports = cachedPortsAreFresh ? cache.ports : ports_();
         // No port has appeared that was not open last time, and every server
         // found then is still running: nothing can have started. A port going
