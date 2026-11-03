@@ -12,6 +12,7 @@ const LOCK_STALE_MS = 2000;
 interface WidthCacheEntry {
     width: number | null;
     createdAt: number;
+    tty?: { ancestorPid: number; tty: string };
 }
 
 interface PersistentWidthCache {
@@ -169,14 +170,27 @@ export function readCachedWidth(
         return null;
     }
 
-    return { width: entry.width };
+    return entry.tty ? null : { width: entry.width };
+}
+
+export function readCachedTTY(sessionId: string, ttlSeconds: number): { ancestorPid: number; tty: string } | null {
+    if (ttlSeconds <= 0)
+        return null;
+    const entry = readCache(defaultDeps).entries[sessionId];
+    const tty = entry?.tty;
+    if (!entry || defaultDeps.now() - entry.createdAt > ttlSeconds * 1000 || !tty
+        || !Number.isSafeInteger(tty.ancestorPid) || tty.ancestorPid <= 0
+        || typeof tty.tty !== 'string' || !/^[\w.-]+$/.test(tty.tty))
+        return null;
+    return tty;
 }
 
 /** Persist a probed width (including a null "no TTY" result). Best-effort; never throws. */
 export function writeCachedWidth(
     sessionId: string,
     width: number | null,
-    deps: WidthCacheDeps = defaultDeps
+    deps: WidthCacheDeps = defaultDeps,
+    tty?: { ancestorPid: number; tty: string }
 ): void {
     try {
         // Ensure the directory exists before locking: the lock file lives
@@ -197,7 +211,7 @@ export function writeCachedWidth(
                 }
             }
 
-            entries[sessionId] = { width, createdAt: now };
+            entries[sessionId] = { width, createdAt: now, tty };
             const cache: PersistentWidthCache = { version: CACHE_SCHEMA_VERSION, entries };
 
             const tempPath = `${deps.cachePath}.${process.pid}.tmp`;

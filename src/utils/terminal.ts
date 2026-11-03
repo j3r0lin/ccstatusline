@@ -42,7 +42,7 @@ export function getPackageVersion(): string {
     return '';
 }
 
-function probeTerminalWidth(sessionId?: string): number | null {
+function probeTerminalWidth(sessionId?: string, ttlSeconds = 0): number | null {
     // Preserve historical behavior on Windows: width detection is unavailable.
     // This avoids Unix fallback command behavior (e.g. 2>/dev/null) on Windows.
     if (process.platform === 'win32') {
@@ -56,9 +56,9 @@ function probeTerminalWidth(sessionId?: string): number | null {
         return nativeWidth;
     }
 
-    if (sessionId) {
-        const cached = readAncestorTTY(sessionId);
-        if (cached && getParentProcessId(process.ppid) === cached.ancestorPid) {
+    if (sessionId && ttlSeconds > 0) {
+        const cached = readAncestorTTY(sessionId, ttlSeconds);
+        if (cached?.ancestorPid && getParentProcessId(process.ppid) === cached.ancestorPid) {
             const width = getWidthForTTY(cached.tty);
             if (width !== null)
                 return width;
@@ -84,7 +84,7 @@ function probeTerminalWidth(sessionId?: string): number | null {
 
         const width = getWidthForTTY(tty);
         if (width !== null) {
-            if (sessionId)
+            if (sessionId && ttlSeconds > 0)
                 writeAncestorTTY(sessionId, { ancestorPid: pid, tty });
             return width;
         }
@@ -239,7 +239,7 @@ export function getTerminalWidth(options?: TerminalWidthOptions): number | null 
         }
     }
 
-    cachedWidth = probeTerminalWidth(sessionId);
+    cachedWidth = probeTerminalWidth(sessionId, ttlSeconds);
     hasProbed = true;
 
     // Persist only the "no TTY" result, never a discovered numeric width.

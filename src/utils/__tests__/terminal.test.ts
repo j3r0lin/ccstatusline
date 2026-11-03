@@ -353,9 +353,9 @@ describe('terminal utils', () => {
     });
 
     it('treats an exited ancestor as a cache miss', () => {
-        vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify({ ancestorPid: 1234, tty: 'ttys001' }));
+        vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify({ version: 1, entries: { exited: { width: null, createdAt: Date.now(), tty: { ancestorPid: 1234, tty: 'ttys001' } } } }));
         vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('process exited'); });
-        expect(ttyCache.readAncestorTTY('exited')).toBeNull();
+        expect(ttyCache.readAncestorTTY('exited', 5)).toBeNull();
     });
 
     it('reads the live width from a cached ancestor tty', () => {
@@ -368,10 +368,10 @@ describe('terminal utils', () => {
                 return '24 121';
             throw new Error('unexpected command');
         });
-        expect(getTerminalWidth({ sessionId: 'tty-hit' })).toBe(121);
+        expect(getTerminalWidth({ sessionId: 'tty-hit', ttlSeconds: 5 })).toBe(121);
         resetTerminalWidthCache();
-        mockExecFileSync.mockImplementation((file) => file === 'ps' ? String(process.pid) : '24 140');
-        expect(getTerminalWidth({ sessionId: 'tty-hit' })).toBe(140);
+        mockExecFileSync.mockImplementation(file => file === 'ps' ? String(process.pid) : '24 140');
+        expect(getTerminalWidth({ sessionId: 'tty-hit', ttlSeconds: 5 })).toBe(140);
     });
 
     it('walks ancestors again when the cached tty fails', () => {
@@ -389,7 +389,7 @@ describe('terminal utils', () => {
                 return '24 99';
             throw new Error('unavailable');
         });
-        expect(getTerminalWidth({ sessionId: 'tty-stale' })).toBe(99);
+        expect(getTerminalWidth({ sessionId: 'tty-stale', ttlSeconds: 5 })).toBe(99);
         expect(write).toHaveBeenCalledWith('tty-stale', { ancestorPid: 1234, tty: 'new' });
     });
 
@@ -408,7 +408,7 @@ describe('terminal utils', () => {
                 return '24 101';
             throw new Error('unexpected command');
         });
-        expect(getTerminalWidth({ sessionId: 'other-tty' })).toBe(101);
+        expect(getTerminalWidth({ sessionId: 'other-tty', ttlSeconds: 5 })).toBe(101);
     });
 
     // Wiring coverage for the sessionId/ttlSeconds L2-cache integration: unlike
@@ -512,7 +512,7 @@ describe('terminal utils', () => {
 
             expect(getTerminalWidth({ sessionId: 'session-a', ttlSeconds: 5 })).toBe(120);
 
-            expect(writeSpy).not.toHaveBeenCalled();
+            expect(writeSpy.mock.calls.every(args => args[1] === null)).toBe(true);
         });
 
         it('does not persist to the L2 cache when ttlSeconds is 0', () => {
