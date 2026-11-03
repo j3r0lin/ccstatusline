@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import * as fs from 'node:fs';
 import {
     afterEach,
     beforeEach,
@@ -352,15 +351,9 @@ describe('terminal utils', () => {
         expect(getTerminalWidth()).toBe(175);
     });
 
-    it('treats an exited ancestor as a cache miss', () => {
-        vi.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify({ version: 1, entries: { exited: { width: null, createdAt: Date.now(), tty: { ancestorPid: 1234, tty: 'ttys001' } } } }));
-        vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('process exited'); });
-        expect(ttyCache.readAncestorTTY('exited', 5)).toBeNull();
-    });
-
-    it('reads the live width from a cached ancestor tty', () => {
+    it('reads the current width on a cache hit', () => {
         pinPosixPlatform();
-        vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: process.pid, tty: 'ttys001' });
+        ttyCache.writeAncestorTTY('tty-hit', { ancestorPid: process.pid, tty: 'ttys001' });
         mockExecFileSync.mockImplementation((file, args) => {
             if (file === 'ps')
                 return String(process.pid);
@@ -374,41 +367,38 @@ describe('terminal utils', () => {
         expect(getTerminalWidth({ sessionId: 'tty-hit', ttlSeconds: 5 })).toBe(140);
     });
 
-    it('walks ancestors again when the cached tty fails', () => {
+    it.each(['exited', 'stty-failed', 'different-ancestor'])('walks ancestors after %s', (reason) => {
         pinPosixPlatform();
-        vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: process.pid, tty: 'old' });
-        const write = vi.spyOn(ttyCache, 'writeAncestorTTY').mockImplementation(() => undefined);
+        ttyCache.writeAncestorTTY(reason, { ancestorPid: process.pid, tty: 'old' });
+        if (reason === 'exited')
+            vi.spyOn(process, 'kill').mockImplementation(() => { throw new Error('process exited'); });
         mockExecFileSync.mockImplementation((file, args) => {
             if (file === 'ps' && args[1] === 'ppid=' && args[3] === String(process.ppid))
-                return String(process.pid);
+                return reason === 'different-ancestor' ? '5678' : String(process.pid);
             if (file === 'ps' && args[1] === 'ppid=')
-                return '1234';
+                return '5678';
             if (file === 'ps' && args[1] === 'tty=')
                 return 'new';
             if (file === 'stty' && args[1] === '/dev/new')
                 return '24 99';
             throw new Error('unavailable');
         });
-        expect(getTerminalWidth({ sessionId: 'tty-stale', ttlSeconds: 5 })).toBe(99);
-        expect(write).toHaveBeenCalledWith('tty-stale', { ancestorPid: 1234, tty: 'new' });
+        expect(getTerminalWidth({ sessionId: reason, ttlSeconds: 5 })).toBe(99);
     });
 
-    it('walks ancestors when the cached tty belongs to another terminal', () => {
+    it('does not reuse a tty when caching is disabled', () => {
         pinPosixPlatform();
-        vi.spyOn(ttyCache, 'readAncestorTTY').mockReturnValue({ ancestorPid: 1234, tty: 'old' });
-        vi.spyOn(ttyCache, 'writeAncestorTTY').mockImplementation(() => undefined);
+        ttyCache.writeAncestorTTY('disabled', { ancestorPid: process.pid, tty: 'old' });
         mockExecFileSync.mockImplementation((file, args) => {
-            if (file === 'ps' && args[1] === 'ppid=' && args[3] === String(process.ppid))
-                return '5678';
             if (file === 'ps' && args[1] === 'ppid=')
-                return '5678';
+                return String(process.pid);
             if (file === 'ps' && args[1] === 'tty=')
                 return 'new';
             if (file === 'stty' && args[1] === '/dev/new')
-                return '24 101';
+                return '24 88';
             throw new Error('unexpected command');
         });
-        expect(getTerminalWidth({ sessionId: 'other-tty', ttlSeconds: 5 })).toBe(101);
+        expect(getTerminalWidth({ sessionId: 'disabled', ttlSeconds: 0 })).toBe(88);
     });
 
     // Wiring coverage for the sessionId/ttlSeconds L2-cache integration: unlike
