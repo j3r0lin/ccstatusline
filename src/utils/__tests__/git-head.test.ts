@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import type { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -13,9 +13,17 @@ import { readCurrentBranch } from '../git-head';
 import { getCurrentBranchName } from '../jira-issue-key';
 
 const directories: string[] = [];
-function git(cwd: string, ...args: string[]): string {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+// Bun.spawnSync, not node:child_process: other test files vi.mock that module and the mock leaks across files.
+function run(file: string, args: string[], cwd: string): string {
+    const result = Bun.spawnSync([file, ...args], { cwd, stdout: 'pipe', stderr: 'ignore' });
+    if (result.exitCode !== 0)
+        throw new Error(`${file} ${args.join(' ')} exited ${result.exitCode}`);
+    return result.stdout.toString();
 }
+function git(cwd: string, ...args: string[]): string {
+    return run('git', args, cwd).trim();
+}
+const realGit = { execFileSync: ((file: string, args: string[], options: { cwd: string }) => run(file, args, options.cwd)) as unknown as typeof execFileSync };
 function repository(): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'git-head-test-'));
     directories.push(dir);
@@ -35,7 +43,7 @@ describe('current git branch', () => {
         git(dir, 'worktree', 'add', '-b', 'other-branch', worktree);
         for (const cwd of [dir, worktree]) {
             expect(readCurrentBranch(cwd)).toBe(git(cwd, 'symbolic-ref', '--short', 'HEAD'));
-            expect(getCurrentBranchName(cwd)).toBe(git(cwd, 'symbolic-ref', '--short', 'HEAD'));
+            expect(getCurrentBranchName(cwd, realGit)).toBe(git(cwd, 'symbolic-ref', '--short', 'HEAD'));
         }
     });
     it('finds the physical repository when cwd is a symlink', () => {
@@ -46,18 +54,18 @@ describe('current git branch', () => {
         fs.mkdirSync(subdir);
         const link = path.join(first, 'link');
         fs.symlinkSync(subdir, link);
-        expect(getCurrentBranchName(link)).toBe(git(link, 'symbolic-ref', '--short', 'HEAD'));
+        expect(getCurrentBranchName(link, realGit)).toBe(git(link, 'symbolic-ref', '--short', 'HEAD'));
     });
     it('falls back for detached HEAD', () => {
         const dir = repository();
         git(dir, 'checkout', '--detach');
         expect(readCurrentBranch(dir)).toBeNull();
-        expect(getCurrentBranchName(dir)).toBeNull();
+        expect(getCurrentBranchName(dir, realGit)).toBeNull();
     });
     it('falls back when a tag makes the short name ambiguous', () => {
         const dir = repository();
         git(dir, 'update-ref', 'refs/tags/feature/example', 'HEAD');
         expect(readCurrentBranch(dir)).toBeNull();
-        expect(getCurrentBranchName(dir)).toBe(git(dir, 'symbolic-ref', '--short', 'HEAD'));
+        expect(getCurrentBranchName(dir, realGit)).toBe(git(dir, 'symbolic-ref', '--short', 'HEAD'));
     });
 });
