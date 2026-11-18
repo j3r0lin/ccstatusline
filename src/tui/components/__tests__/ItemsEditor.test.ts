@@ -96,26 +96,30 @@ describe('ItemsEditor', () => {
         );
 
         try {
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input');
-            expect(stripAnsi(stdout.getOutput())).not.toContain('(compact)');
+            await waitFor(() => {
+                expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input');
+                expect(stripAnsi(stdout.getOutput())).not.toContain('(compact)');
+            });
 
             stdout.clearOutput();
             stdin.write('.');
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input (compact)');
+            await waitFor(() => {
+                expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input (compact)');
+            });
 
             stdout.clearOutput();
             stdin.write('.');
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input (whole)');
+            await waitFor(() => {
+                expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input (whole)');
+            });
 
             stdout.clearOutput();
             stdin.write('.');
-            await flushInk();
-            expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input');
-            expect(stripAnsi(stdout.getOutput())).not.toContain('(compact)');
-            expect(stripAnsi(stdout.getOutput())).not.toContain('(whole)');
+            await waitFor(() => {
+                expect(stripAnsi(stdout.getOutput())).toContain('1. Tokens Input');
+                expect(stripAnsi(stdout.getOutput())).not.toContain('(compact)');
+                expect(stripAnsi(stdout.getOutput())).not.toContain('(whole)');
+            });
         } finally {
             instance.unmount();
             instance.cleanup();
