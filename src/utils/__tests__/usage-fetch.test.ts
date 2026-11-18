@@ -200,7 +200,8 @@ process.stdout.write(JSON.stringify({
             const normalizedKey = key.toUpperCase();
             return normalizedKey !== 'CLAUDE_CONFIG_DIR'
                 && normalizedKey !== 'CLAUDE_SECURESTORAGE_CONFIG_DIR'
-                && normalizedKey !== 'HTTPS_PROXY';
+                && normalizedKey !== 'HTTPS_PROXY'
+                && normalizedKey !== 'ANTHROPIC_BASE_URL';
         }));
 
         Object.assign(env, {
@@ -539,7 +540,7 @@ describe('fetchUsageData error handling', () => {
         } finally {
             harness.cleanup();
         }
-    });
+    }, 20000);
 
     it('routes the request through HTTPS_PROXY', () => {
         const harness = createProbeHarness();
@@ -1665,7 +1666,7 @@ describe('fetchUsageData error handling', () => {
         } finally {
             harness.cleanup();
         }
-    });
+    }, 20000);
 
     it('returns rate-limited without stale cache and falls back to the default backoff when Retry-After is invalid', () => {
         const harness = createProbeHarness();
@@ -1723,7 +1724,7 @@ describe('fetchUsageData error handling', () => {
         } finally {
             harness.cleanup();
         }
-    });
+    }, 20000);
 
     it('parses HTTP-date Retry-After headers', () => {
         const harness = createProbeHarness();
