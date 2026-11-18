@@ -10,8 +10,10 @@ import type {
 } from '../types/Widget';
 import {
     isInsideGitWorkTree,
+    resolveGitCwd,
     runGit
 } from '../utils/git';
+import { readCurrentBranch } from '../utils/git-head';
 import {
     buildBranchWebUrl,
     getRemoteInfo
@@ -133,7 +135,8 @@ export class GitBranchWidget implements Widget {
     }
 
     private getGitBranch(context: RenderContext): string | null {
-        return runGit('symbolic-ref --short HEAD', context);
+        const cwd = resolveGitCwd(context);
+        return (cwd ? readCurrentBranch(cwd) : null) ?? runGit('symbolic-ref --short HEAD', context);
     }
 
     renderCompact(item: WidgetItem, context: RenderContext, settings: Settings): string | null {
