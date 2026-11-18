@@ -77,6 +77,13 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+    // A helper killed by its own timeout can leave the writer it spawned behind,
+    // reparented to PID 1. Kill anything still matching this run's temp directory.
+    if (process.platform !== 'win32') {
+        try {
+            execFileSync('pkill', ['-f', tempRoot], { stdio: 'ignore' });
+        } catch { /* nothing left to kill */ }
+    }
     fs.rmSync(tempRoot, { recursive: true, force: true });
 });
 
