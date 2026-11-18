@@ -14,11 +14,7 @@ import {
 } from '../../utils/number-format';
 import {
     getUsageErrorMessage,
-    resolveFableUsageWindow,
-    resolveUsageWindowWithFallback,
-    resolveWeeklyOpusUsageWindow,
-    resolveWeeklySonnetUsageWindow,
-    resolveWeeklyUsageWindow
+    resolveFableUsageWindow
 } from '../../utils/usage';
 import type { UsageWindowMetrics } from '../../utils/usage-types';
 
@@ -40,9 +36,9 @@ import {
     toggleUsageInverted
 } from './usage-display';
 
-export type UsagePercentWidgetKind = 'session' | 'weekly' | 'weekly-sonnet' | 'weekly-opus' | 'fable-weekly';
+export type UsagePercentWidgetKind = 'fable-weekly';
 
-type UsagePercentField = 'sessionUsage' | 'weeklyUsage' | 'weeklySonnetUsage' | 'weeklyOpusUsage' | 'fableUsage';
+type UsagePercentField = 'fableUsage';
 
 interface UsageCursorOptions { cursorPercent: number }
 
@@ -55,34 +51,6 @@ interface UsagePercentWidgetKindConfig {
 }
 
 const USAGE_PERCENT_WIDGET_CONFIG: Record<UsagePercentWidgetKind, UsagePercentWidgetKindConfig> = {
-    'session': {
-        label: 'Session: ',
-        displayName: 'Session Usage',
-        description: 'Shows daily/session API usage percentage',
-        previewPercent: 20,
-        usageField: 'sessionUsage'
-    },
-    'weekly': {
-        label: 'Weekly: ',
-        displayName: 'Weekly Usage',
-        description: 'Shows weekly API usage percentage',
-        previewPercent: 12,
-        usageField: 'weeklyUsage'
-    },
-    'weekly-sonnet': {
-        label: 'Weekly Sonnet: ',
-        displayName: 'Weekly Sonnet Usage',
-        description: 'Shows weekly Sonnet API usage percentage',
-        previewPercent: 8,
-        usageField: 'weeklySonnetUsage'
-    },
-    'weekly-opus': {
-        label: 'Weekly Opus: ',
-        displayName: 'Weekly Opus Usage',
-        description: 'Shows weekly Opus API usage percentage',
-        previewPercent: 4,
-        usageField: 'weeklyOpusUsage'
-    },
     'fable-weekly': {
         label: 'Weekly Fable: ',
         displayName: 'Weekly Fable Usage',
@@ -92,21 +60,7 @@ const USAGE_PERCENT_WIDGET_CONFIG: Record<UsagePercentWidgetKind, UsagePercentWi
     }
 };
 
-// The session window also consults block metrics, so the resolvers take different
-// arguments and are picked per call rather than stored alongside the config.
-function resolveUsageWindow(kind: UsagePercentWidgetKind, data: RenderUsageData, context: RenderContext): UsageWindowMetrics | null {
-    if (kind === 'session') {
-        return resolveUsageWindowWithFallback(data, context.blockMetrics);
-    }
-    if (kind === 'weekly') {
-        return resolveWeeklyUsageWindow(data);
-    }
-    if (kind === 'weekly-sonnet') {
-        return resolveWeeklySonnetUsageWindow(data);
-    }
-    if (kind === 'weekly-opus') {
-        return resolveWeeklyOpusUsageWindow(data);
-    }
+function resolveUsageWindow(data: RenderUsageData): UsageWindowMetrics | null {
     return resolveFableUsageWindow(data);
 }
 
@@ -205,7 +159,7 @@ export function renderUsagePercentWidgetValue(
             return undefined;
         }
 
-        const window = resolveUsageWindow(kind, data, context);
+        const window = resolveUsageWindow(data);
         return window ? { cursorPercent: window.elapsedPercent } : undefined;
     });
 }
