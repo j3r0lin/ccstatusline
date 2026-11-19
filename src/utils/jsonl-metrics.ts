@@ -103,6 +103,7 @@ interface TokenMetricAccumulator {
     cacheCreationTokens: number;
     mostRecentMainChainUsage: UsageTokens | null;
     mostRecentTimestampMs: number | null;
+    mostRecentContextTimestampMs: number | null;
     mostRecentPostCompactionUsage: UsageTokens | null;
     mostRecentPostCompactionTimestampMs: number | null;
     /**
@@ -143,6 +144,7 @@ function createTokenMetricAccumulator(): TokenMetricAccumulator {
         cacheCreationTokens: 0,
         mostRecentMainChainUsage: null,
         mostRecentTimestampMs: null,
+        mostRecentContextTimestampMs: null,
         mostRecentPostCompactionUsage: null,
         mostRecentPostCompactionTimestampMs: null,
         countedByMessageId: new Map()
@@ -192,11 +194,21 @@ function accumulateTokenMetricEntry(
 
     if (accumulator.mostRecentTimestampMs === null || entry.timestampMs > accumulator.mostRecentTimestampMs) {
         accumulator.mostRecentTimestampMs = entry.timestampMs;
+    }
+
+    // Some model paths intermittently record all-zero usage on a turn; keep
+    // the last non-zero context length so context widgets do not flicker to 0.
+    if (contextLengthFromUsageTokens(usage) <= 0) {
+        return;
+    }
+
+    if (accumulator.mostRecentContextTimestampMs === null || entry.timestampMs >= accumulator.mostRecentContextTimestampMs) {
+        accumulator.mostRecentContextTimestampMs = entry.timestampMs;
         accumulator.mostRecentMainChainUsage = usage;
     }
     if (includePostCompactionUsage
         && (accumulator.mostRecentPostCompactionTimestampMs === null
-            || entry.timestampMs > accumulator.mostRecentPostCompactionTimestampMs)) {
+            || entry.timestampMs >= accumulator.mostRecentPostCompactionTimestampMs)) {
         accumulator.mostRecentPostCompactionTimestampMs = entry.timestampMs;
         accumulator.mostRecentPostCompactionUsage = usage;
     }

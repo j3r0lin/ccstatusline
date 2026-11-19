@@ -759,6 +759,86 @@ describe('jsonl transcript metrics', () => {
         });
     });
 
+    it('keeps the last non-zero context length when a later turn reports zero usage', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-jsonl-metrics-'));
+        tempRoots.push(root);
+        const transcriptPath = path.join(root, 'zero-usage-turn.jsonl');
+
+        const lines = [
+            makeUsageLine({
+                timestamp: '2026-01-01T10:00:00.000Z',
+                messageId: 'msg-1',
+                input: 2176,
+                output: 1242,
+                cacheRead: 134499,
+                cacheCreate: 0,
+                stopReason: 'tool_use'
+            }),
+            makeUsageLine({
+                timestamp: '2026-01-01T10:00:02.000Z',
+                messageId: 'msg-2',
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheCreate: 0,
+                stopReason: 'tool_use'
+            }),
+            makeUsageLine({
+                timestamp: '2026-01-01T10:00:03.000Z',
+                messageId: 'msg-3',
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheCreate: 0,
+                stopReason: null
+            })
+        ];
+
+        fs.writeFileSync(transcriptPath, lines.join('\n'));
+
+        const metrics = await getTokenMetrics(transcriptPath);
+
+        expect(metrics.contextLength).toBe(2176 + 134499);
+        expect(metrics.lastCompletionMs).toBe(new Date('2026-01-01T10:00:03.000Z').getTime());
+    });
+
+    it('keeps boundary postTokens when post-compaction turns report zero usage', async () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-jsonl-metrics-'));
+        tempRoots.push(root);
+        const transcriptPath = path.join(root, 'compact-zero-usage.jsonl');
+
+        const lines = [
+            makeUsageLine({
+                timestamp: '2026-01-01T10:00:00.000Z',
+                input: 5000,
+                output: 100,
+                cacheRead: 190000,
+                cacheCreate: 40000,
+                stopReason: 'end_turn'
+            }),
+            JSON.stringify({
+                type: 'system',
+                subtype: 'compact_boundary',
+                timestamp: '2026-01-01T10:05:00.000Z',
+                compactMetadata: { trigger: 'manual', preTokens: 235100, postTokens: 18000 }
+            }),
+            makeUsageLine({
+                timestamp: '2026-01-01T10:06:00.000Z',
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheCreate: 0,
+                stopReason: 'tool_use'
+            })
+        ];
+
+        fs.writeFileSync(transcriptPath, lines.join('\n'));
+
+        const metrics = await getTokenMetrics(transcriptPath);
+
+        expect(metrics.contextLength).toBe(18000);
+    });
+
     it('returns zeroed token metrics when file is missing', async () => {
         const metrics = await getTokenMetrics('/tmp/ccstatusline-jsonl-metrics-missing.jsonl');
         expect(metrics).toEqual({
