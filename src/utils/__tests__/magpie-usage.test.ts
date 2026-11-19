@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import {
@@ -10,6 +11,7 @@ import {
 import { getUsagePaceIndicator } from '../../widgets/shared/usage-pace';
 import {
     describeAccount,
+    fetchMagpieUsageData,
     isMagpieUsageContext,
     parseMagpieQuotaResponse,
     resolveSessionAccount
@@ -226,6 +228,79 @@ describe('parseMagpieQuotaResponse', () => {
 
         expect(parseMagpieQuotaResponse(body, { provider: 'copilot', email: 'j3r0lin@gmail.com' })).toBeNull();
     });
+
+    it('reads the matching pool windows for agy-cli models', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'agy-cli',
+                user: 'j3r0lan@gmail.com',
+                windows: [
+                    { name: 'Gemini · 7 days', pool: 'Gemini', used: 3.1, resetsAt: '2026-11-26T08:48:23Z' },
+                    { name: 'Gemini · 5 hours', pool: 'Gemini', used: 8.4, resetsAt: '2026-11-19T13:48:23Z' },
+                    { name: 'Claude & GPT · 7 days', pool: 'Claude & GPT', used: 12, resetsAt: '2026-11-26T08:53:56Z' },
+                    { name: 'Claude & GPT · 5 hours', pool: 'Claude & GPT', used: 25, resetsAt: '2026-11-19T13:53:56Z' },
+                    { name: 'Gemini 4 Argon · 7 days', pool: 'Gemini 4 Argon', used: 40, resetsAt: '2026-11-26T08:53:56Z' }
+                ]
+            }]
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com', model: 'gemini-4-neon' })).toEqual({
+            sessionUsage: 8.4,
+            sessionResetAt: '2026-11-19T13:48:23Z',
+            weeklyUsage: 3.1,
+            weeklyResetAt: '2026-11-26T08:48:23Z'
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com', model: 'agy-cli/gemini-4-hydrogen[1m]' })).toEqual({
+            sessionUsage: 8.4,
+            sessionResetAt: '2026-11-19T13:48:23Z',
+            weeklyUsage: 3.1,
+            weeklyResetAt: '2026-11-26T08:48:23Z'
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com', model: 'claude-opus-5-5' })).toEqual({
+            sessionUsage: 25,
+            sessionResetAt: '2026-11-19T13:53:56Z',
+            weeklyUsage: 12,
+            weeklyResetAt: '2026-11-26T08:53:56Z'
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com', model: 'gpt-oss-120b-medium' })).toEqual({
+            sessionUsage: 25,
+            sessionResetAt: '2026-11-19T13:53:56Z',
+            weeklyUsage: 12,
+            weeklyResetAt: '2026-11-26T08:53:56Z'
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com', model: 'gemini-4-argon' })).toEqual({
+            weeklyUsage: 40,
+            weeklyResetAt: '2026-11-26T08:53:56Z',
+            sessionWindowUnavailable: true
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com' })).toBeNull();
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com', model: 'deepseek-v4' })).toBeNull();
+    });
+
+    it('reads the sole pool even when the model is unknown', () => {
+        const body = JSON.stringify({
+            data: [{
+                provider: 'agy-cli',
+                user: 'j3r0lan@gmail.com',
+                windows: [
+                    { name: 'Gemini · 5 hours', pool: 'Gemini', used: 5, resetsAt: '2026-11-19T13:48:23Z' },
+                    { name: 'Gemini · 7 days', pool: 'Gemini', used: 2, resetsAt: '2026-11-26T08:48:23Z' }
+                ]
+            }]
+        });
+
+        expect(parseMagpieQuotaResponse(body, { provider: 'agy-cli', email: 'j3r0lan@gmail.com' })).toEqual({
+            sessionUsage: 5,
+            sessionResetAt: '2026-11-19T13:48:23Z',
+            weeklyUsage: 2,
+            weeklyResetAt: '2026-11-26T08:48:23Z'
+        });
+    });
 });
 
 describe('resolveSessionAccount', () => {
@@ -299,5 +374,56 @@ describe('describeAccount', () => {
 
     it('is undefined without a cached reading', () => {
         expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, path.join(tempDir(), 'missing.json'))).toBeUndefined();
+    });
+});
+
+describe('fetchMagpieUsageData', () => {
+    it('requests /v1/magpie/quotas?kept=1 and resolves pooled agy-cli windows', async () => {
+        const dir = tempDir();
+        const affinityFile = path.join(dir, 'affinity.json');
+        const cacheFile = path.join(dir, 'magpie-usage.json');
+        fs.writeFileSync(affinityFile, JSON.stringify({ 'agy-cli/gemini-4-neon|session-agy': { who: 'agy-cli@j3r0lan@gmail.com', model: 'gemini-4-neon', at: '2026-11-19T16:50:00+08:00' } }));
+
+        const requests: string[] = [];
+        const server = http.createServer((req, res) => {
+            requests.push(req.url ?? '');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                data: [{
+                    provider: 'agy-cli',
+                    user: 'j3r0lan@gmail.com',
+                    windows: [
+                        { name: 'Gemini · 5 hours', pool: 'Gemini', used: 8.4, resetsAt: '2026-11-19T13:48:23Z' },
+                        { name: 'Gemini · 7 days', pool: 'Gemini', used: 3.1, resetsAt: '2026-11-26T08:48:23Z' },
+                        { name: 'Claude & GPT · 5 hours', pool: 'Claude & GPT', used: 0, resetsAt: '2026-11-19T13:53:56Z' }
+                    ]
+                }]
+            }));
+        });
+
+        await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+
+        try {
+            const usage = await fetchMagpieUsageData({
+                requiredFields: ['sessionUsage', 'weeklyUsage'],
+                environment: { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` },
+                sessionId: 'session-agy',
+                modelId: 'gemini-4-neon',
+                affinityFile,
+                cacheFile
+            });
+
+            expect(requests).toEqual(['/v1/magpie/quotas?kept=1']);
+            expect(usage).toEqual({
+                sessionUsage: 8.4,
+                sessionResetAt: '2026-11-19T13:48:23Z',
+                weeklyUsage: 3.1,
+                weeklyResetAt: '2026-11-26T08:48:23Z'
+            });
+        } finally {
+            server.close();
+        }
     });
 });

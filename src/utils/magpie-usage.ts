@@ -28,6 +28,8 @@ export interface FetchMagpieUsageDataOptions {
     environment?: Record<string, string | undefined>;
     sessionId?: string;
     modelId?: string;
+    affinityFile?: string;
+    cacheFile?: string;
 }
 
 const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
@@ -53,6 +55,7 @@ const PROVIDER_WINDOWS: Record<string, WindowNames> = {
 
 const QuotaWindowSchema = z.looseObject({
     name: z.string(),
+    pool: z.string().nullable().optional(),
     used: z.number().nullable().optional(),
     resetsAt: z.string().nullable().optional()
 });
@@ -104,9 +107,74 @@ export function isMagpieUsageContext(
     return isMagpieGateway(environment) && getModelIdentifiers(data?.model).length > 0;
 }
 
-function findWindow(windows: readonly QuotaWindow[], name: string): QuotaWindow | undefined {
+function findWindow(windows: readonly QuotaWindow[], name: string, poolName?: string): QuotaWindow | undefined {
     const wanted = name.trim().toLowerCase();
-    return windows.find(window => window.name.trim().toLowerCase() === wanted);
+    const pooledWanted = poolName ? `${poolName.trim().toLowerCase()} · ${wanted}` : undefined;
+    return windows.find((window) => {
+        const actual = window.name.trim().toLowerCase();
+        return actual === wanted || (pooledWanted !== undefined && actual === pooledWanted);
+    });
+}
+
+function normalizeTokens(value: string): string[] {
+    return value
+        .trim()
+        .toLowerCase()
+        .split(/[^a-z0-9.]+/)
+        .filter(Boolean);
+}
+
+function stripModelDecorations(modelId: string): string {
+    const bare = modelId.split('/').pop() ?? modelId;
+    return bare.replace(/\[[^\]]+\]$/, '').split('@')[0] ?? '';
+}
+
+function scorePoolMatch(pool: string, modelTokens: Set<string>): number {
+    // Pools like "Claude & GPT" join multiple families with "&" or ",".
+    // Pick the pool with the most matched tokens so "Gemini 4 Argon" beats "Gemini" for gemini-4-argon.
+    let bestScore = 0;
+    for (const branch of pool.split(/[&,]/)) {
+        const tokens = normalizeTokens(branch);
+        if (tokens.length > 0 && tokens.every(token => modelTokens.has(token))) {
+            bestScore = Math.max(bestScore, tokens.length);
+        }
+    }
+    return bestScore;
+}
+
+function selectPoolForModel(windows: readonly QuotaWindow[], modelId: string | undefined): string | undefined {
+    const pools = Array.from(new Set(
+        windows
+            .map(window => window.pool?.trim())
+            .filter((pool): pool is string => Boolean(pool))
+    ));
+    if (pools.length === 0) {
+        return undefined;
+    }
+    if (pools.length === 1) {
+        return pools[0];
+    }
+    if (!modelId?.trim()) {
+        return undefined;
+    }
+
+    const modelTokens = new Set(normalizeTokens(stripModelDecorations(modelId)));
+    let selectedPool: string | undefined;
+    let bestScore = 0;
+    let tied = false;
+
+    for (const pool of pools) {
+        const score = scorePoolMatch(pool, modelTokens);
+        if (score > bestScore) {
+            bestScore = score;
+            selectedPool = pool;
+            tied = false;
+        } else if (score > 0 && score === bestScore) {
+            tied = true;
+        }
+    }
+
+    return tied ? undefined : selectedPool;
 }
 
 function toUsageFields(window: QuotaWindow | undefined): { usage?: number; resetAt?: string } {
@@ -210,10 +278,38 @@ export function parseMagpieQuotaResponse(rawJson: string, account: MagpieAccount
         const windowNames = PROVIDER_WINDOWS[account.provider] ?? DEFAULT_WINDOWS;
 
         const windows = pickAccount(parsed.data.data, account)?.windows ?? [];
-        const usageOfWindow = (name: string | undefined) => toUsageFields(name ? findWindow(windows, name) : undefined);
-        const session = usageOfWindow(windowNames.session);
-        const weekly = usageOfWindow(windowNames.weekly);
-        const monthly = usageOfWindow(windowNames.monthly);
+        const unpooledWindows = windows.filter(window => !window.pool?.trim());
+        const resolveUsage = (targetWindows: readonly QuotaWindow[], poolName?: string) => {
+            const usageOfWindow = (name: string | undefined) => toUsageFields(
+                name ? findWindow(targetWindows, name, poolName) : undefined
+            );
+            return {
+                session: usageOfWindow(windowNames.session),
+                weekly: usageOfWindow(windowNames.weekly),
+                monthly: usageOfWindow(windowNames.monthly)
+            };
+        };
+
+        let resolved = resolveUsage(unpooledWindows);
+        const hasAnyField = (candidate: typeof resolved) => [
+            candidate.session.usage,
+            candidate.session.resetAt,
+            candidate.weekly.usage,
+            candidate.weekly.resetAt,
+            candidate.monthly.usage,
+            candidate.monthly.resetAt
+        ].some(value => value !== undefined);
+
+        if (!hasAnyField(resolved)) {
+            const selectedPool = selectPoolForModel(windows, account.model);
+            if (!selectedPool) {
+                return null;
+            }
+            const poolWindows = windows.filter(window => window.pool?.trim().toLowerCase() === selectedPool.toLowerCase());
+            resolved = resolveUsage(poolWindows, selectedPool);
+        }
+
+        const { session, weekly, monthly } = resolved;
 
         const usageData: UsageData = {
             sessionUsage: session.usage,
@@ -274,12 +370,12 @@ function readCachedBody(maxAgeSeconds: number, cacheFile = CACHE_FILE): string |
 // The cache holds the gateway's raw answer, which is the same for every
 // session; each session picks its own account out of it. Rename keeps a
 // concurrent reader from seeing a half-written file.
-function writeCachedBody(body: string): void {
-    const tempFile = `${CACHE_FILE}.${process.pid}.tmp`;
+function writeCachedBody(body: string, cacheFile = CACHE_FILE): void {
+    const tempFile = `${cacheFile}.${process.pid}.tmp`;
     try {
-        fs.mkdirSync(CACHE_DIR, { recursive: true });
+        fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
         fs.writeFileSync(tempFile, body);
-        fs.renameSync(tempFile, CACHE_FILE);
+        fs.renameSync(tempFile, cacheFile);
     } catch {
         // Cache writes are best-effort.
     }
@@ -330,27 +426,32 @@ export async function fetchMagpieUsageData(options: FetchMagpieUsageDataOptions 
         return { error: 'no-credentials' };
     }
     // A routing group has no account until it serves the session's first request.
-    const account = resolveSessionAccount(options.sessionId, options.modelId, environment);
+    const account = resolveSessionAccount(options.sessionId, options.modelId, environment, options.affinityFile);
     if (!account) {
         return {};
     }
+    const effectiveAccount = account.model || account.routed || !options.modelId
+        ? account
+        : { ...account, model: options.modelId };
 
-    const freshBody = readCachedBody(FRESH_MAX_AGE_SECONDS);
-    const freshUsage = freshBody ? parseMagpieQuotaResponse(freshBody, account) : null;
+    const cacheFile = options.cacheFile ?? CACHE_FILE;
+    const freshBody = readCachedBody(FRESH_MAX_AGE_SECONDS, cacheFile);
+    const freshUsage = freshBody ? parseMagpieQuotaResponse(freshBody, effectiveAccount) : null;
     if (freshUsage) {
         return freshUsage;
     }
 
-    const response = await getFromGateway(new URL('/v1/magpie/quotas', gateway.origin));
+    // ?kept=1 returns magpie's last-read windows immediately without polling slow vendors live.
+    const response = await getFromGateway(new URL('/v1/magpie/quotas?kept=1', gateway.origin));
     if (response.kind !== 'success') {
-        return usageFromBodyOrError(readCachedBody(STALE_MAX_AGE_SECONDS), account, response.kind === 'timeout' ? 'timeout' : 'api-error');
+        return usageFromBodyOrError(readCachedBody(STALE_MAX_AGE_SECONDS, cacheFile), effectiveAccount, response.kind === 'timeout' ? 'timeout' : 'api-error');
     }
 
-    const usageData = parseMagpieQuotaResponse(response.body, account);
+    const usageData = parseMagpieQuotaResponse(response.body, effectiveAccount);
     if (!usageData) {
         return { error: 'parse-error' };
     }
 
-    writeCachedBody(response.body);
+    writeCachedBody(response.body, cacheFile);
     return usageData;
 }
