@@ -103,9 +103,10 @@ export interface MarkCommandResult {
 }
 
 export const MARK_USAGE = [
-    'usage: ccstatusline mark jira <ISSUE-KEY>   show this issue in the jira-issue widget',
-    '       ccstatusline mark dev <URL>          show this dev server in the dev-server widget',
-    '       ccstatusline mark clear [jira|dev]   drop one mark, or both',
+    'usage: ccstatusline mark jira <ISSUE-KEY>         show this issue in the jira-issue widget',
+    '       ccstatusline mark dev <URL>                show this dev server in the dev-server widget',
+    '       ccstatusline mark clear [jira|dev]         drop one mark, or both',
+    '       ccstatusline mark clear jira <ISSUE-KEY>   drop the jira mark only while it is this issue',
     'Run inside a Claude Code session: the mark belongs to $CLAUDE_CODE_SESSION_ID.'
 ].join('\n');
 
@@ -125,8 +126,11 @@ export function runMarkCommand(args: string[], deps: MarkCommandDeps = DEFAULT_M
     const [kind, value, extra] = args;
     const usage = (problem: string): MarkCommandResult => ({ exitCode: 2, message: `${problem}\n${MARK_USAGE}` });
 
-    if (extra !== undefined)
+    const clearKey = kind === 'clear' && value === 'jira' ? extra?.toUpperCase() : undefined;
+    if (extra !== undefined && clearKey === undefined)
         return usage(`unexpected argument: ${extra}`);
+    if (clearKey !== undefined && !ISSUE_KEY.test(clearKey))
+        return usage(`not an issue key: ${extra}`);
 
     let next: (marks: SessionMarks) => SessionMarks;
     let done: string;
@@ -152,10 +156,16 @@ export function runMarkCommand(args: string[], deps: MarkCommandDeps = DEFAULT_M
         next = (marks) => {
             if (value === undefined)
                 return {};
+            // Another agent sharing this session may have marked the issue it
+            // works on since; clearing by key leaves that mark alone.
+            if (clearKey !== undefined && marks.jira?.key !== clearKey)
+                return marks;
             const { [value]: _dropped, ...rest } = marks;
             return rest;
         };
-        done = value ? `cleared the ${value} mark` : 'cleared all marks';
+        done = clearKey
+            ? `cleared the jira mark if it was ${clearKey}`
+            : value ? `cleared the ${value} mark` : 'cleared all marks';
         devChanged = value !== 'jira';
     } else {
         return usage(kind ? `unknown mark: ${kind}` : 'missing what to mark');

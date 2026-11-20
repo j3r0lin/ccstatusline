@@ -66,6 +66,20 @@ describe('ccstatusline mark', () => {
         expect(readSessionMarks(transcript)).toEqual({});
     });
 
+    it('clears the jira mark by key only while it is that issue', () => {
+        mark('jira', 'IM-2');
+        expect(mark('clear', 'jira', 'IM-1').exitCode).toBe(0);
+        expect(readSessionMarks(transcript).jira?.key).toBe('IM-2');
+        mark('clear', 'jira', 'im-2');
+        expect(readSessionMarks(transcript).jira).toBeUndefined();
+    });
+
+    it('rejects a key after clear dev', () => {
+        mark('dev', 'http://localhost:5173/');
+        expect(mark('clear', 'dev', 'IM-1').exitCode).toBe(2);
+        expect(readSessionMarks(transcript).dev).toBeDefined();
+    });
+
     it('rejects what is not an issue key and leaves the marks alone', () => {
         mark('jira', 'IM-1');
         const result = mark('jira', 'fix-login');

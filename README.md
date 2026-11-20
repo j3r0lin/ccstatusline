@@ -55,7 +55,7 @@
 - **💬 New Last Prompt widget** - Displays the last user prompt submitted in the current session as a dim status line. Reads directly from the session transcript. Type: `last-prompt`.
 - **⏱ New Idle widget** - Shows time elapsed since last API completion with auto color coding: green (<5m), yellow (5-15m), red (15m-1h), dim gray (>1h). Type: `idle`.
 - **🌐 New Dev Server widget** - Shows clickable `Local:` URLs of live background Bash dev servers registered by the Claude Code hook. Type: `dev-server`.
-- **📌 `ccstatusline mark`** - An agent can declare what its session is on from a Bash call: `ccstatusline mark jira <KEY>` makes the Jira Issue widget show that issue ahead of the branch-derived one, `ccstatusline mark dev <URL>` puts that URL first in the Dev Server widget (a loopback URL only while something listens on its port), and `ccstatusline mark clear [jira|dev]` drops a mark. Marks belong to `$CLAUDE_CODE_SESSION_ID` and live in `<session-id>/marks.json` beside the transcript.
+- **📌 `ccstatusline mark`** - An agent can declare what its session is on from a Bash call: `ccstatusline mark jira <KEY>` makes the Jira Issue widget show that issue ahead of the branch-derived one, `ccstatusline mark dev <URL>` puts that URL first in the Dev Server widget (a loopback URL only while something listens on its port), and `ccstatusline mark clear [jira|dev]` drops a mark; `ccstatusline mark clear jira <KEY>` drops the jira mark only while it is that issue, so an agent finishing one issue leaves another agent's mark in the same session alone. Marks belong to `$CLAUDE_CODE_SESSION_ID` and live in `<session-id>/marks.json` beside the transcript.
 
 ---
 
