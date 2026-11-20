@@ -19,7 +19,7 @@ const CLI_TIMEOUT = 5_000;
 
 const DEFAULT_BRANCHES = new Set(['main', 'master']);
 
-export type JiraIssueKeySource = 'branch-config' | 'branch-name' | 'pr-title' | 'transcript';
+export type JiraIssueKeySource = 'mark' | 'branch-config' | 'branch-name' | 'pr-title' | 'transcript';
 
 export interface ResolvedJiraIssueKey {
     key: string;
@@ -62,6 +62,8 @@ export function extractIssueKeyFromTitle(title: string): string | null {
 }
 
 export interface ResolveJiraIssueKeyParams {
+    // The issue this session declared with `ccstatusline mark jira`.
+    markedIssueKey?: string | null;
     // null when the render cwd is not a git work tree, which skips the two
     // git-derived sources and leaves the transcript source to answer on its own.
     cwd: string | null;
@@ -75,6 +77,8 @@ export interface ResolveJiraIssueKeyParams {
 }
 
 // Resolution chain, first match wins:
+//   0. `ccstatusline mark jira KEY`: the session saying outright which issue
+//      it works on, which no inference below can know better.
 //   1. git config branch.<branch>.jiraIssue - an explicit user override, used
 //      as-is.
 //   2. the current branch name, matched anywhere in the string.
@@ -89,6 +93,10 @@ export function resolveJiraIssueKey(
     params: ResolveJiraIssueKeyParams,
     deps: JiraIssueKeyDeps = DEFAULT_JIRA_ISSUE_KEY_DEPS
 ): ResolvedJiraIssueKey | null {
+    if (params.markedIssueKey) {
+        return { key: params.markedIssueKey, source: 'mark' };
+    }
+
     const cwd = params.cwd;
     const branch = cwd === null ? null : getCurrentBranchName(cwd, deps);
 

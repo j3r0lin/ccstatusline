@@ -23,6 +23,7 @@ import {
 } from '../utils/jira-issue-cache';
 import { resolveJiraIssueKey } from '../utils/jira-issue-key';
 import { resolveJiraIssueKeyFromTranscript } from '../utils/jira-transcript-key';
+import { readSessionMarks } from '../utils/session-marks';
 
 import { isHidden } from './shared/hideable';
 import { removeMetadataKeys } from './shared/metadata';
@@ -106,6 +107,7 @@ export interface JiraIssueWidgetDeps {
     getProcessCwd: typeof process.cwd;
     isInsideGitWorkTree: typeof isInsideGitWorkTree;
     readJiraCliConfig: typeof readJiraCliConfig;
+    readSessionMarks: typeof readSessionMarks;
     resolveGitCwd: typeof resolveGitCwd;
     resolveJiraIssueKey: typeof resolveJiraIssueKey;
     resolveJiraIssueKeyFromTranscript: typeof resolveJiraIssueKeyFromTranscript;
@@ -118,6 +120,7 @@ const DEFAULT_JIRA_ISSUE_WIDGET_DEPS: JiraIssueWidgetDeps = {
     getProcessCwd: () => process.cwd(),
     isInsideGitWorkTree,
     readJiraCliConfig,
+    readSessionMarks,
     resolveGitCwd,
     resolveJiraIssueKey,
     resolveJiraIssueKeyFromTranscript
@@ -198,7 +201,8 @@ export class JiraIssueWidget implements Widget {
             : null;
         const readPrTitle = (): string | null => cwd === null ? null : this.deps.getCachedGitReviewData(cwd, {})?.title ?? null;
         const transcriptInfo = this.deps.resolveJiraIssueKeyFromTranscript(context.data?.transcript_path);
-        const resolved = this.deps.resolveJiraIssueKey({ cwd, readPrTitle, transcriptIssueKey: transcriptInfo?.key ?? null });
+        const markedIssueKey = this.deps.readSessionMarks(context.data?.transcript_path).jira?.key ?? null;
+        const resolved = this.deps.resolveJiraIssueKey({ cwd, readPrTitle, transcriptIssueKey: transcriptInfo?.key ?? null, markedIssueKey });
 
         if (!resolved) {
             return showNoIssue();

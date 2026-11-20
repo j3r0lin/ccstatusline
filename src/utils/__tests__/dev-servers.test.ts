@@ -134,10 +134,11 @@ describe('parseListeningPorts', () => {
             'tcp4  0  0  127.0.0.1.8000    *.*  LISTEN',
             'tcp4  0  0  *.5173            *.*  LISTEN',
             'tcp6  0  0  ::1.4173          *.*  LISTEN',
+            'tcp4  0  0  127.0.0.2.3000    *.*  LISTEN',
             'tcp4  0  0  192.168.1.9.443   *.*  LISTEN',
             'tcp4  0  0  127.0.0.1.8000    127.0.0.1.51234  ESTABLISHED'
         ].join('\n');
-        expect(parseListeningPorts(out)).toEqual([4173, 5173, 8000]);
+        expect(parseListeningPorts(out)).toEqual([3000, 4173, 5173, 8000]);
     });
 
     it('has nothing to report when nothing listens', () => {
@@ -652,6 +653,110 @@ describe('readCachedDevServerUrls', () => {
     });
 });
 
+describe('a dev server marked with ccstatusline mark dev', () => {
+    let tmpDir: string;
+    let session: string;
+    let sessionDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-servers-mark-'));
+        session = path.join(tmpDir, 'sess.jsonl');
+        fs.writeFileSync(session, '');
+        sessionDir = path.join(tmpDir, 'sess');
+        fs.mkdirSync(sessionDir);
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function markDev(url: string): void {
+        fs.writeFileSync(path.join(sessionDir, 'marks.json'), JSON.stringify({ dev: { url, ts: 1 } }));
+    }
+
+    function refreshWith(listening: ListeningProcess[]): string[] {
+        return collectDevServerUrls(session, {
+            createServerResolver: (transcriptPath, records) => createServerResolver(transcriptPath, records, {
+                findListeningProcesses: () => listening,
+                listeningPorts: () => listening.flatMap(p => p.ports)
+            })
+        });
+    }
+
+    it('shows a remote URL as declared', () => {
+        markDev('https://staging.example.com/');
+        expect(readCachedDevServerUrls(session)).toEqual(['https://staging.example.com/']);
+    });
+
+    it('shows a loopback URL once a refresh finds a live process on its port', () => {
+        markDev('http://localhost:5173/');
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+        expect(refreshWith([{ pid: process.pid, ports: [5173], files: [] }])).toEqual(['http://localhost:5173/']);
+        expect(readCachedDevServerUrls(session)).toEqual(['http://localhost:5173/']);
+    });
+
+    it('hides a loopback URL nothing listens on', () => {
+        markDev('http://localhost:5173/');
+        expect(refreshWith([{ pid: process.pid, ports: [3000], files: [] }])).toEqual([]);
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+    });
+
+    it('checks a wildcard-bound URL against the ports that are open', () => {
+        markDev('http://0.0.0.0:5173/');
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+        expect(refreshWith([])).toEqual([]);
+    });
+
+    it('stops asking for refreshes after one whose lsof failed', () => {
+        markDev('http://localhost:5173/');
+        collectDevServerUrls(session, {
+            createServerResolver: (transcriptPath, records) => createServerResolver(transcriptPath, records, {
+                findListeningProcesses: () => null,
+                listeningPorts: () => []
+            })
+        });
+        const spawned: string[][] = [];
+        refreshDevServerCacheIfNeeded(session, {
+            spawn: ((_command: string, args: string[]) => {
+                spawned.push(args);
+                return { unref: () => { /* detached */ } };
+            }) as never,
+            getExecPath: () => '/usr/local/bin/ccstatusline',
+            getScriptPath: () => undefined
+        });
+        expect(spawned).toEqual([]);
+    });
+
+    it('hides a loopback URL whose process lives on but stopped listening', () => {
+        markDev('http://localhost:5173/');
+        refreshWith([{ pid: process.pid, ports: [5173], files: [] }]);
+        expect(refreshWith([{ pid: process.pid, ports: [3000], files: [] }])).toEqual([]);
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+    });
+
+    it('hides a loopback URL once its process is gone', () => {
+        markDev('http://localhost:5173/');
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers-resolved.json'), JSON.stringify({
+            records: {},
+            discovered: [],
+            ports: [],
+            marked: { url: 'http://localhost:5173/', pid: 2_147_483_646 }
+        }));
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+    });
+
+    it('lists the marked URL before servers found on their own', () => {
+        markDev('http://localhost:5173/');
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers-resolved.json'), JSON.stringify({
+            records: {},
+            discovered: [{ pid: process.pid, url: 'http://localhost:9000/' }],
+            ports: [],
+            marked: { url: 'http://localhost:5173/', pid: process.pid }
+        }));
+        expect(readCachedDevServerUrls(session)).toEqual(['http://localhost:5173/', 'http://localhost:9000/']);
+    });
+});
+
 describe('refreshDevServerCacheIfNeeded', () => {
     let tmpDir: string;
     let session: string;
@@ -703,6 +808,24 @@ describe('refreshDevServerCacheIfNeeded', () => {
 
     it('does not spawn while the cache is fresh', () => {
         refresh({ cache: { portsCheckedAt: Date.now() } });
+        expect(spawned).toEqual([]);
+    });
+
+    it('spawns for a session that only declared a dev server', () => {
+        fs.writeFileSync(path.join(sessionDir, 'marks.json'), JSON.stringify({ dev: { url: 'http://localhost:5173/', ts: 1 } }));
+        refresh({ sidecar: false, cache: { portsCheckedAt: 0 } });
+        expect(spawned).toHaveLength(1);
+    });
+
+    it('spawns despite a fresh cache when no refresh has seen the marked URL yet', () => {
+        fs.writeFileSync(path.join(sessionDir, 'marks.json'), JSON.stringify({ dev: { url: 'http://localhost:5173/', ts: 1 } }));
+        refresh({ cache: { portsCheckedAt: Date.now(), marked: { url: 'http://localhost:3000/', pid: null } } });
+        expect(spawned).toHaveLength(1);
+    });
+
+    it('waits out the TTL once a refresh has seen the marked URL', () => {
+        fs.writeFileSync(path.join(sessionDir, 'marks.json'), JSON.stringify({ dev: { url: 'http://localhost:5173/', ts: 1 } }));
+        refresh({ cache: { portsCheckedAt: Date.now(), marked: { url: 'http://localhost:5173/', pid: null } } });
         expect(spawned).toEqual([]);
     });
 

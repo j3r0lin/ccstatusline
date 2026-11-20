@@ -6,6 +6,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { stripSgrCodes } from './ansi';
+import {
+    isLoopbackUrl,
+    parseDevUrl,
+    readSessionMarks,
+    urlPort
+} from './session-marks';
 
 export interface DevServerRecord {
     id: string;
@@ -164,7 +170,7 @@ export function anchorLogs(record: DevServerRecord): string[] {
 // A loopback listening address as lsof prints it. `*` and `[::]` are the
 // wildcard binds a dev server started with --host gets, and localhost still
 // reaches those.
-const LISTEN_ADDRESS = /^(?:\*|127\.0\.0\.1|\[::1\]|\[::\]):(\d+)$/;
+const LISTEN_ADDRESS = /^(?:\*|127\.\d+\.\d+\.\d+|\[::1\]|\[::\]):(\d+)$/;
 
 export interface ServerEndpoint {
     pid: number;
@@ -243,7 +249,7 @@ export function listeningPorts(): number[] | null {
 }
 
 // macOS netstat writes an address as `127.0.0.1.8000`, port last.
-const NETSTAT_LOCAL = /^(?:127\.0\.0\.1|\*|::1|::)\.(\d+)$/;
+const NETSTAT_LOCAL = /^(?:127\.\d+\.\d+\.\d+|\*|::1|::)\.(\d+)$/;
 
 export function parseListeningPorts(netstatOutput: string): number[] {
     const ports = new Set<number>();
@@ -438,9 +444,17 @@ export interface DiscoveredServer {
     url: string;
 }
 
+export interface MarkedServer {
+    url: string;
+    // The process listening on the marked port when last looked; null when none was.
+    pid: number | null;
+}
+
 export interface ServerCache {
     // Keyed by sidecar record id: a record has more than one log to recognise it.
     records: Record<string, ResolvedServer>;
+    // The loopback URL the session declared with `ccstatusline mark dev`.
+    marked?: MarkedServer;
     // Servers found by asking the kernel, which the sidecar never recorded.
     discovered: DiscoveredServer[];
     // The loopback ports seen last time. While this set holds and every pid
@@ -468,7 +482,7 @@ export function readServerCache(filePath: string): ServerCache {
     }
     if (!parsed || typeof parsed !== 'object')
         return cache;
-    const raw = parsed as { records?: unknown; discovered?: unknown; ports?: unknown; portsCheckedAt?: unknown };
+    const raw = parsed as { records?: unknown; discovered?: unknown; marked?: unknown; ports?: unknown; portsCheckedAt?: unknown };
 
     if (raw.records && typeof raw.records === 'object') {
         for (const [id, value] of Object.entries(raw.records as Record<string, unknown>)) {
@@ -490,6 +504,12 @@ export function readServerCache(filePath: string): ServerCache {
             if (typeof entry.pid === 'number' && typeof entry.url === 'string')
                 cache.discovered.push({ pid: entry.pid, url: entry.url });
         }
+    }
+    if (raw.marked && typeof raw.marked === 'object') {
+        const entry = raw.marked as Partial<MarkedServer>;
+        const pid = entry.pid ?? null;
+        if (typeof entry.url === 'string' && (pid === null || typeof pid === 'number'))
+            cache.marked = { url: entry.url, pid };
     }
     if (Array.isArray(raw.ports))
         cache.ports = raw.ports.filter((p): p is number => typeof p === 'number');
@@ -545,6 +565,7 @@ export function createServerResolver(
     const findListening = deps.findListeningProcesses ?? findListeningProcesses;
 
     let discovered: DiscoveredServer[] | undefined;
+    let marked: MarkedServer | undefined;
     let seenPorts: number[] | undefined;
     let portsCheckedAt: number | undefined;
 
@@ -603,6 +624,27 @@ export function createServerResolver(
         return null;
     }
 
+    // A declared loopback URL counts only while something listens on its port,
+    // so a mark the session forgot to clear disappears with its server.
+    function markedUrl(url: string): string | null {
+        const parsed = parseDevUrl(url);
+        if (!parsed)
+            return null;
+        if (!isLoopbackUrl(parsed))
+            return url;
+        const port = urlPort(parsed);
+        const cached = cache.marked;
+        // A live pid is not enough: a server can drop its socket and keep running.
+        if (cached?.url === url && cached.pid !== null && alive(cached.pid) && ports_()?.includes(port))
+            return url;
+        // Recorded even when lsof fails, so the mark counts as looked at and
+        // renders go back to waiting out the TTL.
+        const processes = findListening();
+        marked = { url, pid: processes?.find(p => p.ports.includes(port))?.pid ?? null };
+        changed = true;
+        return marked.pid === null ? null : url;
+    }
+
     // Reuse recent port observations to avoid netstat on every render; the
     // five-second window bounds how long a new server can remain undiscovered.
     function discover(): string[] {
@@ -655,6 +697,7 @@ export function createServerResolver(
         const merged: ServerCache = {
             records: {},
             discovered: discovered ?? cache.discovered,
+            ...(marked ?? cache.marked ? { marked: marked ?? cache.marked } : {}),
             ports: seenPorts ?? cache.ports,
             portsCheckedAt: seenPorts === undefined ? cache.portsCheckedAt : portsCheckedAt
         };
@@ -668,6 +711,7 @@ export function createServerResolver(
 
     return {
         urlFor,
+        markedUrl,
         discover,
         flush
     };
@@ -723,6 +767,10 @@ export function collectDevServerUrls(
         return urls.length >= MAX_URLS;
     };
 
+    const mark = readSessionMarks(transcriptPath).dev;
+    if (mark)
+        add(resolver.markedUrl(mark.url));
+
     for (let i = records.length - 1; i >= 0 && urls.length < MAX_URLS; i--) {
         const rec = records[i];
         if (rec)
@@ -777,6 +825,15 @@ export function readCachedDevServerUrls(
         urls.push(url);
         return urls.length >= MAX_URLS;
     };
+
+    const mark = readSessionMarks(transcriptPath).dev;
+    const parsedMark = mark ? parseDevUrl(mark.url) : null;
+    if (mark && parsedMark) {
+        const live = !isLoopbackUrl(parsedMark)
+            || (cache.marked?.url === mark.url && cache.marked.pid !== null && alive(cache.marked.pid));
+        if (live)
+            add(mark.url);
+    }
 
     const records = readMergedRecords(transcriptPath, read, extras);
 
@@ -870,19 +927,29 @@ function defaultScriptPath(): string | undefined {
     return script && /\.[cm]?[jt]s$/.test(script) ? path.resolve(script) : undefined;
 }
 
+function isLoopbackDev(url: string): boolean {
+    const parsed = parseDevUrl(url);
+    return parsed !== null && isLoopbackUrl(parsed);
+}
+
 /** Starts one detached refresh when the cache is old; never blocks the render. */
 export function refreshDevServerCacheIfNeeded(
     transcriptPath: string,
     deps: DevServerRefreshDeps = {}
 ): void {
-    // Only a session that ran a background command can have a server to find.
-    if (!fs.existsSync(sidecarPathFromTranscript(transcriptPath)))
+    // Only a session that ran a background command, or declared a server, can
+    // have one to find.
+    const mark = readSessionMarks(transcriptPath).dev;
+    if (!fs.existsSync(sidecarPathFromTranscript(transcriptPath)) && !mark)
         return;
 
     const cacheFile = serverCachePath(transcriptPath);
     const now = (deps.now ?? Date.now)();
     const cache = (deps.readServerCache ?? readServerCache)(cacheFile);
-    if (cache.portsCheckedAt !== undefined && now - cache.portsCheckedAt < REFRESH_TTL_MS)
+    // A mark no refresh has looked at yet cannot wait out the TTL: the one
+    // `mark` itself ran may have lost the lock to a refresh that read the old marks.
+    const markUnresolved = mark !== undefined && cache.marked?.url !== mark.url && isLoopbackDev(mark.url);
+    if (!markUnresolved && cache.portsCheckedAt !== undefined && now - cache.portsCheckedAt < REFRESH_TTL_MS)
         return;
 
     const lockPath = acquireLock(refreshLockPath(cacheFile), now);

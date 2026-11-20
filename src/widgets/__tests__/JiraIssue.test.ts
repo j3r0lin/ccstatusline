@@ -50,6 +50,7 @@ function createDeps(overrides: Partial<JiraIssueWidgetDeps> = {}): JiraIssueWidg
         getProcessCwd: () => '/tmp/process-cwd',
         isInsideGitWorkTree: () => true,
         readJiraCliConfig: () => ({ server: SERVER }),
+        readSessionMarks: () => ({}),
         resolveGitCwd: context => context.data?.cwd,
         resolveJiraIssueKey: () => null,
         resolveJiraIssueKeyFromTranscript: () => null,
@@ -258,6 +259,14 @@ describe('JiraIssueWidget', () => {
         });
         expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
         expect(reads).toBe(0);
+    });
+
+    it('shows the issue the session marked over the one its branch names', () => {
+        const result = render({ cwd: '/tmp/repo', transcriptPath: '/tmp/transcript.jsonl' }, {
+            readSessionMarks: () => ({ jira: { key: 'IM-42', ts: 1 } }),
+            resolveJiraIssueKey: params => resolveJiraIssueKey(params, onBranch('feature/IM-3299-fix'))
+        });
+        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-42`, 'IM-42'));
     });
 
     it('passes the transcript-resolved key through to the resolution chain', () => {

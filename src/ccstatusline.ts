@@ -48,6 +48,7 @@ import {
     renderStatusLine
 } from './utils/renderer';
 import { advanceGlobalSeparatorIndex } from './utils/separator-index';
+import { runMarkCommand } from './utils/session-marks';
 import { getSkillsMetrics } from './utils/skills';
 import {
     getWidgetSpeedWindowSeconds,
@@ -419,7 +420,26 @@ async function handleModelPricesRefresh(): Promise<boolean> {
     return true;
 }
 
+function handleMark(): boolean {
+    if (process.argv[2] !== 'mark') {
+        return false;
+    }
+
+    const result = runMarkCommand(process.argv.slice(3));
+    // Resolve a declared server now rather than on the next minute's refresh.
+    if (result.devChanged && result.transcriptPath) {
+        refreshDevServerCacheFromCli(result.transcriptPath);
+    }
+    (result.exitCode === 0 ? console.log : console.error)(result.message);
+    process.exitCode = result.exitCode;
+    return true;
+}
+
 async function main() {
+    if (handleMark()) {
+        return;
+    }
+
     // Detached cache refreshes re-enter this executable without reading stdin
     // or loading user settings. This mode intentionally emits no output.
     if (handleGitReviewRefresh()) {
