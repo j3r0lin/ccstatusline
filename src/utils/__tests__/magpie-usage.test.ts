@@ -358,22 +358,19 @@ describe('resolveSessionAccount', () => {
 
 describe('describeAccount', () => {
     it('counts the provider\'s accounts and gives the account\'s alias', () => {
-        const cacheFile = path.join(tempDir(), 'magpie-usage.json');
-        fs.writeFileSync(cacheFile, JSON.stringify({
-            data: [
-                { ...claudeAccount('a@inhand.com · Inhand', 1), alias: 'p1' },
-                { provider: 'claude', user: 'b@gmail.com', windows: [] },
-                { provider: 'codex', user: 'c@gmail.com', windows: [] }
-            ]
-        }));
+        const entries = [
+            { ...claudeAccount('a@inhand.com · Inhand', 1), alias: 'p1' },
+            { provider: 'claude', user: 'b@gmail.com', windows: [] },
+            { provider: 'codex', user: 'c@gmail.com', windows: [] }
+        ];
 
-        expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, cacheFile)).toEqual({ providerAccountCount: 2, alias: 'p1' });
-        expect(describeAccount({ provider: 'claude', email: 'b@gmail.com' }, cacheFile)).toEqual({ providerAccountCount: 2, alias: undefined });
-        expect(describeAccount({ provider: 'codex', email: 'c@gmail.com' }, cacheFile)?.providerAccountCount).toBe(1);
+        expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, entries)).toEqual({ providerAccountCount: 2, alias: 'p1' });
+        expect(describeAccount({ provider: 'claude', email: 'b@gmail.com' }, entries)).toEqual({ providerAccountCount: 2, alias: undefined });
+        expect(describeAccount({ provider: 'codex', email: 'c@gmail.com' }, entries)?.providerAccountCount).toBe(1);
     });
 
-    it('is undefined without a cached reading', () => {
-        expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, path.join(tempDir(), 'missing.json'))).toBeUndefined();
+    it('is undefined before this render asked magpie for its quotas', () => {
+        expect(describeAccount({ provider: 'claude', email: 'a@inhand.com' }, undefined)).toBeUndefined();
     });
 });
 
@@ -381,7 +378,6 @@ describe('fetchMagpieUsageData', () => {
     it('requests /v1/magpie/quotas?kept=1 and resolves pooled agy-cli windows', async () => {
         const dir = tempDir();
         const affinityFile = path.join(dir, 'affinity.json');
-        const cacheFile = path.join(dir, 'magpie-usage.json');
         fs.writeFileSync(affinityFile, JSON.stringify({ 'agy-cli/gemini-4-neon|session-agy': { who: 'agy-cli@j3r0lan@gmail.com', model: 'gemini-4-neon', at: '2026-11-19T16:50:00+08:00' } }));
 
         const requests: string[] = [];
@@ -411,8 +407,7 @@ describe('fetchMagpieUsageData', () => {
                 environment: { ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}` },
                 sessionId: 'session-agy',
                 modelId: 'gemini-4-neon',
-                affinityFile,
-                cacheFile
+                affinityFile
             });
 
             expect(requests).toEqual(['/v1/magpie/quotas?kept=1']);
@@ -422,6 +417,8 @@ describe('fetchMagpieUsageData', () => {
                 weeklyUsage: 3.1,
                 weeklyResetAt: '2026-11-26T08:48:23Z'
             });
+            // The account label draws on the same answer, without a second request.
+            expect(describeAccount({ provider: 'agy-cli', email: 'j3r0lan@gmail.com' })?.providerAccountCount).toBe(1);
         } finally {
             server.close();
         }

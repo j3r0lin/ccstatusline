@@ -6,19 +6,9 @@ import { z } from 'zod';
 
 import type { StatusJSON } from '../types/StatusJSON';
 
-import type {
-    UsageData,
-    UsageError
-} from './usage-types';
+import type { UsageData } from './usage-types';
 
 const REQUEST_TIMEOUT_MS = 3000;
-// Every session's render shares one reading: concurrent sessions would
-// otherwise each ask the gateway on every refresh.
-const FRESH_MAX_AGE_SECONDS = 30;
-const CACHE_DIR = path.join(os.homedir(), '.cache', 'ccstatusline');
-const CACHE_FILE = path.join(CACHE_DIR, 'magpie-usage.json');
-// A stale reading can mislead once its billing window has rolled over.
-const STALE_MAX_AGE_SECONDS = 900;
 const AFFINITY_FILE = path.join(os.homedir(), '.config', 'magpie', 'affinity.json');
 
 type UsageDataField = Exclude<keyof UsageData, 'error'>;
@@ -29,7 +19,6 @@ export interface FetchMagpieUsageDataOptions {
     sessionId?: string;
     modelId?: string;
     affinityFile?: string;
-    cacheFile?: string;
 }
 
 const MAGPIE_USAGE_FIELDS = new Set<UsageDataField>([
@@ -336,53 +325,29 @@ export interface MagpieAccountDetails {
     alias?: string;
 }
 
-// Read from the last quotas reading the usage fetch cached; undefined when
-// there is no reading yet.
-export function describeAccount(account: MagpieAccount, cacheFile = CACHE_FILE): MagpieAccountDetails | undefined {
-    const body = readCachedBody(Number.POSITIVE_INFINITY, cacheFile);
-    if (!body) {
+// What magpie listed in the last quotas answer this process read. Each render
+// starts a process, so this is one answer per render: magpie keeps the windows.
+let lastQuotaEntries: QuotaEntry[] | undefined;
+
+// Read from that answer; undefined when this render asked magpie nothing yet.
+export function describeAccount(account: MagpieAccount, entries = lastQuotaEntries): MagpieAccountDetails | undefined {
+    if (!entries) {
         return undefined;
     }
+    const alias = pickAccount(entries, account)?.alias?.trim();
+    return {
+        providerAccountCount: entries.filter(entry => entry.provider === account.provider).length,
+        alias: alias === undefined || alias === '' ? undefined : alias
+    };
+}
+
+function quotaEntriesOf(body: string): QuotaEntry[] | undefined {
     try {
         const parsed = QuotasResponseSchema.safeParse(JSON.parse(body));
-        if (!parsed.success) {
-            return undefined;
-        }
-        const alias = pickAccount(parsed.data.data, account)?.alias?.trim();
-        return {
-            providerAccountCount: parsed.data.data.filter(entry => entry.provider === account.provider).length,
-            alias: alias === undefined || alias === '' ? undefined : alias
-        };
+        return parsed.success ? parsed.data.data : undefined;
     } catch {
         return undefined;
     }
-}
-
-function readCachedBody(maxAgeSeconds: number, cacheFile = CACHE_FILE): string | null {
-    try {
-        const ageSeconds = Math.floor((Date.now() - fs.statSync(cacheFile).mtimeMs) / 1000);
-        return ageSeconds < maxAgeSeconds ? fs.readFileSync(cacheFile, 'utf8') : null;
-    } catch {
-        return null;
-    }
-}
-
-// The cache holds the gateway's raw answer, which is the same for every
-// session; each session picks its own account out of it. Rename keeps a
-// concurrent reader from seeing a half-written file.
-function writeCachedBody(body: string, cacheFile = CACHE_FILE): void {
-    const tempFile = `${cacheFile}.${process.pid}.tmp`;
-    try {
-        fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-        fs.writeFileSync(tempFile, body);
-        fs.renameSync(tempFile, cacheFile);
-    } catch {
-        // Cache writes are best-effort.
-    }
-}
-
-function usageFromBodyOrError(body: string | null, account: MagpieAccount | undefined, error: UsageError): UsageData {
-    return (body ? parseMagpieQuotaResponse(body, account) : null) ?? { error };
 }
 
 type GatewayResult = { kind: 'success'; body: string } | { kind: 'timeout' } | { kind: 'error' };
@@ -434,24 +399,18 @@ export async function fetchMagpieUsageData(options: FetchMagpieUsageDataOptions 
         ? account
         : { ...account, model: options.modelId };
 
-    const cacheFile = options.cacheFile ?? CACHE_FILE;
-    const freshBody = readCachedBody(FRESH_MAX_AGE_SECONDS, cacheFile);
-    const freshUsage = freshBody ? parseMagpieQuotaResponse(freshBody, effectiveAccount) : null;
-    if (freshUsage) {
-        return freshUsage;
-    }
-
-    // ?kept=1 returns magpie's last-read windows immediately without polling slow vendors live.
+    // ?kept=1 answers from the windows magpie last read, asking no vendor, so
+    // the render can ask on every refresh and has nothing of its own to keep.
     const response = await getFromGateway(new URL('/v1/magpie/quotas?kept=1', gateway.origin));
     if (response.kind !== 'success') {
-        return usageFromBodyOrError(readCachedBody(STALE_MAX_AGE_SECONDS, cacheFile), effectiveAccount, response.kind === 'timeout' ? 'timeout' : 'api-error');
+        return { error: response.kind === 'timeout' ? 'timeout' : 'api-error' };
     }
 
     const usageData = parseMagpieQuotaResponse(response.body, effectiveAccount);
+    lastQuotaEntries = quotaEntriesOf(response.body);
     if (!usageData) {
         return { error: 'parse-error' };
     }
 
-    writeCachedBody(response.body, cacheFile);
     return usageData;
 }
