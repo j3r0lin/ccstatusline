@@ -332,10 +332,10 @@ describe('session cost widget', () => {
     let tempDir: string;
     let transcript: string;
 
-    function render(totalCostUsd: number, transcriptPath: string | undefined = transcript): string | null {
+    function render(totalCostUsd: number, transcriptPath: string | null = transcript): string | null {
         return new SessionCostWidget().render(
             { id: 'cost', type: 'session-cost', rawValue: true },
-            { data: { transcript_path: transcriptPath, cost: { total_cost_usd: totalCostUsd } } },
+            { data: { transcript_path: transcriptPath ?? undefined, cost: { total_cost_usd: totalCostUsd } } },
             DEFAULT_SETTINGS
         );
     }
@@ -384,7 +384,7 @@ describe('session cost widget', () => {
 
     it('keeps the reported cost when the transcript is unreadable or not given', () => {
         expect(render(2.5)).toBe('$2.50');
-        expect(render(2.5, undefined)).toBe('$2.50');
+        expect(render(2.5, null)).toBe('$2.50');
     });
 });
 
@@ -392,10 +392,10 @@ describe('session cache hit widget', () => {
     let tempDir: string;
     let transcript: string;
 
-    function render(transcriptPath: string | undefined = transcript): string | null {
+    function render(transcriptPath: string | null = transcript): string | null {
         return new SessionCacheHitWidget().render(
             { id: 'hit', type: 'session-cache-hit', rawValue: true },
-            { data: { transcript_path: transcriptPath } },
+            { data: { transcript_path: transcriptPath ?? undefined } },
             DEFAULT_SETTINGS
         );
     }
@@ -453,7 +453,7 @@ describe('session cache hit widget', () => {
 
     it('shows nothing without a readable transcript', () => {
         expect(render()).toBeNull();
-        expect(render(undefined)).toBeNull();
+        expect(render(null)).toBeNull();
     });
 });
 
