@@ -62,6 +62,16 @@ function slashRecord(
     return JSON.stringify(rec);
 }
 
+// A message the user typed, as opposed to one a tool or another agent produced.
+function promptRecord(text: string, extras: { isSidechain?: boolean; originKind?: string | null } = {}): string {
+    return JSON.stringify({
+        type: 'user',
+        message: { content: [{ type: 'text', text }] },
+        ...(extras.originKind === null ? {} : { origin: { kind: extras.originKind ?? 'human' } }),
+        ...(extras.isSidechain ? { isSidechain: true } : {})
+    });
+}
+
 interface DepsHarness {
     deps: JiraTranscriptKeyDeps;
     scanCallCounter: { value: number };
@@ -230,15 +240,39 @@ describe('resolveJiraIssueKeyFromTranscript', () => {
         expect(resolveJiraIssueKeyFromTranscript('/nonexistent/transcript.jsonl', deps)).toBeNull();
     });
 
-    it('finds a jira issue command run earlier in the session', () => {
-        const filePath = writeTranscript([bashRecord('jira issue view NP-1637 --comments 50')]);
+    it('takes an issue the user asked about once the session has read it', () => {
+        const filePath = writeTranscript([
+            promptRecord('看看 np-1637 是什么问题'),
+            bashRecord('jira issue view NP-1637 --comments 50')
+        ]);
         const { deps } = createDeps();
         expect(resolveJiraIssueKeyFromTranscript(filePath, deps)).toEqual({ key: 'NP-1637', move: null });
+    });
+
+    it('ignores a view of an issue the user never named', () => {
+        const filePath = writeTranscript([
+            promptRecord('查清 ccstatusline 每次重画的 CPU 花在哪'),
+            bashRecord('jira issue view IM-3358 --raw')
+        ]);
+        const { deps } = createDeps();
+        expect(resolveJiraIssueKeyFromTranscript(filePath, deps)).toEqual({ key: null, move: null });
+    });
+
+    it('does not count a key that only a subagent or tool message named', () => {
+        const filePath = writeTranscript([
+            promptRecord('IM-3358', { isSidechain: true }),
+            promptRecord('IM-3358', { originKind: 'task-notification' }),
+            promptRecord('This session is being continued from a previous conversation. IM-3358 was benchmarked.', { originKind: null }),
+            bashRecord('jira issue view IM-3358')
+        ]);
+        const { deps } = createDeps();
+        expect(resolveJiraIssueKeyFromTranscript(filePath, deps)?.key).toBeNull();
     });
 
     it('keeps the first view when later views name related issues', () => {
         // Written oldest-first, as a real transcript is append-only.
         const filePath = writeTranscript([
+            promptRecord('NA-330 NA-334 NA-335 这几张一起看'),
             bashRecord('jira issue view NA-330'),
             bashRecord('jira issue view NA-334'),
             bashRecord('jira issue view NA-335')
@@ -389,7 +423,7 @@ describe('resolveJiraIssueKeyFromTranscript', () => {
     });
 
     it('gives up once the scan-line cap is hit', () => {
-        const lines = [bashRecord('jira issue view NP-1637')];
+        const lines = [promptRecord('NP-1637'), bashRecord('jira issue view NP-1637')];
         for (let i = 0; i < 5; i++) {
             lines.push(bashRecord(`echo turn ${i}`));
         }
@@ -403,7 +437,7 @@ describe('resolveJiraIssueKeyFromTranscript', () => {
     });
 
     it('gives up once the scan-byte cap is hit', () => {
-        const lines = [bashRecord('jira issue view NP-1637')];
+        const lines = [promptRecord('NP-1637'), bashRecord('jira issue view NP-1637')];
         for (let i = 0; i < 5; i++) {
             lines.push(bashRecord(`echo ${'x'.repeat(200)} ${i}`));
         }
@@ -437,7 +471,7 @@ describe('resolveJiraIssueKeyFromTranscript', () => {
         expect(resolveJiraIssueKeyFromTranscript(filePath, harness.deps)).toEqual({ key: null, move: null });
         expect(harness.scanCallCounter.value).toBe(1);
 
-        fs.appendFileSync(filePath, `${bashRecord('jira issue view NP-1637').join('\n')}\n`);
+        fs.appendFileSync(filePath, `${bashRecord('jira issue move NP-1637 "In Progress"').join('\n')}\n`);
 
         expect(resolveJiraIssueKeyFromTranscript(filePath, harness.deps)?.key).toBe('NP-1637');
         expect(harness.scanCallCounter.value).toBe(2);

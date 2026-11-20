@@ -14,9 +14,11 @@ import {
 // actually on. A slash command whose args start with a KEY, or a jira
 // mutation (`move`/`edit`/`comment`/..., or jira-api.sh POST/PUT/DELETE/PATCH)
 // that ran to a clean exit, most recent of those; if the session only ever
-// looked (`jira issue view` / GET), the first such naming command. Later
-// views of related issues do not override. The command / slash-arg context
-// is proof enough that the match names a real issue, so - like the other
+// looked (`jira issue view` / GET), the first issue it looked at that the user
+// also named in a prompt. A view alone is how a session reads a reference
+// ticket or feeds one to a benchmark, so it never names the session's issue
+// by itself. Later views of related issues do not override. The command /
+// slash-arg context is proof enough that the match names a real issue, so - like the other
 // sources - nothing here filters it against a project allowlist.
 const AUX_CACHE_PREFIX = 'jira-transcript-issue';
 
@@ -48,7 +50,7 @@ const DEFAULT_JIRA_TRANSCRIPT_KEY_DEPS: JiraTranscriptKeyDeps = {
 };
 
 interface CachedTranscriptJiraInfo {
-    v: 4;
+    v: 5;
     key: string | null;
     move: JiraIssueMove | null;
 }
@@ -62,14 +64,15 @@ function isJiraIssueMove(value: unknown): value is JiraIssueMove {
 }
 
 // v1 entries predate move tracking, v2 entries counted commands that never
-// succeeded, v3 entries took the most recent view as the session key; all
-// three fail validation and get rescanned.
+// succeeded, v3 entries took the most recent view as the session key, v4
+// entries took a view the user never asked about; all fail validation and get
+// rescanned.
 function isCachedTranscriptJiraInfo(value: unknown): value is CachedTranscriptJiraInfo {
     if (typeof value !== 'object' || value === null) {
         return false;
     }
     const candidate = value as Partial<CachedTranscriptJiraInfo>;
-    return candidate.v === 4
+    return candidate.v === 5
         && (candidate.key === null || typeof candidate.key === 'string')
         && (candidate.move === null || isJiraIssueMove(candidate.move));
 }
@@ -174,6 +177,32 @@ function userRecordText(record: TranscriptUserRecord): string | null {
     return text.length > 0 ? text : null;
 }
 
+function isHumanPrompt(rec: TranscriptUserRecord): boolean {
+    return rec.type === 'user'
+        && rec.isSidechain !== true
+        && rec.isMeta !== true
+        && (!rec.origin || rec.origin.kind === 'human');
+}
+
+const PROMPT_ISSUE_KEY_REGEX = /\b[A-Za-z][A-Za-z0-9]+-\d+\b/g;
+
+// Every issue-key-shaped token the user typed, upper-cased so `im-3242` counts.
+// Only ever compared against keys a jira command named, so `utf-8` is harmless.
+// Requires an explicit human origin: records without one include compaction
+// summaries, which repeat every ticket the session touched, and messages from
+// other sessions.
+export function extractIssueKeysFromPrompt(record: unknown): string[] {
+    if (typeof record !== 'object' || record === null) {
+        return [];
+    }
+    const rec = record as TranscriptUserRecord;
+    if (!isHumanPrompt(rec) || rec.origin?.kind !== 'human') {
+        return [];
+    }
+    const text = userRecordText(rec);
+    return text ? (text.match(PROMPT_ISSUE_KEY_REGEX) ?? []).map(key => key.toUpperCase()) : [];
+}
+
 // Slash-command args use the same start-anchored KEY rule as PR titles, so
 // `/i:jira-refine IM-3231` matches and `不是让你创建 skill` does not.
 export function extractIssueKeyFromSlashRecord(record: unknown): string | null {
@@ -181,10 +210,7 @@ export function extractIssueKeyFromSlashRecord(record: unknown): string | null {
         return null;
     }
     const rec = record as TranscriptUserRecord;
-    if (rec.type !== 'user' || rec.isSidechain === true || rec.isMeta === true) {
-        return null;
-    }
-    if (rec.origin && rec.origin.kind !== 'human') {
+    if (!isHumanPrompt(rec)) {
         return null;
     }
 
@@ -286,9 +312,10 @@ function scanTranscriptForJiraInfo(transcriptPath: string, deps: JiraTranscriptK
     let scannedBytes = 0;
     // Most recent slash command or successful mutation, found first in reverse.
     let intentKey: string | null = null;
-    // Overwritten on every naming hit; after a reverse scan this is the oldest
-    // one in the window, used only when the session never declared intent.
-    let oldestNamingKey: string | null = null;
+    // Views in reverse order, so the last entry is the oldest. Used only when
+    // the session never declared intent, and only for a key the user named.
+    const viewedKeys: string[] = [];
+    const promptKeys = new Set<string>();
     let move: JiraIssueMove | null = null;
     // The reverse scan reaches a command's result record before the command
     // itself, so by the time a Bash call is read its outcome is already known.
@@ -314,8 +341,10 @@ function scanTranscriptForJiraInfo(transcriptPath: string, deps: JiraTranscriptK
 
             const slashKey = extractIssueKeyFromSlashRecord(record);
             if (slashKey) {
-                oldestNamingKey = slashKey;
                 intentKey ??= slashKey;
+            }
+            for (const key of extractIssueKeysFromPrompt(record)) {
+                promptKeys.add(key);
             }
 
             for (const toolUse of extractBashToolUses(record)) {
@@ -328,9 +357,10 @@ function scanTranscriptForJiraInfo(transcriptPath: string, deps: JiraTranscriptK
                 if (!commandKey) {
                     continue;
                 }
-                oldestNamingKey = commandKey;
                 if (isIntentIssueCommand(toolUse.command)) {
                     intentKey ??= commandKey;
+                } else {
+                    viewedKeys.push(commandKey);
                 }
             }
         }
@@ -338,7 +368,13 @@ function scanTranscriptForJiraInfo(transcriptPath: string, deps: JiraTranscriptK
         return { key: null, move: null };
     }
 
-    return { key: intentKey ?? oldestNamingKey, move };
+    let askedAbout: string | null = null;
+    for (const key of viewedKeys) {
+        if (promptKeys.has(key)) {
+            askedAbout = key;
+        }
+    }
+    return { key: intentKey ?? askedAbout, move };
 }
 
 // Reads the session's issue key - and the most recent successful
@@ -368,6 +404,6 @@ export function resolveJiraIssueKeyFromTranscript(
     }
 
     const info = scanTranscriptForJiraInfo(transcriptPath, deps);
-    deps.writeAuxCache(AUX_CACHE_PREFIX, cacheKey, { v: 4, ...info });
+    deps.writeAuxCache(AUX_CACHE_PREFIX, cacheKey, { v: 5, ...info });
     return info;
 }
