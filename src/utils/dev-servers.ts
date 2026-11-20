@@ -1,4 +1,7 @@
-import { execFileSync } from 'child_process';
+import {
+    execFileSync,
+    spawn
+} from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -726,4 +729,151 @@ export function collectDevServerUrls(
     }
     resolver.flush();
     return urls;
+}
+
+export const DEV_SERVER_REFRESH_FLAG = '--internal-refresh-dev-servers';
+
+// A server that changed while no hook fired waits at most this long. Rendering
+// never pays for the scan; it asks for one when the cache is this old.
+const REFRESH_TTL_MS = 60_000;
+const REFRESH_LOCK_STALE_MS = 2 * 60_000;
+
+export interface CachedDevServerDeps {
+    readSidecar?: typeof readSidecar;
+    extraSidecarPaths?: typeof extraSidecarPaths;
+    readServerCache?: typeof readServerCache;
+    isPidAlive?: typeof isPidAlive;
+}
+
+/**
+ * The URLs the last refresh resolved, kept only while their process runs.
+ * Reads two small files and asks the kernel about a pid; spawns nothing.
+ */
+export function readCachedDevServerUrls(
+    transcriptPath: string,
+    deps: CachedDevServerDeps = {}
+): string[] {
+    const read = deps.readSidecar ?? readSidecar;
+    const extras = deps.extraSidecarPaths ?? extraSidecarPaths;
+    const readCache = deps.readServerCache ?? readServerCache;
+    const alive = deps.isPidAlive ?? isPidAlive;
+
+    const cache = readCache(serverCachePath(transcriptPath));
+    const urls: string[] = [];
+    const seenUrl = new Set<string>();
+    const add = (url: string | null | undefined): boolean => {
+        if (!url || seenUrl.has(url))
+            return false;
+        seenUrl.add(url);
+        urls.push(url);
+        return urls.length >= MAX_URLS;
+    };
+
+    const files = [sidecarPathFromTranscript(transcriptPath), ...extras(transcriptPath)];
+    const records: DevServerRecord[] = [];
+    const seenIds = new Set<string>();
+    for (const file of files) {
+        for (const rec of read(file)) {
+            if (seenIds.has(rec.id))
+                continue;
+            seenIds.add(rec.id);
+            records.push(rec);
+        }
+    }
+    records.sort((a, b) => a.ts - b.ts);
+
+    for (let i = records.length - 1; i >= 0; i--) {
+        const record = records[i];
+        if (!record)
+            continue;
+        const entry = cache.records[record.id];
+        if (entry && entry.pid !== null && alive(entry.pid) && add(entry.url))
+            return urls;
+    }
+    for (let i = cache.discovered.length - 1; i >= 0; i--) {
+        const entry = cache.discovered[i];
+        if (entry && alive(entry.pid) && add(entry.url))
+            return urls;
+    }
+    return urls;
+}
+
+/** Body of the detached child: one full lookup, written to the cache for later renders. */
+export function refreshDevServerCacheFromCli(transcriptPath: string, lockPath?: string): void {
+    try {
+        if (transcriptPath)
+            collectDevServerUrls(transcriptPath);
+    } finally {
+        if (lockPath) {
+            try {
+                fs.unlinkSync(lockPath);
+            } catch {
+                // Another refresh may already have cleared it.
+            }
+        }
+    }
+}
+
+export interface DevServerRefreshDeps extends CachedDevServerDeps {
+    getExecPath?: () => string;
+    /** The script to re-enter when running from source; undefined for a compiled binary. */
+    getScriptPath?: () => string | undefined;
+    spawn?: typeof spawn;
+    now?: () => number;
+}
+
+function defaultScriptPath(): string | undefined {
+    const script = process.argv[1];
+    return script && /\.[cm]?[jt]s$/.test(script) ? path.resolve(script) : undefined;
+}
+
+/** Starts one detached refresh when the cache is old; never blocks the render. */
+export function refreshDevServerCacheIfNeeded(
+    transcriptPath: string,
+    deps: DevServerRefreshDeps = {}
+): void {
+    // Only a session that ran a background command can have a server to find.
+    if (!fs.existsSync(sidecarPathFromTranscript(transcriptPath)))
+        return;
+
+    const cacheFile = serverCachePath(transcriptPath);
+    const now = (deps.now ?? Date.now)();
+    const cache = (deps.readServerCache ?? readServerCache)(cacheFile);
+    if (cache.portsCheckedAt !== undefined && now - cache.portsCheckedAt < REFRESH_TTL_MS)
+        return;
+
+    const lockPath = `${cacheFile}.refresh.lock`;
+    try {
+        fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+    } catch {
+        try {
+            if (now - fs.statSync(lockPath).mtimeMs < REFRESH_LOCK_STALE_MS)
+                return;
+            fs.unlinkSync(lockPath);
+            fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+        } catch {
+            return;
+        }
+    }
+
+    // Running from source needs the script path; a compiled binary is its own entry.
+    const scriptPath = (deps.getScriptPath ?? defaultScriptPath)();
+    const args = scriptPath
+        ? [scriptPath, DEV_SERVER_REFRESH_FLAG, transcriptPath, lockPath]
+        : [DEV_SERVER_REFRESH_FLAG, transcriptPath, lockPath];
+
+    try {
+        const child = (deps.spawn ?? spawn)((deps.getExecPath ?? (() => process.execPath))(), args, {
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: true
+        });
+        child.unref();
+    } catch {
+        try {
+            fs.unlinkSync(lockPath);
+        } catch {
+            // Never got created.
+        }
+    }
 }

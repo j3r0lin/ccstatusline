@@ -23,6 +23,8 @@ import {
     extractDevServerUrl,
     parseEndpoints,
     parseListeningPorts,
+    readCachedDevServerUrls,
+    refreshDevServerCacheIfNeeded,
     sessionIdFromTranscript,
     sessionOwnedFiles,
     sidecarPathFromTranscript
@@ -599,5 +601,118 @@ describe('collectDevServerUrls', () => {
             'http://localhost:8002/',
             'http://localhost:8001/'
         ]);
+    });
+});
+
+describe('readCachedDevServerUrls', () => {
+    let tmpDir: string;
+    let session: string;
+    let sessionDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-servers-cache-'));
+        session = path.join(tmpDir, 'sess.jsonl');
+        fs.writeFileSync(session, '');
+        sessionDir = path.join(tmpDir, 'sess');
+        fs.mkdirSync(sessionDir);
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers.json'), JSON.stringify({ servers: [{ id: 'a', command: 'vite', outputFile: '/tmp/a.log', ts: 1 }] }));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function writeCache(cache: Partial<ServerCache>): void {
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers-resolved.json'), JSON.stringify({
+            records: {},
+            discovered: [],
+            ports: [],
+            ...cache
+        }));
+    }
+
+    it('returns a cached URL while its process runs', () => {
+        writeCache({ records: { a: { pid: process.pid, url: 'http://localhost:8000/', mtimes: [] } } });
+        expect(readCachedDevServerUrls(session)).toEqual(['http://localhost:8000/']);
+    });
+
+    it('drops a cached URL whose process is gone', () => {
+        writeCache({ records: { a: { pid: 2_147_483_646, url: 'http://localhost:8000/', mtimes: [] } } });
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+    });
+
+    it('has nothing before the first refresh', () => {
+        expect(readCachedDevServerUrls(session)).toEqual([]);
+    });
+
+    it('keeps a discovered server whose process still runs', () => {
+        writeCache({ discovered: [{ pid: process.pid, url: 'http://localhost:9000/' }] });
+        expect(readCachedDevServerUrls(session)).toEqual(['http://localhost:9000/']);
+    });
+});
+
+describe('refreshDevServerCacheIfNeeded', () => {
+    let tmpDir: string;
+    let session: string;
+    let sessionDir: string;
+    let spawned: string[][];
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-servers-refresh-'));
+        session = path.join(tmpDir, 'sess.jsonl');
+        fs.writeFileSync(session, '');
+        sessionDir = path.join(tmpDir, 'sess');
+        fs.mkdirSync(sessionDir);
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers.json'), JSON.stringify({ servers: [] }));
+        spawned = [];
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function refresh(options: { cache?: Partial<ServerCache>; sidecar?: boolean; now?: number } = {}): void {
+        if (options.sidecar === false)
+            fs.rmSync(path.join(sessionDir, 'dev-servers.json'));
+        if (options.cache) {
+            fs.writeFileSync(path.join(sessionDir, 'dev-servers-resolved.json'), JSON.stringify({
+                records: {},
+                discovered: [],
+                ports: [],
+                ...options.cache
+            }));
+        }
+        refreshDevServerCacheIfNeeded(session, {
+            spawn: ((_command: string, args: string[]) => {
+                spawned.push(args);
+                return { unref: () => { /* detached */ } };
+            }) as never,
+            getExecPath: () => '/usr/local/bin/ccstatusline',
+            getScriptPath: () => undefined,
+            now: () => options.now ?? Date.now()
+        });
+    }
+
+    it('spawns one detached refresh when the cache is old', () => {
+        refresh({ cache: { portsCheckedAt: 0 } });
+        expect(spawned).toHaveLength(1);
+        expect(spawned[0]?.[0]).toBe('--internal-refresh-dev-servers');
+        expect(spawned[0]?.[1]).toBe(session);
+    });
+
+    it('does not spawn while the cache is fresh', () => {
+        refresh({ cache: { portsCheckedAt: Date.now() } });
+        expect(spawned).toEqual([]);
+    });
+
+    it('does not spawn for a session that never ran a background command', () => {
+        refresh({ sidecar: false, cache: { portsCheckedAt: 0 } });
+        expect(spawned).toEqual([]);
+    });
+
+    it('does not spawn while another refresh holds the lock', () => {
+        fs.writeFileSync(path.join(sessionDir, 'dev-servers-resolved.json.refresh.lock'), '1');
+        refresh({ cache: { portsCheckedAt: 0 } });
+        expect(spawned).toEqual([]);
     });
 });

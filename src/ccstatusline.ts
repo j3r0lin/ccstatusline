@@ -18,6 +18,10 @@ import {
 import type { CustomCommandRequest } from './utils/custom-command';
 import { prefetchCustomCommands } from './utils/custom-command';
 import {
+    DEV_SERVER_REFRESH_FLAG,
+    refreshDevServerCacheFromCli
+} from './utils/dev-servers';
+import {
     GIT_REVIEW_REFRESH_FLAG,
     refreshGitReviewCacheFromCli
 } from './utils/git-review-cache';
@@ -369,6 +373,18 @@ function handleJiraIssueRefresh(): boolean {
     return true;
 }
 
+function handleDevServerRefresh(): boolean {
+    const flagIndex = process.argv.indexOf(DEV_SERVER_REFRESH_FLAG);
+    if (flagIndex === -1) {
+        return false;
+    }
+
+    const transcriptPath = process.argv[flagIndex + 1];
+    const lockPath = process.argv[flagIndex + 2];
+    refreshDevServerCacheFromCli(transcriptPath ?? '', lockPath);
+    return true;
+}
+
 function handleMagpieServedRefresh(): boolean {
     const flagIndex = process.argv.indexOf(MAGPIE_SERVED_REFRESH_FLAG);
     if (flagIndex === -1) {
@@ -406,6 +422,10 @@ async function main() {
     }
 
     if (handleJiraIssueRefresh()) {
+        return;
+    }
+
+    if (handleDevServerRefresh()) {
         return;
     }
 

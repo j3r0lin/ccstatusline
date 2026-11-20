@@ -5,7 +5,10 @@ import type {
     WidgetEditorDisplay,
     WidgetItem
 } from '../types/Widget';
-import { collectDevServerUrls } from '../utils/dev-servers';
+import {
+    readCachedDevServerUrls,
+    refreshDevServerCacheIfNeeded
+} from '../utils/dev-servers';
 import { renderOsc8Link } from '../utils/hyperlink';
 
 // The link text is the port alone: OSC-8 already carries the real address, and
@@ -41,7 +44,10 @@ export class DevServerWidget implements Widget {
         if (!transcriptPath)
             return null;
 
-        const urls = collectDevServerUrls(transcriptPath);
+        // The kernel lookup runs in a detached child; this render reads whatever
+        // the last one resolved and asks for a new one when the cache is old.
+        const urls = readCachedDevServerUrls(transcriptPath);
+        refreshDevServerCacheIfNeeded(transcriptPath);
         if (urls.length === 0)
             return null;
 
