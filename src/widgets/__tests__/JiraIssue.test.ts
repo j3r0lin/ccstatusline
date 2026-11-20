@@ -17,7 +17,11 @@ import { stripSgrCodes } from '../../utils/ansi';
 import { updateColorMap } from '../../utils/colors';
 import { renderOsc8Link } from '../../utils/hyperlink';
 import type { JiraIssueStatus } from '../../utils/jira-issue-cache';
-import type { ResolvedJiraIssueKey } from '../../utils/jira-issue-key';
+import {
+    resolveJiraIssueKey,
+    type JiraIssueKeyDeps,
+    type ResolvedJiraIssueKey
+} from '../../utils/jira-issue-key';
 import {
     JiraIssueWidget,
     type JiraIssueWidgetDeps
@@ -50,6 +54,18 @@ function createDeps(overrides: Partial<JiraIssueWidgetDeps> = {}): JiraIssueWidg
         resolveJiraIssueKey: () => null,
         resolveJiraIssueKeyFromTranscript: () => null,
         ...overrides
+    };
+}
+
+// Git as seen from a checkout of `branch` with no branch.<branch>.jiraIssue config.
+function onBranch(branch: string): JiraIssueKeyDeps {
+    return {
+        execFileSync: ((_cmd: string, args: readonly string[]) => {
+            if (args[0] === 'symbolic-ref') {
+                return `${branch}\n`;
+            }
+            throw new Error('no such config key');
+        }) as JiraIssueKeyDeps['execFileSync']
     };
 }
 
@@ -210,37 +226,35 @@ describe('JiraIssueWidget', () => {
         expect(new JiraIssueWidget(createDeps()).getHideableStates().map(state => state.key)).toEqual(['no-issue']);
     });
 
-    it('passes the cached PR/MR title through to the resolution chain', () => {
-        const calls: unknown[] = [];
-        render({ cwd: '/tmp/repo' }, {
-            getCachedGitReviewData: () => ({
-                number: 1,
-                reviewDecision: '',
-                state: 'OPEN',
-                title: 'fix(widget): resolve IM-3299',
-                url: 'https://example.com/pr/1'
-            }),
-            resolveJiraIssueKey: (params) => {
-                calls.push({ cwd: params.cwd, prTitle: params.readPrTitle(), transcriptIssueKey: params.transcriptIssueKey });
-                return null;
-            }
+    // A PR/MR cache read can start a gh/glab refresh in the background, so
+    // these also count reads.
+    it('renders the issue named by the cached PR/MR title when the branch names none', () => {
+        let reads = 0;
+        const result = render({ cwd: '/tmp/repo' }, {
+            getCachedGitReviewData: () => {
+                reads += 1;
+                return {
+                    number: 1,
+                    reviewDecision: '',
+                    state: 'OPEN',
+                    title: 'NP-1603 OMS平台批量删除许可证报错',
+                    url: 'https://example.com/pr/1'
+                };
+            },
+            resolveJiraIssueKey: params => resolveJiraIssueKey(params, onBranch('feature/cleanup'))
         });
-        expect(calls).toEqual([{
-            cwd: '/tmp/repo',
-            prTitle: 'fix(widget): resolve IM-3299',
-            transcriptIssueKey: null
-        }]);
+        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/NP-1603`, 'NP-1603'));
+        expect(reads).toBe(1);
     });
 
-    // A PR/MR cache read can start a gh/glab refresh in the background.
-    it('leaves the PR/MR cache alone when the resolution chain answers without the title', () => {
+    it('leaves the PR/MR cache alone when the branch name names the issue', () => {
         let reads = 0;
         const result = render({ cwd: '/tmp/repo' }, {
             getCachedGitReviewData: () => {
                 reads += 1;
                 return null;
             },
-            resolveJiraIssueKey: () => ({ key: 'IM-3299', source: 'branch-name' })
+            resolveJiraIssueKey: params => resolveJiraIssueKey(params, onBranch('feature/IM-3299-fix'))
         });
         expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
         expect(reads).toBe(0);

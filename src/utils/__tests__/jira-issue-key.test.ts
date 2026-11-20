@@ -179,6 +179,17 @@ describe('resolveJiraIssueKey', () => {
         expect(reads).toBe(0);
     });
 
+    it('does not read the PR/MR title when the branch config names the issue', () => {
+        const deps = createDeps({ branch: 'feature/cleanup', branchConfig: 'im-3299' });
+        let reads = 0;
+        expect(resolveJiraIssueKey({
+            cwd: '/tmp/repo',
+            readPrTitle: () => { reads += 1; return 'NP-1603 other issue'; },
+            transcriptIssueKey: null
+        }, deps)).toEqual({ key: 'IM-3299', source: 'branch-config' });
+        expect(reads).toBe(0);
+    });
+
     it.each(['main', 'master'])('skips the PR/MR title on %s and falls back to the transcript', (branch) => {
         const deps = createDeps({ branch, branchConfig: null });
         let reads = 0;
