@@ -96,6 +96,30 @@ describe('extractIssueKeyFromCommand', () => {
         expect(extractIssueKeyFromCommand('jira issue move SA-423 "In Progress"')).toBe('SA-423');
     });
 
+    it('matches jira where the shell runs it, behind separators and wrappers', () => {
+        expect(extractIssueKeyFromCommand('cd repo && jira issue view NP-1')).toBe('NP-1');
+        expect(extractIssueKeyFromCommand('git log -1; timeout 30 jira issue move SA-726 "In Progress"')).toBe('SA-726');
+        expect(extractIssueKeyFromCommand('JIRA_X=1 ~/bin/jira issue view NP-2 | head')).toBe('NP-2');
+        expect(extractIssueKeyFromCommand('echo $(jira issue view NP-3 --plain)')).toBe('NP-3');
+        expect(extractIssueKeyFromCommand('ls\njira issue view NP-4')).toBe('NP-4');
+        expect(extractIssueKeyFromCommand('env FOO=1 jira issue move NP-5 Done')).toBe('NP-5');
+    });
+
+    it('reads long heredocs and separator-dense commands in well under a second', () => {
+        const started = performance.now();
+        expect(extractIssueKeyFromCommand(`cat > f <<EOF\n${'\n'.repeat(20_000)}EOF`)).toBeNull();
+        expect(extractIssueKeyFromCommand(`${';a'.repeat(40_000)} jira`)).toBeNull();
+        expect(extractIssueKeyFromCommand(`${'a=b '.repeat(40_000)}jira`)).toBeNull();
+        expect(performance.now() - started).toBeLessThan(200);
+    });
+
+    it('does not match a jira command that only appears as text', () => {
+        expect(extractIssueKeyFromCommand('cat > t.ts <<EOF\nbashRecord(\'jira issue move NP-1 Done\')\nEOF')).toBeNull();
+        expect(extractIssueKeyFromCommand('$T/bench.sh 3 /dev/null jira issue view IM-3358 --raw')).toBeNull();
+        expect(extractIssueKeyFromCommand('printf "jira issue view IM-1: "')).toBeNull();
+        expect(extractIssueMoveFromCommand('assert verdict(\'Bash\', \'jira issue move SA-1 Done\')')).toBeNull();
+    });
+
     it('does not match jira issue list, whose next token is a flag or JQL', () => {
         expect(extractIssueKeyFromCommand('jira issue list --plain -q \'project = NA order by created desc\'')).toBeNull();
     });

@@ -81,11 +81,21 @@ function isCachedTranscriptJiraInfo(value: unknown): value is CachedTranscriptJi
 // `issue` for the literal match instead of swallowing it as the value.
 const GLOBAL_FLAGS_PATTERN = String.raw`(?:--?[\w-]+(?:=\S+)?(?:\s+(?!-)\S+)?\s+)*`;
 
+// `jira` where the shell runs it: at the start of a command, after a
+// separator or `$(`, behind env assignments, a path, or a wrapper such as
+// `timeout 30`. A `jira issue ...` inside a string - a test fixture, a heredoc,
+// an argument to a benchmark script - is text, not a command the session ran.
+// No part of the prefix may run past a separator or onto the next line: every
+// separator starts a new attempt, so a part that could would re-scan the rest
+// of the command from each one, quadratic on a heredoc or minified code.
+const WORD = String.raw`[^\s;&|()]`;
+const JIRA_COMMAND = String.raw`(?:^|[;&|(\n]|\$\()[ \t]*(?:(?:[A-Za-z_]\w*=${WORD}*|timeout(?:[ \t]+-${WORD}+)*[ \t]+${WORD}+|env|time|nohup|command|exec)[ \t]+)*(?:${WORD}*\/)?jira\s+`;
+
 // A jira-cli subcommand that names a specific issue: `view`/`edit`/`comment`/
 // `move`/... followed immediately by a KEY. `jira issue list ...` never
 // matches because its next token (a flag like --plain, or a JQL string) never
 // has the KEY shape.
-const CLI_ISSUE_KEY_REGEX = new RegExp(String.raw`\bjira\s+${GLOBAL_FLAGS_PATTERN}issue\s+(\w+)\s+([A-Z][A-Z0-9]+-\d+)\b`);
+const CLI_ISSUE_KEY_REGEX = new RegExp(String.raw`${JIRA_COMMAND}${GLOBAL_FLAGS_PATTERN}issue\s+(\w+)\s+([A-Z][A-Z0-9]+-\d+)\b`);
 // REST-script form, e.g. `./jira-api.sh get issue/NA-330`. Gated on the
 // command mentioning "jira" so a bare "issue/123-abc" elsewhere can't match.
 const API_SCRIPT_ISSUE_KEY_REGEX = /issue\/([A-Z][A-Z0-9]+-\d+)\b/;
@@ -95,7 +105,7 @@ const API_WRITE_METHOD_REGEX = /\b(POST|PUT|DELETE|PATCH)\b/i;
 // single-quoted, or a bare single word. The widget uses this to recolor the
 // issue the moment a session moves it, without waiting out the status-cache
 // TTL.
-const CLI_ISSUE_MOVE_REGEX = new RegExp(String.raw`\bjira\s+${GLOBAL_FLAGS_PATTERN}issue\s+move\s+([A-Z][A-Z0-9]+-\d+)\s+(?:"([^"]+)"|'([^']+)'|(\S+))`);
+const CLI_ISSUE_MOVE_REGEX = new RegExp(String.raw`${JIRA_COMMAND}${GLOBAL_FLAGS_PATTERN}issue\s+move\s+([A-Z][A-Z0-9]+-\d+)\s+(?:"([^"]+)"|'([^']+)'|(\S+))`);
 
 export interface JiraIssueMove {
     key: string;
@@ -309,7 +319,8 @@ function scanTranscriptForJiraInfo(transcriptPath: string, deps: JiraTranscriptK
             }
 
             for (const toolUse of extractBashToolUses(record)) {
-                if (!succeededToolUseIds.has(toolUse.id)) {
+                // Most commands never mention jira; skip them before any regex runs.
+                if (!succeededToolUseIds.has(toolUse.id) || !/jira/i.test(toolUse.command)) {
                     continue;
                 }
                 move ??= extractIssueMoveFromCommand(toolUse.command);
