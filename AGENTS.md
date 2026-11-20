@@ -49,11 +49,12 @@ ccstatusline can be run directly from source during local development; compiling
 - **Claude Code using local changes**: the status-line command in Claude Code settings must point to the local source path, e.g. `bun run /path/to/ccstatusline/src/ccstatusline.ts`. Commands like `npx -y ccstatusline@latest`, `bunx -y ccstatusline@latest`, or a global `ccstatusline` use the published npm package instead and will not reflect local source edits until a new version is published and installed.
 - **Claude Code using a Bun-compiled standalone binary**: if `settings.json` points to a compiled executable such as `~/.local/bin/ccstatusline` (produced by `bun build --compile`), source changes do **not** take effect until you recompile and replace that executable:
   ```bash
-  bun build --compile --outfile=/tmp/ccstatusline-new src/ccstatusline.ts
+  bun build --compile --bytecode --format=esm --outfile=/tmp/ccstatusline-new src/ccstatusline.ts
   cp ~/.local/bin/ccstatusline ~/.local/bin/ccstatusline.bak.$(date +%Y%m%d)
   cp /tmp/ccstatusline-new ~/.local/bin/ccstatusline
   chmod +x ~/.local/bin/ccstatusline
   ```
+  `--bytecode` saves parsing the bundle on every status-line run, about a quarter of a render's CPU. It needs `--format=esm` because yoga-layout, which ink pulls in, uses top-level await. After building, open the TUI once (run the binary with no stdin) to confirm it still starts.
 - **Publishing / distribution**: run `bun run build` to produce `dist/ccstatusline.js`. The npm package's `bin` entry and `files` array both reference `dist/ccstatusline.js`, and `prepublishOnly` runs the build automatically.
 - **Project convention**: After a feature is implemented and verified, deliver it to `~/.local/bin/ccstatusline` by compiling and replacing the standalone binary (see the steps above). Do this automatically unless the user explicitly asks otherwise.
 - **Build the binary from a checkout of `main`**: the repo root checkout is shared with other sessions and may be sitting on a feature branch they left there, so confirm with `git branch --show-current` before compiling, and build from a worktree at `main` when it isn't.
