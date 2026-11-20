@@ -221,7 +221,7 @@ describe('JiraIssueWidget', () => {
                 url: 'https://example.com/pr/1'
             }),
             resolveJiraIssueKey: (params) => {
-                calls.push(params);
+                calls.push({ cwd: params.cwd, prTitle: params.readPrTitle(), transcriptIssueKey: params.transcriptIssueKey });
                 return null;
             }
         });
@@ -230,6 +230,20 @@ describe('JiraIssueWidget', () => {
             prTitle: 'fix(widget): resolve IM-3299',
             transcriptIssueKey: null
         }]);
+    });
+
+    // A PR/MR cache read can start a gh/glab refresh in the background.
+    it('leaves the PR/MR cache alone when the resolution chain answers without the title', () => {
+        let reads = 0;
+        const result = render({ cwd: '/tmp/repo' }, {
+            getCachedGitReviewData: () => {
+                reads += 1;
+                return null;
+            },
+            resolveJiraIssueKey: () => ({ key: 'IM-3299', source: 'branch-name' })
+        });
+        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
+        expect(reads).toBe(0);
     });
 
     it('passes the transcript-resolved key through to the resolution chain', () => {

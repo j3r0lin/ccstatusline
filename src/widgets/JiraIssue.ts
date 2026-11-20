@@ -196,9 +196,9 @@ export class JiraIssueWidget implements Widget {
         const cwd = inGitWorkTree
             ? this.deps.resolveGitCwd(context) ?? this.deps.getProcessCwd()
             : null;
-        const prTitle = cwd === null ? null : this.deps.getCachedGitReviewData(cwd, {})?.title ?? null;
+        const readPrTitle = (): string | null => cwd === null ? null : this.deps.getCachedGitReviewData(cwd, {})?.title ?? null;
         const transcriptInfo = this.deps.resolveJiraIssueKeyFromTranscript(context.data?.transcript_path);
-        const resolved = this.deps.resolveJiraIssueKey({ cwd, prTitle, transcriptIssueKey: transcriptInfo?.key ?? null });
+        const resolved = this.deps.resolveJiraIssueKey({ cwd, readPrTitle, transcriptIssueKey: transcriptInfo?.key ?? null });
 
         if (!resolved) {
             return showNoIssue();

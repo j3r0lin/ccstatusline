@@ -17,6 +17,8 @@ const TITLE_ISSUE_KEY_PATTERN = /^([A-Z][A-Z0-9]+-\d+)\b/;
 
 const CLI_TIMEOUT = 5_000;
 
+const DEFAULT_BRANCHES = new Set(['main', 'master']);
+
 export type JiraIssueKeySource = 'branch-config' | 'branch-name' | 'pr-title' | 'transcript';
 
 export interface ResolvedJiraIssueKey {
@@ -63,8 +65,10 @@ export interface ResolveJiraIssueKeyParams {
     // null when the render cwd is not a git work tree, which skips the two
     // git-derived sources and leaves the transcript source to answer on its own.
     cwd: string | null;
-    // The cached PR/MR title, if any, for the pr-title fallback source.
-    prTitle: string | null;
+    // Reads the cached PR/MR title for the pr-title fallback source. A read
+    // can start a gh/glab refresh in the background, so it only runs when the
+    // branch sources found nothing.
+    readPrTitle: () => string | null;
     // A key extracted from a jira-naming command the session actually ran
     // (see jira-transcript-key.ts), for the transcript fallback source.
     transcriptIssueKey: string | null;
@@ -74,7 +78,8 @@ export interface ResolveJiraIssueKeyParams {
 //   1. git config branch.<branch>.jiraIssue - an explicit user override, used
 //      as-is.
 //   2. the current branch name, matched anywhere in the string.
-//   3. the cached PR/MR title, matched only at its start.
+//   3. the cached PR/MR title, matched only at its start. Skipped on main and
+//      master, which are merge targets rather than MR source branches.
 //   4. this session's transcript: a slash command whose args start with a KEY,
 //      or a jira mutation, most recent of those; otherwise the first
 //      jira-naming command (a view). Later views of related issues do not
@@ -99,8 +104,9 @@ export function resolveJiraIssueKey(
         }
     }
 
-    if (params.prTitle) {
-        const fromTitle = extractIssueKeyFromTitle(params.prTitle);
+    const prTitle = branch !== null && DEFAULT_BRANCHES.has(branch) ? null : params.readPrTitle();
+    if (prTitle) {
+        const fromTitle = extractIssueKeyFromTitle(prTitle);
         if (fromTitle) {
             return { key: fromTitle, source: 'pr-title' };
         }

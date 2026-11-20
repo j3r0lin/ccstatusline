@@ -86,7 +86,7 @@ describe('getCurrentBranchName', () => {
 describe('resolveJiraIssueKey', () => {
     it('prefers the branch.<branch>.jiraIssue git config over the branch name', () => {
         const deps = createDeps({ branch: 'feature/im-9999-other', branchConfig: 'im-3299' });
-        expect(resolveJiraIssueKey({ cwd: '/tmp/repo', prTitle: null, transcriptIssueKey: null }, deps)).toEqual({
+        expect(resolveJiraIssueKey({ cwd: '/tmp/repo', readPrTitle: () => null, transcriptIssueKey: null }, deps)).toEqual({
             key: 'IM-3299',
             source: 'branch-config'
         });
@@ -94,7 +94,7 @@ describe('resolveJiraIssueKey', () => {
 
     it('falls back to the branch name when no git config is set', () => {
         const deps = createDeps({ branch: 'feature/IM-3299-fix', branchConfig: null });
-        expect(resolveJiraIssueKey({ cwd: '/tmp/repo', prTitle: null, transcriptIssueKey: null }, deps)).toEqual({
+        expect(resolveJiraIssueKey({ cwd: '/tmp/repo', readPrTitle: () => null, transcriptIssueKey: null }, deps)).toEqual({
             key: 'IM-3299',
             source: 'branch-name'
         });
@@ -104,7 +104,7 @@ describe('resolveJiraIssueKey', () => {
         const deps = createDeps({ branch: 'feature/cleanup', branchConfig: null });
         expect(resolveJiraIssueKey({
             cwd: '/tmp/repo',
-            prTitle: 'NP-1603 OMS平台批量删除许可证报错 500 ClassCastException',
+            readPrTitle: () => 'NP-1603 OMS平台批量删除许可证报错 500 ClassCastException',
             transcriptIssueKey: null
         }, deps)).toEqual({
             key: 'NP-1603',
@@ -116,7 +116,7 @@ describe('resolveJiraIssueKey', () => {
         const deps = createDeps({ branch: 'feature/cleanup', branchConfig: null });
         expect(resolveJiraIssueKey({
             cwd: '/tmp/repo',
-            prTitle: 'fix: handle UTF-8 in export',
+            readPrTitle: () => 'fix: handle UTF-8 in export',
             transcriptIssueKey: null
         }, deps)).toBeNull();
     });
@@ -125,7 +125,7 @@ describe('resolveJiraIssueKey', () => {
         const deps = createDeps({ branch: 'feature/cleanup', branchConfig: null });
         expect(resolveJiraIssueKey({
             cwd: '/tmp/repo',
-            prTitle: 'unrelated title',
+            readPrTitle: () => 'unrelated title',
             transcriptIssueKey: 'NP-1637'
         }, deps)).toEqual({
             key: 'NP-1637',
@@ -137,7 +137,7 @@ describe('resolveJiraIssueKey', () => {
         const deps = createDeps({ branch: 'feature/IM-3299-fix', branchConfig: null });
         expect(resolveJiraIssueKey({
             cwd: '/tmp/repo',
-            prTitle: null,
+            readPrTitle: () => null,
             transcriptIssueKey: 'NP-1637'
         }, deps)).toEqual({
             key: 'IM-3299',
@@ -149,7 +149,7 @@ describe('resolveJiraIssueKey', () => {
         const deps = createDeps({ branch: 'feature/cleanup', branchConfig: null });
         expect(resolveJiraIssueKey({
             cwd: '/tmp/repo',
-            prTitle: 'IM-3242 [B] Activity Log',
+            readPrTitle: () => 'IM-3242 [B] Activity Log',
             transcriptIssueKey: 'NP-1637'
         }, deps)).toEqual({
             key: 'IM-3242',
@@ -161,8 +161,40 @@ describe('resolveJiraIssueKey', () => {
         const deps = createDeps({ branch: 'feature/cleanup', branchConfig: null });
         expect(resolveJiraIssueKey({
             cwd: '/tmp/repo',
-            prTitle: 'unrelated title',
+            readPrTitle: () => 'unrelated title',
             transcriptIssueKey: null
         }, deps)).toBeNull();
+    });
+
+    // Reading the PR/MR title can start a gh/glab refresh in the background,
+    // so these count reads as well as checking the resolved key.
+    it('does not read the PR/MR title when the branch name already names the issue', () => {
+        const deps = createDeps({ branch: 'feature/IM-3299-fix', branchConfig: null });
+        let reads = 0;
+        expect(resolveJiraIssueKey({
+            cwd: '/tmp/repo',
+            readPrTitle: () => { reads += 1; return 'NP-1603 other issue'; },
+            transcriptIssueKey: null
+        }, deps)).toEqual({ key: 'IM-3299', source: 'branch-name' });
+        expect(reads).toBe(0);
+    });
+
+    it.each(['main', 'master'])('skips the PR/MR title on %s and falls back to the transcript', (branch) => {
+        const deps = createDeps({ branch, branchConfig: null });
+        let reads = 0;
+        expect(resolveJiraIssueKey({
+            cwd: '/tmp/repo',
+            readPrTitle: () => { reads += 1; return 'IM-3242 [B] Activity Log'; },
+            transcriptIssueKey: 'NP-1637'
+        }, deps)).toEqual({ key: 'NP-1637', source: 'transcript' });
+        expect(reads).toBe(0);
+    });
+
+    it('still honors the branch.<branch>.jiraIssue git config on main', () => {
+        const deps = createDeps({ branch: 'main', branchConfig: 'im-3299' });
+        expect(resolveJiraIssueKey({ cwd: '/tmp/repo', readPrTitle: () => null, transcriptIssueKey: null }, deps)).toEqual({
+            key: 'IM-3299',
+            source: 'branch-config'
+        });
     });
 });
