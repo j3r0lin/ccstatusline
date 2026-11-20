@@ -384,12 +384,9 @@ function handleDevServerRefresh(): boolean {
         return true;
     }
 
-    // The hook spawns this without a lock and lets the child take its own.
+    // The hook spawns this with no lock and lets the child take one itself.
     const lockPath = process.argv[flagIndex + 2];
-    refreshDevServerCacheFromCli(
-        transcriptPath,
-        lockPath?.endsWith('.refresh.lock') ? lockPath : undefined
-    );
+    refreshDevServerCacheFromCli(transcriptPath, { lockPath: lockPath?.endsWith('.refresh.lock') ? lockPath : undefined });
     return true;
 }
 

@@ -24,6 +24,7 @@ import {
     parseEndpoints,
     parseListeningPorts,
     readCachedDevServerUrls,
+    refreshDevServerCacheFromCli,
     refreshDevServerCacheIfNeeded,
     sessionIdFromTranscript,
     sessionOwnedFiles,
@@ -714,5 +715,54 @@ describe('refreshDevServerCacheIfNeeded', () => {
         fs.writeFileSync(path.join(sessionDir, 'dev-servers-resolved.json.refresh.lock'), '1');
         refresh({ cache: { portsCheckedAt: 0 } });
         expect(spawned).toEqual([]);
+    });
+});
+
+describe('refreshDevServerCacheFromCli', () => {
+    let tmpDir: string;
+    let session: string;
+    let lockPath: string;
+    let collected: string[];
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-servers-cli-'));
+        session = path.join(tmpDir, 'sess.jsonl');
+        fs.writeFileSync(session, '');
+        fs.mkdirSync(path.join(tmpDir, 'sess'));
+        lockPath = path.join(tmpDir, 'sess', 'dev-servers-resolved.json.refresh.lock');
+        collected = [];
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    function refresh(options: { lockPath?: string } = {}): void {
+        refreshDevServerCacheFromCli(session, {
+            lockPath: options.lockPath,
+            collect: (transcriptPath: string) => {
+                collected.push(transcriptPath);
+                return [];
+            }
+        });
+    }
+
+    it('runs the lookup and clears its own lock when nothing else holds it', () => {
+        refresh();
+        expect(collected).toEqual([session]);
+        expect(fs.existsSync(lockPath)).toBe(false);
+    });
+
+    it('skips the lookup while a render is already refreshing', () => {
+        fs.writeFileSync(lockPath, '1');
+        refresh();
+        expect(collected).toEqual([]);
+    });
+
+    it('runs under the lock a render passed in and clears it afterwards', () => {
+        fs.writeFileSync(lockPath, '1');
+        refresh({ lockPath });
+        expect(collected).toEqual([session]);
+        expect(fs.existsSync(lockPath)).toBe(false);
     });
 });

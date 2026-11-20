@@ -821,21 +821,30 @@ function releaseLock(lockPath: string): void {
     }
 }
 
+export interface DevServerRefreshCliDeps {
+    /** The lock a render is holding for this very refresh; absent when the hook spawns us. */
+    lockPath?: string;
+    collect?: typeof collectDevServerUrls;
+}
+
 /** Body of the detached child: one full lookup, written to the cache for later renders. */
-export function refreshDevServerCacheFromCli(transcriptPath: string, lockPath?: string): void {
+export function refreshDevServerCacheFromCli(
+    transcriptPath: string,
+    deps: DevServerRefreshCliDeps = {}
+): void {
     if (!transcriptPath)
         return;
 
     const expectedLockPath = refreshLockPath(serverCachePath(transcriptPath));
-    // The hook spawns this without a lock, so the child takes its own; a render
-    // that already holds one is left to finish rather than scanning twice.
-    const inheritedLock = lockPath === expectedLockPath ? lockPath : null;
+    // A render passes in the lock it already holds. The hook spawns this with
+    // none, so the child takes it — and skips the scan if a render beat it.
+    const inheritedLock = deps.lockPath === expectedLockPath ? deps.lockPath : null;
     const ownedLock = inheritedLock ? null : acquireLock(expectedLockPath, Date.now());
     if (!inheritedLock && !ownedLock)
         return;
 
     try {
-        collectDevServerUrls(transcriptPath);
+        (deps.collect ?? collectDevServerUrls)(transcriptPath);
     } finally {
         // Only unlink the path derived from the transcript. This keeps the
         // internal CLI mode from becoming an arbitrary file delete.
