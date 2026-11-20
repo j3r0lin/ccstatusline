@@ -678,18 +678,11 @@ function noNewPorts(current: number[], previous: number[]): boolean {
     return current.every(p => before.has(p));
 }
 
-export function collectDevServerUrls(
+function readMergedRecords(
     transcriptPath: string,
-    deps: {
-        readSidecar?: typeof readSidecar;
-        extraSidecarPaths?: typeof extraSidecarPaths;
-        createServerResolver?: typeof createServerResolver;
-    } = {}
-): string[] {
-    const read = deps.readSidecar ?? readSidecar;
-    const extras = deps.extraSidecarPaths ?? extraSidecarPaths;
-    const createResolver = deps.createServerResolver ?? createServerResolver;
-
+    read: typeof readSidecar,
+    extras: typeof extraSidecarPaths
+): DevServerRecord[] {
     const files = [sidecarPathFromTranscript(transcriptPath), ...extras(transcriptPath)];
     const records: DevServerRecord[] = [];
     const seenIds = new Set<string>();
@@ -702,6 +695,22 @@ export function collectDevServerUrls(
         }
     }
     records.sort((a, b) => a.ts - b.ts);
+    return records;
+}
+
+export function collectDevServerUrls(
+    transcriptPath: string,
+    deps: {
+        readSidecar?: typeof readSidecar;
+        extraSidecarPaths?: typeof extraSidecarPaths;
+        createServerResolver?: typeof createServerResolver;
+    } = {}
+): string[] {
+    const read = deps.readSidecar ?? readSidecar;
+    const extras = deps.extraSidecarPaths ?? extraSidecarPaths;
+    const createResolver = deps.createServerResolver ?? createServerResolver;
+
+    const records = readMergedRecords(transcriptPath, read, extras);
 
     const urls: string[] = [];
     const seenUrl = new Set<string>();
@@ -769,18 +778,7 @@ export function readCachedDevServerUrls(
         return urls.length >= MAX_URLS;
     };
 
-    const files = [sidecarPathFromTranscript(transcriptPath), ...extras(transcriptPath)];
-    const records: DevServerRecord[] = [];
-    const seenIds = new Set<string>();
-    for (const file of files) {
-        for (const rec of read(file)) {
-            if (seenIds.has(rec.id))
-                continue;
-            seenIds.add(rec.id);
-            records.push(rec);
-        }
-    }
-    records.sort((a, b) => a.ts - b.ts);
+    const records = readMergedRecords(transcriptPath, read, extras);
 
     for (let i = records.length - 1; i >= 0; i--) {
         const record = records[i];
@@ -790,36 +788,72 @@ export function readCachedDevServerUrls(
         if (entry && entry.pid !== null && alive(entry.pid) && add(entry.url))
             return urls;
     }
-    for (let i = cache.discovered.length - 1; i >= 0; i--) {
-        const entry = cache.discovered[i];
-        if (entry && alive(entry.pid) && add(entry.url))
+    for (const entry of cache.discovered) {
+        if (alive(entry.pid) && add(entry.url))
             return urls;
     }
     return urls;
 }
 
-/** Body of the detached child: one full lookup, written to the cache for later renders. */
-export function refreshDevServerCacheFromCli(transcriptPath: string, lockPath?: string): void {
+/** Returns the lock path it now holds, or null while another refresh holds it. */
+function acquireLock(lockPath: string, now: number): string | null {
     try {
-        if (transcriptPath)
-            collectDevServerUrls(transcriptPath);
-    } finally {
-        if (lockPath) {
-            try {
-                fs.unlinkSync(lockPath);
-            } catch {
-                // Another refresh may already have cleared it.
-            }
+        fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+        return lockPath;
+    } catch {
+        try {
+            if (now - fs.statSync(lockPath).mtimeMs < REFRESH_LOCK_STALE_MS)
+                return null;
+            fs.unlinkSync(lockPath);
+            fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+            return lockPath;
+        } catch {
+            return null;
         }
     }
 }
 
-export interface DevServerRefreshDeps extends CachedDevServerDeps {
+function releaseLock(lockPath: string): void {
+    try {
+        fs.unlinkSync(lockPath);
+    } catch {
+        // Another refresh may already have cleared it.
+    }
+}
+
+/** Body of the detached child: one full lookup, written to the cache for later renders. */
+export function refreshDevServerCacheFromCli(transcriptPath: string, lockPath?: string): void {
+    if (!transcriptPath)
+        return;
+
+    const expectedLockPath = refreshLockPath(serverCachePath(transcriptPath));
+    // The hook spawns this without a lock, so the child takes its own; a render
+    // that already holds one is left to finish rather than scanning twice.
+    const inheritedLock = lockPath === expectedLockPath ? lockPath : null;
+    const ownedLock = inheritedLock ? null : acquireLock(expectedLockPath, Date.now());
+    if (!inheritedLock && !ownedLock)
+        return;
+
+    try {
+        collectDevServerUrls(transcriptPath);
+    } finally {
+        // Only unlink the path derived from the transcript. This keeps the
+        // internal CLI mode from becoming an arbitrary file delete.
+        releaseLock(expectedLockPath);
+    }
+}
+
+export interface DevServerRefreshDeps {
+    readServerCache?: typeof readServerCache;
     getExecPath?: () => string;
     /** The script to re-enter when running from source; undefined for a compiled binary. */
     getScriptPath?: () => string | undefined;
     spawn?: typeof spawn;
     now?: () => number;
+}
+
+function refreshLockPath(cacheFile: string): string {
+    return `${cacheFile}.refresh.lock`;
 }
 
 function defaultScriptPath(): string | undefined {
@@ -842,19 +876,9 @@ export function refreshDevServerCacheIfNeeded(
     if (cache.portsCheckedAt !== undefined && now - cache.portsCheckedAt < REFRESH_TTL_MS)
         return;
 
-    const lockPath = `${cacheFile}.refresh.lock`;
-    try {
-        fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-    } catch {
-        try {
-            if (now - fs.statSync(lockPath).mtimeMs < REFRESH_LOCK_STALE_MS)
-                return;
-            fs.unlinkSync(lockPath);
-            fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
-        } catch {
-            return;
-        }
-    }
+    const lockPath = acquireLock(refreshLockPath(cacheFile), now);
+    if (!lockPath)
+        return;
 
     // Running from source needs the script path; a compiled binary is its own entry.
     const scriptPath = (deps.getScriptPath ?? defaultScriptPath)();
@@ -870,10 +894,6 @@ export function refreshDevServerCacheIfNeeded(
         });
         child.unref();
     } catch {
-        try {
-            fs.unlinkSync(lockPath);
-        } catch {
-            // Never got created.
-        }
+        releaseLock(lockPath);
     }
 }
