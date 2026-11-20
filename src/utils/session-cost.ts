@@ -8,6 +8,7 @@ import type {
     ModelPrices
 } from '../types/ModelPrice';
 
+import type { TurnCacheTokens } from './context-window';
 import {
     DEFAULT_MAGPIE_SERVED_DEPS,
     readServedCache,
@@ -413,6 +414,38 @@ export function getSessionCostSummary(
     } catch {
         return null;
     }
+}
+
+/**
+ * Sums the session's prompt tokens over its main and subagent transcripts, from the
+ * same incremental read as the session cost.
+ *
+ * @returns null when the transcript cannot be read
+ */
+export function getSessionPromptTokens(
+    transcriptPath: string,
+    prices: ModelPrices = getModelPrices(),
+    servedDeps: MagpieServedDeps = DEFAULT_MAGPIE_SERVED_DEPS
+): TurnCacheTokens | null {
+    let state: SessionCostState | null;
+    try {
+        state = readSessionCost(transcriptPath, prices, servedDeps);
+    } catch {
+        return null;
+    }
+    if (!state) {
+        return null;
+    }
+
+    const tokens: TurnCacheTokens = { read: 0, creation: 0, input: 0 };
+    for (const cost of Object.values(state.costs)) {
+        for (const modelCost of Object.values(cost.byModel)) {
+            tokens.input += modelCost.inputTokens;
+            tokens.read += modelCost.cacheReadTokens;
+            tokens.creation += modelCost.cacheWriteTokens;
+        }
+    }
+    return tokens;
 }
 
 interface SessionCostState {

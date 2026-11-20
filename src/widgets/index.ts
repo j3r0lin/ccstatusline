@@ -34,6 +34,7 @@ export { TokensTotalWidget } from './TokensTotal';
 export { CacheHitRateWidget } from './CacheHitRate';
 export { CacheReadWidget } from './CacheRead';
 export { CacheWriteWidget } from './CacheWrite';
+export { SessionCacheHitWidget } from './SessionCacheHit';
 export { ContextLengthWidget } from './ContextLength';
 export { ContextWindowWidget } from './ContextWindow';
 export { ContextPercentageWidget } from './ContextPercentage';

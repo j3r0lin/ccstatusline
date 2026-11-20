@@ -13,6 +13,7 @@ import {
 import modelPrices from '../../data/model-prices.json';
 import type { ModelPrices } from '../../types/ModelPrice';
 import { DEFAULT_SETTINGS } from '../../types/Settings';
+import { SessionCacheHitWidget } from '../../widgets/SessionCacheHit';
 import { SessionCostWidget } from '../../widgets/SessionCost';
 import {
     getSessionCostSummary,
@@ -384,6 +385,75 @@ describe('session cost widget', () => {
     it('keeps the reported cost when the transcript is unreadable or not given', () => {
         expect(render(2.5)).toBe('$2.50');
         expect(render(2.5, undefined)).toBe('$2.50');
+    });
+});
+
+describe('session cache hit widget', () => {
+    let tempDir: string;
+    let transcript: string;
+
+    function render(transcriptPath: string | undefined = transcript): string | null {
+        return new SessionCacheHitWidget().render(
+            { id: 'hit', type: 'session-cache-hit', rawValue: true },
+            { data: { transcript_path: transcriptPath } },
+            DEFAULT_SETTINGS
+        );
+    }
+
+    function write(lines: string[]): void {
+        fs.writeFileSync(transcript, `${lines.join('\n')}\n`, 'utf-8');
+    }
+
+    beforeEach(() => {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ccstatusline-session-cache-hit-'));
+        vi.spyOn(os, 'homedir').mockReturnValue(tempDir);
+        seedFreshPriceCache(tempDir);
+        transcript = path.join(tempDir, 'sess.jsonl');
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+    });
+
+    it('counts input tokens as misses alongside cache writes', () => {
+        write([assistantLine('a', 'k3-256k', { input: 100, cacheRead: 300, write5m: 100 })]);
+
+        // 300 / (100 + 300 + 100); Cache Hit Rate would show 300 / (300 + 100) = 75%
+        expect(render()).toBe('60.0%');
+    });
+
+    it('sums the main transcript and its subagents', () => {
+        write([assistantLine('a', 'k3-256k', { cacheRead: 100, input: 100 })]);
+        const subagents = path.join(tempDir, 'sess', 'subagents');
+        fs.mkdirSync(subagents, { recursive: true });
+        fs.writeFileSync(
+            path.join(subagents, 'agent-1.jsonl'),
+            `${assistantLine('s1', 'glm-5.3', { cacheRead: 700, write1h: 100 })}\n`,
+            'utf-8'
+        );
+
+        expect(render()).toBe('80.0%');
+    });
+
+    it('counts a message at its settled usage however many lines carry its id', () => {
+        write([
+            assistantLine('a', 'k3-256k', { input: 400 }),
+            assistantLine('a', 'k3-256k', { input: 100, cacheRead: 300 })
+        ]);
+
+        expect(render()).toBe('75.0%');
+    });
+
+    it('shows nothing until the session has a cache read', () => {
+        write([assistantLine('a', 'k3-256k', { input: 100, write5m: 100 })]);
+
+        expect(render()).toBeNull();
+    });
+
+    it('shows nothing without a readable transcript', () => {
+        expect(render()).toBeNull();
+        expect(render(undefined)).toBeNull();
     });
 });
 
