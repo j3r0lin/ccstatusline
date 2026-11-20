@@ -5,7 +5,6 @@ import {
 } from 'vitest';
 
 import {
-    applyJiraIssueMoveToCache,
     fetchJiraIssueStatus,
     getCachedJiraIssueStatus,
     refreshJiraIssueCacheFromCli,
@@ -167,57 +166,6 @@ describe('getCachedJiraIssueStatus', () => {
             statusCategoryKey: 'done'
         });
         expect(harness.spawnCalls).toHaveLength(0);
-    });
-});
-
-function getCachedJiraIssueStatusFromFiles(harness: JiraIssueCacheHarness): unknown {
-    const cachePath = [...harness.cacheFiles.keys()].find(filePath => filePath.endsWith('.json') && !filePath.endsWith('.lock'));
-    if (!cachePath) {
-        return undefined;
-    }
-    return (JSON.parse(harness.cacheFiles.get(cachePath)?.content ?? '{}') as { data?: unknown }).data;
-}
-
-describe('applyJiraIssueMoveToCache', () => {
-    it('writes the moved-to status on a cache miss without spawning a refresh', () => {
-        const harness = createHarness();
-
-        expect(applyJiraIssueMoveToCache('IM-3299', 'In Progress', harness.deps)).toEqual({
-            key: 'IM-3299',
-            statusName: 'In Progress',
-            statusCategoryKey: ''
-        });
-        expect(getCachedJiraIssueStatusFromFiles(harness)).toEqual({
-            key: 'IM-3299',
-            statusName: 'In Progress',
-            statusCategoryKey: ''
-        });
-        expect(harness.spawnCalls).toHaveLength(0);
-        expect(harness.execCalls).toHaveLength(0);
-    });
-
-    it('overwrites a differing cached status and clears its category', () => {
-        const harness = createHarness();
-        harness.jiraResponses.push(SAMPLE_RAW_RESPONSE);
-        fetchJiraIssueStatus('IM-3299', harness.deps);
-
-        expect(applyJiraIssueMoveToCache('IM-3299', 'In Progress', harness.deps)).toEqual({
-            key: 'IM-3299',
-            statusName: 'In Progress',
-            statusCategoryKey: ''
-        });
-    });
-
-    it('keeps the authoritative cached record when it already shows the moved-to status', () => {
-        const harness = createHarness();
-        harness.jiraResponses.push(SAMPLE_RAW_RESPONSE);
-        fetchJiraIssueStatus('IM-3299', harness.deps);
-
-        expect(applyJiraIssueMoveToCache('IM-3299', 'QA', harness.deps)).toEqual({
-            key: 'IM-3299',
-            statusName: 'QA',
-            statusCategoryKey: 'done'
-        });
     });
 });
 

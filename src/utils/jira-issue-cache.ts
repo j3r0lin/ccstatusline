@@ -286,29 +286,6 @@ export function getCachedJiraIssueStatus(
     return cached === 'miss' ? null : cached.data;
 }
 
-// Optimistic status write for when the session transcript shows a
-// `jira issue move KEY "Status"` the cache hasn't caught up with yet. The
-// category stays blank: the name-based color map covers the standard
-// statuses, and the normal TTL refresh backfills the authoritative record.
-// No forced refresh here on purpose - the render can fire while the move is
-// still in flight, and a fetch that wins that race would overwrite the new
-// status with the old one.
-export function applyJiraIssueMoveToCache(
-    key: string,
-    statusName: string,
-    deps: JiraIssueCacheDeps = DEFAULT_JIRA_ISSUE_CACHE_DEPS
-): JiraIssueStatus {
-    const cachePath = getCachePath(key, deps);
-    const cached = readCache(cachePath, deps);
-    if (cached !== 'miss' && cached.data !== null && cached.data.statusName === statusName) {
-        return cached.data;
-    }
-
-    const optimistic: JiraIssueStatus = { key, statusName, statusCategoryKey: '' };
-    writeCache(cachePath, optimistic, deps);
-    return optimistic;
-}
-
 export function refreshJiraIssueCacheFromCli(
     key: string,
     lockPath: string,

@@ -17,11 +17,7 @@ import { stripSgrCodes } from '../../utils/ansi';
 import { updateColorMap } from '../../utils/colors';
 import { renderOsc8Link } from '../../utils/hyperlink';
 import type { JiraIssueStatus } from '../../utils/jira-issue-cache';
-import {
-    resolveJiraIssueKey,
-    type JiraIssueKeyDeps,
-    type ResolvedJiraIssueKey
-} from '../../utils/jira-issue-key';
+import type { SessionMarks } from '../../utils/session-marks';
 import {
     JiraIssueWidget,
     type JiraIssueWidgetDeps
@@ -44,31 +40,14 @@ afterAll(() => {
 
 function createDeps(overrides: Partial<JiraIssueWidgetDeps> = {}): JiraIssueWidgetDeps {
     return {
-        applyJiraIssueMoveToCache: (key, statusName) => ({ key, statusName, statusCategoryKey: '' }),
-        getCachedGitReviewData: () => null,
         getCachedJiraIssueStatus: () => null,
-        getProcessCwd: () => '/tmp/process-cwd',
-        isInsideGitWorkTree: () => true,
         readJiraCliConfig: () => ({ server: SERVER }),
         readSessionMarks: () => ({}),
-        resolveGitCwd: context => context.data?.cwd,
-        resolveJiraIssueKey: () => null,
-        resolveJiraIssueKeyFromTranscript: () => null,
         ...overrides
     };
 }
 
-// Git as seen from a checkout of `branch` with no branch.<branch>.jiraIssue config.
-function onBranch(branch: string): JiraIssueKeyDeps {
-    return {
-        execFileSync: ((_cmd: string, args: readonly string[]) => {
-            if (args[0] === 'symbolic-ref') {
-                return `${branch}\n`;
-            }
-            throw new Error('no such config key');
-        }) as JiraIssueKeyDeps['execFileSync']
-    };
-}
+const MARKED: SessionMarks = { jira: { key: 'IM-3299', ts: 1 } };
 
 function render(
     options: {
@@ -109,39 +88,37 @@ describe('JiraIssueWidget', () => {
         expect(result).toContain(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
     });
 
-    it('returns (no issue) when not in a git repo', () => {
-        expect(stripSgrCodes(render({}, { isInsideGitWorkTree: () => false }) ?? '')).toBe('(no issue)');
+    it('returns (no issue) when the session marked no issue', () => {
+        expect(stripSgrCodes(render({ cwd: '/tmp/repo' }) ?? '')).toBe('(no issue)');
     });
 
-    it('returns null when not in a git repo and no-issue is hidden', () => {
-        expect(render({ hide: 'no-issue' }, { isInsideGitWorkTree: () => false })).toBeNull();
+    it('returns null when the session marked no issue and no-issue is hidden', () => {
+        expect(render({ cwd: '/tmp/repo', hide: 'no-issue' })).toBeNull();
     });
 
-    it('returns (no issue) when the resolution chain finds no key', () => {
-        expect(stripSgrCodes(render({ cwd: '/tmp/repo' }, { resolveJiraIssueKey: () => null }) ?? '')).toBe('(no issue)');
+    it('shows the issue marked for the transcript it renders', () => {
+        const result = render({ transcriptPath: '/tmp/transcript.jsonl' }, { readSessionMarks: transcriptPath => transcriptPath === '/tmp/transcript.jsonl' ? { jira: { key: 'IM-42', ts: 1 } } : {} });
+        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-42`, 'IM-42'));
     });
 
-    it('renders the resolved key as a clickable link to <server>/browse/<KEY>', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
-        const result = render({ cwd: '/tmp/repo' }, { resolveJiraIssueKey: () => resolved });
+    it('renders the marked key as a clickable link to <server>/browse/<KEY>', () => {
+        const result = render({ cwd: '/tmp/repo' }, { readSessionMarks: () => MARKED });
         expect(result).toContain(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
     });
 
     it('shows the plain key with no link when the server is unknown', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
         const result = render({ cwd: '/tmp/repo' }, {
             readJiraCliConfig: () => ({}),
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         });
         expect(stripSgrCodes(result ?? '')).toBe('IM-3299');
     });
 
     it('colors QA/done by status name, not the done statusCategory fallback', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
         const status: JiraIssueStatus = { key: 'IM-3299', statusName: 'QA', statusCategoryKey: 'done' };
         const result = render({ cwd: '/tmp/repo' }, {
             getCachedJiraIssueStatus: () => status,
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         });
         // brightCyan (QA's mapped color), not brightGreen (done's category fallback)
         expect(result).toContain('\x1b[38;5;80m');
@@ -149,24 +126,22 @@ describe('JiraIssueWidget', () => {
     });
 
     it('falls back to the statusCategory color when the status name is unmapped', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-1', source: 'branch-name' };
         const status: JiraIssueStatus = { key: 'IM-1', statusName: 'Custom Review', statusCategoryKey: 'indeterminate' };
         const result = render({ cwd: '/tmp/repo' }, {
             getCachedJiraIssueStatus: () => status,
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         });
         expect(result).toContain('\x1b[38;5;227m');
     });
 
     it('honors a settings.jira.statusColors override for a status name', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
         const status: JiraIssueStatus = { key: 'IM-3299', statusName: 'QA', statusCategoryKey: 'done' };
         const result = render({
             cwd: '/tmp/repo',
             settings: { ...DEFAULT_SETTINGS, jira: { statusColors: { QA: 'magenta' } } }
         }, {
             getCachedJiraIssueStatus: () => status,
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         });
         expect(result).toContain('\x1b[38;5;96m');
     });
@@ -175,30 +150,27 @@ describe('JiraIssueWidget', () => {
     // unknown status must still come out in the item's configured color rather
     // than on the terminal default.
     it('falls back to the configured color when the jira CLI has no cached status', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
         const result = render({ cwd: '/tmp/repo' }, {
             getCachedJiraIssueStatus: () => null,
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         }, { color: 'magenta' });
         expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
         expect(result).toContain('\x1b[38;5;96m');
     });
 
     it('falls back to the default color when the item has no configured color', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
         const result = render({ cwd: '/tmp/repo' }, {
             getCachedJiraIssueStatus: () => null,
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         });
         expect(result).toContain('\x1b[38;5;188m');
     });
 
     it('skips coloring entirely when colorByStatus is toggled off', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
         const status: JiraIssueStatus = { key: 'IM-3299', statusName: 'QA', statusCategoryKey: 'done' };
         const result = render({ cwd: '/tmp/repo' }, {
             getCachedJiraIssueStatus: () => status,
-            resolveJiraIssueKey: () => resolved
+            readSessionMarks: () => MARKED
         }, { metadata: { colorByStatus: 'false' } });
         expect(result).toBe(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
     });
@@ -215,9 +187,8 @@ describe('JiraIssueWidget', () => {
     });
 
     it('prefixes the Jira icon only when the icon toggle is on', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
-        const withIconResult = render({ cwd: '/tmp/repo' }, { resolveJiraIssueKey: () => resolved }, { metadata: { icon: 'true' } });
-        const withoutIconResult = render({ cwd: '/tmp/repo' }, { resolveJiraIssueKey: () => resolved });
+        const withIconResult = render({ cwd: '/tmp/repo' }, { readSessionMarks: () => MARKED }, { metadata: { icon: 'true' } });
+        const withoutIconResult = render({ cwd: '/tmp/repo' }, { readSessionMarks: () => MARKED });
 
         expect(stripSgrCodes(withIconResult ?? '')).toBe(`\u{f802} ${renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299')}`);
         expect(withoutIconResult).not.toContain('\u{f802}');
@@ -225,121 +196,5 @@ describe('JiraIssueWidget', () => {
 
     it('declares the no-issue hideable state', () => {
         expect(new JiraIssueWidget(createDeps()).getHideableStates().map(state => state.key)).toEqual(['no-issue']);
-    });
-
-    // A PR/MR cache read can start a gh/glab refresh in the background, so
-    // these also count reads.
-    it('renders the issue named by the cached PR/MR title when the branch names none', () => {
-        let reads = 0;
-        const result = render({ cwd: '/tmp/repo' }, {
-            getCachedGitReviewData: () => {
-                reads += 1;
-                return {
-                    number: 1,
-                    reviewDecision: '',
-                    state: 'OPEN',
-                    title: 'NP-1603 OMS平台批量删除许可证报错',
-                    url: 'https://example.com/pr/1'
-                };
-            },
-            resolveJiraIssueKey: params => resolveJiraIssueKey(params, onBranch('feature/cleanup'))
-        });
-        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/NP-1603`, 'NP-1603'));
-        expect(reads).toBe(1);
-    });
-
-    it('leaves the PR/MR cache alone when the branch name names the issue', () => {
-        let reads = 0;
-        const result = render({ cwd: '/tmp/repo' }, {
-            getCachedGitReviewData: () => {
-                reads += 1;
-                return null;
-            },
-            resolveJiraIssueKey: params => resolveJiraIssueKey(params, onBranch('feature/IM-3299-fix'))
-        });
-        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-3299`, 'IM-3299'));
-        expect(reads).toBe(0);
-    });
-
-    it('shows the issue the session marked over the one its branch names', () => {
-        const result = render({ cwd: '/tmp/repo', transcriptPath: '/tmp/transcript.jsonl' }, {
-            readSessionMarks: () => ({ jira: { key: 'IM-42', ts: 1 } }),
-            resolveJiraIssueKey: params => resolveJiraIssueKey(params, onBranch('feature/IM-3299-fix'))
-        });
-        expect(stripSgrCodes(result ?? '')).toBe(renderOsc8Link(`${SERVER}/browse/IM-42`, 'IM-42'));
-    });
-
-    it('passes the transcript-resolved key through to the resolution chain', () => {
-        const calls: unknown[] = [];
-        render({ cwd: '/tmp/repo', transcriptPath: '/tmp/transcript.jsonl' }, {
-            resolveJiraIssueKeyFromTranscript: (transcriptPath) => {
-                expect(transcriptPath).toBe('/tmp/transcript.jsonl');
-                return { key: 'NP-1637', move: null };
-            },
-            resolveJiraIssueKey: (params) => {
-                calls.push(params.transcriptIssueKey);
-                return null;
-            }
-        });
-        expect(calls).toEqual(['NP-1637']);
-    });
-
-    it('recolors from a transcript jira issue move ahead of the stale status cache', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
-        const staleStatus: JiraIssueStatus = { key: 'IM-3299', statusName: 'In Progress', statusCategoryKey: 'indeterminate' };
-        const applied: { key: string; statusName: string }[] = [];
-
-        const result = render({ cwd: '/tmp/repo', transcriptPath: '/tmp/transcript.jsonl' }, {
-            applyJiraIssueMoveToCache: (key, statusName) => {
-                applied.push({ key, statusName });
-                return { key, statusName, statusCategoryKey: '' };
-            },
-            getCachedJiraIssueStatus: () => staleStatus,
-            resolveJiraIssueKey: () => resolved,
-            resolveJiraIssueKeyFromTranscript: () => ({ key: 'IM-3299', move: { key: 'IM-3299', statusName: 'QA' } })
-        });
-
-        expect(applied).toEqual([{ key: 'IM-3299', statusName: 'QA' }]);
-        // brightCyan (QA), not brightYellow (the cache's stale In Progress)
-        expect(result).toContain('\x1b[38;5;80m');
-        expect(result).not.toContain('\x1b[38;5;227m');
-    });
-
-    it('ignores a transcript move that targets a different issue', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
-        const status: JiraIssueStatus = { key: 'IM-3299', statusName: 'In Progress', statusCategoryKey: 'indeterminate' };
-        let applied = 0;
-
-        const result = render({ cwd: '/tmp/repo', transcriptPath: '/tmp/transcript.jsonl' }, {
-            applyJiraIssueMoveToCache: (key, statusName) => {
-                applied++;
-                return { key, statusName, statusCategoryKey: '' };
-            },
-            getCachedJiraIssueStatus: () => status,
-            resolveJiraIssueKey: () => resolved,
-            resolveJiraIssueKeyFromTranscript: () => ({ key: 'IM-3299', move: { key: 'OTHER-1', statusName: 'QA' } })
-        });
-
-        expect(applied).toBe(0);
-        expect(result).toContain('\x1b[38;5;227m');
-    });
-
-    it('leaves the cache alone when it already shows the moved-to status', () => {
-        const resolved: ResolvedJiraIssueKey = { key: 'IM-3299', source: 'branch-name' };
-        const status: JiraIssueStatus = { key: 'IM-3299', statusName: 'QA', statusCategoryKey: 'done' };
-        let applied = 0;
-
-        const result = render({ cwd: '/tmp/repo', transcriptPath: '/tmp/transcript.jsonl' }, {
-            applyJiraIssueMoveToCache: (key, statusName) => {
-                applied++;
-                return { key, statusName, statusCategoryKey: '' };
-            },
-            getCachedJiraIssueStatus: () => status,
-            resolveJiraIssueKey: () => resolved,
-            resolveJiraIssueKeyFromTranscript: () => ({ key: 'IM-3299', move: { key: 'IM-3299', statusName: 'QA' } })
-        });
-
-        expect(applied).toBe(0);
-        expect(result).toContain('\x1b[38;5;80m');
     });
 });

@@ -516,38 +516,3 @@ export async function readTranscriptData(
 export function clearTranscriptMemo() {
     processMemo.clear();
 }
-
-/**
- * Small auxiliary JSON cache in the transcripts cache directory, keyed by a
- * prefix plus the (hashed) path it belongs to. Used for derived aggregates
- * such as per-subagent speed metrics.
- */
-export function readAuxCache(prefix: string, keyPath: string): unknown {
-    try {
-        const hash = createHash('sha256')
-            .update(path.resolve(keyPath))
-            .digest('hex')
-            .slice(0, 16);
-        const content = fs.readFileSync(path.join(getCacheDir(), `${prefix}-${hash}.json`), 'utf-8');
-        return JSON.parse(content) as unknown;
-    } catch {
-        return null;
-    }
-}
-
-export function writeAuxCache(prefix: string, keyPath: string, value: unknown): void {
-    try {
-        const cacheDir = getCacheDir();
-        fs.mkdirSync(cacheDir, { recursive: true });
-        const hash = createHash('sha256')
-            .update(path.resolve(keyPath))
-            .digest('hex')
-            .slice(0, 16);
-        const cachePath = path.join(cacheDir, `${prefix}-${hash}.json`);
-        const tmpPath = `${cachePath}.${process.pid}.tmp`;
-        fs.writeFileSync(tmpPath, JSON.stringify(value), 'utf-8');
-        fs.renameSync(tmpPath, cachePath);
-    } catch {
-        // Caching is best-effort
-    }
-}

@@ -9,20 +9,10 @@ import type {
     WidgetItem
 } from '../types/Widget';
 import { getColorAnsiCode } from '../utils/colors';
-import {
-    isInsideGitWorkTree,
-    resolveGitCwd
-} from '../utils/git';
-import { getCachedGitReviewData } from '../utils/git-review-cache';
 import { renderOsc8Link } from '../utils/hyperlink';
 import { readJiraCliConfig } from '../utils/jira-config';
 import type { JiraIssueStatus } from '../utils/jira-issue-cache';
-import {
-    applyJiraIssueMoveToCache,
-    getCachedJiraIssueStatus
-} from '../utils/jira-issue-cache';
-import { resolveJiraIssueKey } from '../utils/jira-issue-key';
-import { resolveJiraIssueKeyFromTranscript } from '../utils/jira-transcript-key';
+import { getCachedJiraIssueStatus } from '../utils/jira-issue-cache';
 import { readSessionMarks } from '../utils/session-marks';
 
 import { isHidden } from './shared/hideable';
@@ -101,29 +91,15 @@ function buildIssueUrl(server: string, key: string): string {
 }
 
 export interface JiraIssueWidgetDeps {
-    applyJiraIssueMoveToCache: typeof applyJiraIssueMoveToCache;
-    getCachedGitReviewData: typeof getCachedGitReviewData;
     getCachedJiraIssueStatus: typeof getCachedJiraIssueStatus;
-    getProcessCwd: typeof process.cwd;
-    isInsideGitWorkTree: typeof isInsideGitWorkTree;
     readJiraCliConfig: typeof readJiraCliConfig;
     readSessionMarks: typeof readSessionMarks;
-    resolveGitCwd: typeof resolveGitCwd;
-    resolveJiraIssueKey: typeof resolveJiraIssueKey;
-    resolveJiraIssueKeyFromTranscript: typeof resolveJiraIssueKeyFromTranscript;
 }
 
 const DEFAULT_JIRA_ISSUE_WIDGET_DEPS: JiraIssueWidgetDeps = {
-    applyJiraIssueMoveToCache,
-    getCachedGitReviewData,
     getCachedJiraIssueStatus,
-    getProcessCwd: () => process.cwd(),
-    isInsideGitWorkTree,
     readJiraCliConfig,
-    readSessionMarks,
-    resolveGitCwd,
-    resolveJiraIssueKey,
-    resolveJiraIssueKeyFromTranscript
+    readSessionMarks
 };
 
 const PREVIEW_KEY = 'IM-3299';
@@ -137,7 +113,7 @@ export class JiraIssueWidget implements Widget {
     // (cache miss, no jira CLI), so it must not collide with a status color -
     // grey is Backlog's.
     getDefaultColor(): string { return 'white'; }
-    getDescription(): string { return 'Shows the Jira issue key for the current branch (clickable link), colored by status'; }
+    getDescription(): string { return 'Shows the Jira issue the session marked with `ccstatusline mark jira` (clickable link), colored by status'; }
     getDisplayName(): string { return 'Jira Issue'; }
     getCategory(): string { return 'Session'; }
 
@@ -192,36 +168,22 @@ export class JiraIssueWidget implements Widget {
             ? null
             : colorize(withIcon(item, '(no issue)'), fallbackColor);
 
-        // The transcript source needs no git at all, so a cwd outside a work
-        // tree (a parent directory holding several repos, say) only disables
-        // the branch and PR/MR sources rather than the whole widget.
-        const inGitWorkTree = this.deps.isInsideGitWorkTree(context);
-        const cwd = inGitWorkTree
-            ? this.deps.resolveGitCwd(context) ?? this.deps.getProcessCwd()
-            : null;
-        const readPrTitle = (): string | null => cwd === null ? null : this.deps.getCachedGitReviewData(cwd, {})?.title ?? null;
-        const transcriptInfo = this.deps.resolveJiraIssueKeyFromTranscript(context.data?.transcript_path);
-        const markedIssueKey = this.deps.readSessionMarks(context.data?.transcript_path).jira?.key ?? null;
-        const resolved = this.deps.resolveJiraIssueKey({ cwd, readPrTitle, transcriptIssueKey: transcriptInfo?.key ?? null, markedIssueKey });
-
-        if (!resolved) {
+        // Only the issue the session declared with `ccstatusline mark jira`:
+        // guessing it from branch names or the transcript showed issues the
+        // session merely touched.
+        const key = this.deps.readSessionMarks(context.data?.transcript_path).jira?.key;
+        if (!key) {
             return showNoIssue();
         }
 
         const linkText = withIcon(item, server
-            ? renderOsc8Link(buildIssueUrl(server, resolved.key), resolved.key)
-            : resolved.key);
+            ? renderOsc8Link(buildIssueUrl(server, key), key)
+            : key);
         if (!colorByStatus) {
             return linkText;
         }
 
-        let status = this.deps.getCachedJiraIssueStatus(resolved.key);
-        // A `jira issue move` this session just ran beats the TTL'd cache -
-        // recolor immediately and let the cache's normal refresh confirm.
-        const move = transcriptInfo?.move;
-        if (move?.key === resolved.key && move.statusName !== status?.statusName) {
-            status = this.deps.applyJiraIssueMoveToCache(resolved.key, move.statusName);
-        }
+        const status = this.deps.getCachedJiraIssueStatus(key);
         if (!status) {
             return colorize(linkText, fallbackColor);
         }
